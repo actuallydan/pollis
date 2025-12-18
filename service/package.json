@@ -1,0 +1,12 @@
+{
+  "name": "service",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "go run cmd/server/main.go -port=${PORT:-50051}",
+    "build": "go build -o bin/service cmd/server/main.go",
+    "lint": "echo 'Linting service...' && golangci-lint run ./... || true",
+    "clean": "rm -rf bin"
+  }
+}
+

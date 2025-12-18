@@ -1,0 +1,22 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "pollis",
+  "outputfilename": "pollis",
+  "frontend:install": "pnpm install",
+  "frontend:build": "pnpm run build",
+  "frontend:dev:watcher": "pnpm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "actuallydan",
+    "email": "dankral01@gmail.com"
+  },
+  "info": {
+    "productName": "Pollis",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright © 2025",
+    "comments": "End-to-end encrypted messaging"
+  },
+  "nsisType": "multiple",
+  "obfuscated": false,
+  "garbleargs": ""
+}

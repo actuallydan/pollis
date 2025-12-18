@@ -1,0 +1,1904 @@
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"fmt"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"pollis/internal/database"
+	"pollis/internal/encryption"
+	"pollis/internal/models"
+	"pollis/internal/services"
+	"pollis/internal/signal"
+	"pollis/internal/utils"
+
+	"github.com/clerk/clerk-sdk-go/v2"
+
+	"github.com/pkg/browser"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
+// App struct
+type App struct {
+	ctx context.Context
+	// UserSnapshot management
+	profileService  *services.ProfileService
+	keychainService *services.KeychainService
+	clerkService    *services.ClerkService
+	// Auth flow
+	authServer *http.Server
+	authCancel chan struct{}
+	// Existing fields
+	db                   *database.DB
+	userService          *services.UserService
+	groupService         *services.GroupService
+	channelService       *services.ChannelService
+	messageService       *services.MessageService
+	dmService            *services.DMService
+	queueService         *services.QueueService
+	signalService        *services.SignalService
+	signalSessionService *services.SignalSessionService
+	groupKeyService      *services.GroupKeyService
+	networkService       *services.NetworkService
+	serviceClient        *services.ServiceClient
+	queueProcessor       *services.QueueProcessor
+	serviceURL           string
+	ablyRealtimeService  *services.AblyRealtimeService
+	r2Service            *services.R2Service
+}
+
+// NewApp creates a new App application struct
+func NewApp() *App {
+	return &App{}
+}
+
+// startup is called when the app starts. The context is saved
+// so we can call the runtime methods
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+
+	// Get user data directory
+	userDataDir, err := getUserDataDir()
+	if err != nil {
+		fmt.Printf("Error: failed to get user data directory: %v\n", err)
+		return
+	}
+
+	// Initialize profile service FIRST
+	a.profileService = services.NewProfileService(userDataDir)
+
+	// Initialize keychain service
+	a.keychainService, err = services.NewKeychainService()
+	if err != nil {
+		fmt.Printf("Error: failed to initialize keychain: %v\n", err)
+		return
+	}
+
+	// Initialize Clerk service (get API key from env or config)
+	clerkAPIKey := os.Getenv("CLERK_SECRET_KEY")
+	if clerkAPIKey != "" {
+		clerkPubKey := os.Getenv("VITE_CLERK_PUBLISHABLE_KEY")
+		a.clerkService = services.NewClerkServiceWithPublishableKey(clerkAPIKey, clerkPubKey)
+	} else {
+		fmt.Println("Warning: CLERK_SECRET_KEY not found in environment")
+	}
+
+	// Initialize Ably EARLY - before profile loading, so it's always available
+	// For MVP: Use static key from environment
+	// For production: Can upgrade to token-based auth later
+	ablyKey := os.Getenv("ABLY_API_KEY")
+	if ablyKey != "" {
+		ablyService, err := services.NewAblyRealtimeService(ablyKey)
+		if err != nil {
+			fmt.Printf("Warning: Failed to initialize Ably: %v\n", err)
+		} else {
+			a.ablyRealtimeService = ablyService
+			fmt.Println("Ably realtime service initialized")
+		}
+	} else {
+		fmt.Println("Info: ABLY_API_KEY not found, Ably realtime features disabled")
+	}
+
+	// Initialize R2 service (optional - only if credentials are available)
+	r2Service, err := services.NewR2Service()
+	if err != nil {
+		fmt.Printf("Info: R2 service not available: %v\n", err)
+	} else {
+		a.r2Service = r2Service
+		fmt.Println("R2 service initialized")
+	}
+
+	// Initialize network service (needed before service client)
+	a.networkService = services.NewNetworkService()
+	a.networkService.StartMonitoring()
+
+	// Initialize service client from environment variable
+	serviceURL := os.Getenv("VITE_SERVICE_URL")
+	if serviceURL == "" {
+		serviceURL = "localhost:50051" // Default
+	}
+	if err := a.SetServiceURL(serviceURL); err != nil {
+		fmt.Printf("Warning: Failed to initialize service client: %v (app will work offline)\n", err)
+	} else {
+		fmt.Printf("Service client initialized: %s\n", serviceURL)
+	}
+
+	// Check for stored session
+	fmt.Println("Checking for stored session...")
+	userID, clerkToken, err := a.keychainService.GetStoredSession()
+	if err == nil && userID != "" && clerkToken != "" {
+		// Verify token with Clerk (handle both JWT and session tokens)
+		if a.clerkService != nil {
+			var clerkUser *clerk.User
+			var verifyErr error
+
+			// Check if token is a JWT (has 3 parts) or a session token
+			parts := strings.Split(clerkToken, ".")
+			if len(parts) == 3 {
+				// It's a JWT, use VerifyToken
+				clerkUser, verifyErr = a.clerkService.VerifyToken(a.ctx, clerkToken)
+			} else {
+				// It's a session token, use VerifySessionToken
+				clerkUser, verifyErr = a.clerkService.VerifySessionToken(a.ctx, clerkToken)
+			}
+
+			if verifyErr == nil && clerkUser != nil {
+				// Token is valid, try to load UserSnapshot
+				fmt.Printf("Found stored session for user: %s (clerk_id: %s)\n", userID, clerkUser.ID)
+				if err := a.loadUserSnapshot(userID); err == nil {
+					// UserSnapshot loaded successfully
+					fmt.Println("UserSnapshot loaded successfully")
+					// Initialize network monitoring
+					if a.networkService != nil {
+						a.networkService.StartMonitoring()
+					}
+					return
+				} else {
+					fmt.Printf("Failed to load UserSnapshot: %v\n", err)
+				}
+			} else {
+				fmt.Printf("Stored session token invalid: %v\n", verifyErr)
+				// If token verification failed but we have a userID, try loading UserSnapshot anyway
+				// This handles the case where __clerk_db_jwt can't be verified but the userID is still valid
+				if userID != "" {
+					fmt.Printf("Attempting to load UserSnapshot by userID despite token verification failure\n")
+					if err := a.loadUserSnapshot(userID); err == nil {
+						fmt.Println("UserSnapshot loaded successfully by userID")
+						// Don't clear session - userID is valid, token just can't be verified
+						// This is expected for __clerk_db_jwt tokens
+						return
+					} else {
+						fmt.Printf("Failed to load UserSnapshot by userID: %v\n", err)
+					}
+				}
+			}
+		}
+		// Only clear session if we couldn't load UserSnapshot by userID
+		fmt.Println("Clearing invalid session (could not load UserSnapshot)")
+		a.keychainService.ClearSession()
+	}
+
+	// No session or invalid, app will show auth screen (handled by frontend)
+	fmt.Println("No valid session found, showing auth screen")
+}
+
+// Helper function to load a user's UserSnapshot database
+// If loading fails, creates a new snapshot and keeps the old one
+func (a *App) loadUserSnapshot(userID string) error {
+	fmt.Println("  Getting encryption key from keychain...")
+	// Get encryption key from keychain (stored with userID as key)
+	encryptionKey, err := a.keychainService.GetEncryptionKey(userID)
+	if err != nil {
+		return fmt.Errorf("failed to get encryption key: %w", err)
+	}
+	fmt.Println("  Got encryption key")
+
+	// Get the standard database path
+	standardPath := a.profileService.GetUserSnapshotPath(userID)
+
+	// Try to find the newest UserSnapshot for this user
+	// UserSnapshots are stored at: profiles/{user_id}/pollis.db
+	// If multiple exist (e.g., from failed migrations), we want the newest one
+	dbPath, err := a.findNewestUserSnapshot(userID)
+	if err != nil {
+		// No existing snapshot found, create new one
+		fmt.Printf("  No existing UserSnapshot found, creating new one at: %s\n", standardPath)
+
+		// Ensure directory exists
+		if err := a.profileService.EnsureUserSnapshotDir(userID); err != nil {
+			return fmt.Errorf("failed to create UserSnapshot directory: %w", err)
+		}
+
+		// Create new database
+		db, err := database.NewEncryptedDB(standardPath, encryptionKey)
+		if err != nil {
+			return fmt.Errorf("failed to create database: %w", err)
+		}
+		a.db = db
+		fmt.Printf("  Created new UserSnapshot at: %s\n", standardPath)
+	} else {
+		// Found existing snapshot, try to load it
+		fmt.Printf("  Found UserSnapshot at: %s\n", dbPath)
+		db, err := database.NewEncryptedDB(dbPath, encryptionKey)
+		if err != nil {
+			// Loading failed - create a new snapshot and keep the old one
+			fmt.Printf("  Failed to load UserSnapshot at %s: %v\n", dbPath, err)
+			fmt.Println("  Creating new UserSnapshot and keeping old one...")
+
+			// Rename old snapshot if it exists and is the standard path
+			if dbPath == standardPath {
+				// It's the standard file, rename it to backup
+				backupPath := dbPath + ".backup." + fmt.Sprintf("%d", time.Now().Unix())
+				if err := os.Rename(dbPath, backupPath); err == nil {
+					fmt.Printf("  Renamed old UserSnapshot to: %s\n", backupPath)
+				}
+			} else {
+				// It's already a backup file, leave it as-is
+				fmt.Printf("  Keeping backup file: %s\n", dbPath)
+			}
+
+			// Create new snapshot at standard path
+			if err := a.profileService.EnsureUserSnapshotDir(userID); err != nil {
+				return fmt.Errorf("failed to create UserSnapshot directory: %w", err)
+			}
+			db, err = database.NewEncryptedDB(standardPath, encryptionKey)
+			if err != nil {
+				return fmt.Errorf("failed to create new database: %w", err)
+			}
+			a.db = db
+			fmt.Printf("  Created new UserSnapshot at: %s\n", standardPath)
+		} else {
+			a.db = db
+			fmt.Println("  Database opened successfully")
+		}
+	}
+
+	// Initialize all services with the new database connection
+	a.userService = services.NewUserService(a.db.GetConn())
+	a.groupService = services.NewGroupService(a.db.GetConn())
+	a.channelService = services.NewChannelService(a.db.GetConn())
+	a.messageService = services.NewMessageService(a.db.GetConn())
+	a.dmService = services.NewDMService(a.db.GetConn())
+	a.queueService = services.NewQueueService(a.db.GetConn())
+	a.signalSessionService = services.NewSignalSessionService(a.db.GetConn())
+	a.groupKeyService = services.NewGroupKeyService(a.db.GetConn())
+	a.signalService = services.NewSignalService(a.signalSessionService, a.groupKeyService)
+	// Network service is initialized in startup() before service client
+	// Only create if not already initialized
+	if a.networkService == nil {
+		a.networkService = services.NewNetworkService()
+	}
+
+	return nil
+}
+
+// findNewestUserSnapshot finds the newest UserSnapshot for a user
+// Returns the path to the newest snapshot, or error if none found
+// Also handles migration from old noise.db to pollis.db
+func (a *App) findNewestUserSnapshot(userID string) (string, error) {
+	// Check if the standard path exists
+	standardPath := a.profileService.GetUserSnapshotPath(userID)
+	if _, err := os.Stat(standardPath); err == nil {
+		return standardPath, nil
+	}
+
+	// Look for backup files (pollis.db.backup.*) or old files (noise.db*) in the user's snapshot directory
+	dir := filepath.Dir(standardPath)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	var newestPath string
+	var newestTime time.Time
+	var oldNoiseDbPath string
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		filePath := filepath.Join(dir, name)
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		modTime := info.ModTime()
+
+		// Check if it's a pollis.db file (standard or backup)
+		if name == "pollis.db" || strings.HasPrefix(name, "pollis.db.backup.") {
+			if newestPath == "" || modTime.After(newestTime) {
+				newestPath = filePath
+				newestTime = modTime
+			}
+		} else if name == "noise.db" || strings.HasPrefix(name, "noise.db.backup.") {
+			// Found old noise.db file - remember it for migration
+			if oldNoiseDbPath == "" || modTime.After(newestTime) {
+				oldNoiseDbPath = filePath
+				if newestTime.IsZero() || modTime.After(newestTime) {
+					newestTime = modTime
+				}
+			}
+		}
+	}
+
+	// If we found an old noise.db but no pollis.db, migrate it
+	if oldNoiseDbPath != "" && newestPath == "" {
+		fmt.Printf("  Found old database file (noise.db), migrating to pollis.db...\n")
+		// Rename old noise.db to pollis.db
+		if err := os.Rename(oldNoiseDbPath, standardPath); err == nil {
+			fmt.Printf("  Migrated %s to %s\n", oldNoiseDbPath, standardPath)
+			return standardPath, nil
+		} else {
+			fmt.Printf("  Warning: failed to migrate old database: %v\n", err)
+			// Return the old path anyway, it will work
+			return oldNoiseDbPath, nil
+		}
+	}
+
+	if newestPath == "" {
+		return "", fmt.Errorf("no UserSnapshot found")
+	}
+
+	return newestPath, nil
+}
+
+// getUserDataDir returns the user data directory for the app
+func getUserDataDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+
+	// Platform-specific data directories
+	var dataDir string
+	switch {
+	case os.Getenv("XDG_DATA_HOME") != "":
+		dataDir = filepath.Join(os.Getenv("XDG_DATA_HOME"), "pollis")
+	case os.Getenv("APPDATA") != "":
+		// Windows
+		dataDir = filepath.Join(os.Getenv("APPDATA"), "Pollis")
+	case os.Getenv("HOME") != "":
+		// macOS/Linux
+		dataDir = filepath.Join(homeDir, ".local", "share", "pollis")
+	default:
+		dataDir = filepath.Join(homeDir, ".pollis")
+	}
+
+	return dataDir, nil
+}
+
+// Greet returns a greeting for the given name (kept for compatibility)
+func (a *App) Greet(name string) string {
+	return fmt.Sprintf("Hello %s, It's show time!", name)
+}
+
+// CheckIdentity checks if the current user has created their user identity
+func (a *App) CheckIdentity() (bool, error) {
+	// Check if database is loaded
+	if a.db == nil {
+		return false, nil
+	}
+
+	// Check if user exists in the database
+	var count int
+	err := a.db.GetConn().QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check identity: %w", err)
+	}
+
+	return count > 0, nil
+}
+
+// GetNetworkStatus returns the current network status
+func (a *App) GetNetworkStatus() (string, error) {
+	return a.networkService.GetStatus(), nil
+}
+
+// SetKillSwitch sets the network kill-switch state
+func (a *App) SetKillSwitch(enabled bool) error {
+	a.networkService.SetKillSwitch(enabled)
+	return nil
+}
+
+// SetServiceURL sets the gRPC service URL and initializes the client
+func (a *App) SetServiceURL(url string) error {
+	if a.serviceClient != nil {
+		_ = a.serviceClient.Close()
+	}
+
+	client, err := services.NewServiceClient(url)
+	if err != nil {
+		return fmt.Errorf("failed to create service client: %w", err)
+	}
+
+	a.serviceClient = client
+	a.serviceURL = url
+
+	// Initialize queue processor
+	a.queueProcessor = services.NewQueueProcessor(
+		a.queueService,
+		a.messageService,
+		a.serviceClient,
+		a.networkService,
+		a.signalService,
+	)
+	a.queueProcessor.Start()
+
+	return nil
+}
+
+// ========== User Service Methods ==========
+
+// CreateUser creates a new user identity (legacy method - use AuthenticateAndLoadUser instead)
+// This method is deprecated - users should be created via Clerk authentication
+func (a *App) CreateUser(username, email, phone string) (*models.User, error) {
+	return nil, fmt.Errorf("CreateUser is deprecated - use AuthenticateAndLoadUser with Clerk authentication instead")
+}
+
+// GetCurrentUser gets the current user (first user in database)
+func (a *App) GetCurrentUser() (*models.User, error) {
+	if a.userService == nil {
+		return nil, fmt.Errorf("user service not initialized")
+	}
+
+	users, err := a.userService.ListUsers()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list users: %w", err)
+	}
+	if len(users) == 0 {
+		return nil, fmt.Errorf("no user found - please create an identity first")
+	}
+
+	// Return the first user (in future, could support multiple identities)
+	user := users[0]
+
+	// Decrypt keys (in production, use master key from keychain)
+	// For MVP, we'll need to decrypt them when needed
+	// TODO: Implement proper key decryption with master key from keychain
+
+	return user, nil
+}
+
+// GetUserByIdentifier gets a user by username, email, or phone
+func (a *App) GetUserByIdentifier(identifier string) (*models.User, error) {
+	if identifier == "" {
+		return nil, fmt.Errorf("identifier cannot be empty")
+	}
+	user, err := a.userService.GetUserByIdentifier(identifier)
+	if err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+	return user, nil
+}
+
+// UpdateUser updates user information
+func (a *App) UpdateUser(user *models.User) error {
+	if user == nil {
+		return fmt.Errorf("user cannot be nil")
+	}
+	if user.ID == "" {
+		return fmt.Errorf("user ID is required")
+	}
+	if err := a.userService.UpdateUser(user); err != nil {
+		return fmt.Errorf("failed to update user: %w", err)
+	}
+	return nil
+}
+
+// GetServiceUserData gets user data (username, email, phone) from the service DB
+func (a *App) GetServiceUserData() (map[string]interface{}, error) {
+	currentUser, err := a.GetCurrentUser()
+	if err != nil || currentUser == nil {
+		return nil, fmt.Errorf("no current user found")
+	}
+
+	// Query service DB for user data
+	if a.serviceClient == nil || a.networkService == nil || !a.networkService.IsOnline() {
+		// If offline or service not available, return empty data
+		return map[string]interface{}{
+			"username": "",
+			"email":    "",
+			"phone":    "",
+		}, nil
+	}
+
+	// Get user from service by clerk_id
+	serviceUser, err := a.serviceClient.GetUserByClerkID(currentUser.ClerkID)
+	if err != nil || serviceUser == nil {
+		// User not found in service, return empty
+		return map[string]interface{}{
+			"username": "",
+			"email":    "",
+			"phone":    "",
+		}, nil
+	}
+
+	result := map[string]interface{}{
+		"username": "",
+		"email":    "",
+		"phone":    "",
+	}
+
+	if serviceUser.Username != nil && *serviceUser.Username != "" {
+		result["username"] = *serviceUser.Username
+	}
+	if serviceUser.Email != nil && *serviceUser.Email != "" {
+		result["email"] = *serviceUser.Email
+	}
+	if serviceUser.Phone != nil && *serviceUser.Phone != "" {
+		result["phone"] = *serviceUser.Phone
+	}
+
+	return result, nil
+}
+
+// UpdateServiceUserData updates user data (username, email, phone, avatar_url) in the service DB
+// If avatarURL is nil, it won't be updated (preserves existing value)
+func (a *App) UpdateServiceUserData(username string, email, phone, avatarURL *string) error {
+	currentUser, err := a.GetCurrentUser()
+	if err != nil || currentUser == nil {
+		return fmt.Errorf("no current user found")
+	}
+
+	if a.serviceClient == nil || a.networkService == nil || !a.networkService.IsOnline() {
+		return fmt.Errorf("service not available or offline")
+	}
+
+	// Get current public key
+	// We need to get the user's public key to register/update
+	var publicKey []byte
+	if a.userService != nil {
+		localUser, err := a.userService.GetUserByID(currentUser.ID)
+		if err == nil && localUser != nil {
+			publicKey = localUser.IdentityKeyPublic
+		}
+	}
+
+	clerkID := currentUser.ClerkID
+	if err := a.serviceClient.RegisterUser(currentUser.ID, username, email, phone, avatarURL, publicKey, &clerkID); err != nil {
+		return fmt.Errorf("failed to update user in service: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateServiceUserAvatar updates user avatar URL in the service DB
+func (a *App) UpdateServiceUserAvatar(avatarURL string) error {
+	currentUser, err := a.GetCurrentUser()
+	if err != nil || currentUser == nil {
+		return fmt.Errorf("no current user found")
+	}
+
+	if a.serviceClient == nil || a.networkService == nil || !a.networkService.IsOnline() {
+		return fmt.Errorf("service not available or offline")
+	}
+
+	// Get current user data from service
+	serviceUser, err := a.serviceClient.GetUserByClerkID(currentUser.ClerkID)
+	if err != nil || serviceUser == nil {
+		return fmt.Errorf("user not found in service")
+	}
+
+	// Get username, email, phone from service user
+	username := ""
+	if serviceUser.Username != nil {
+		username = *serviceUser.Username
+	}
+	var emailPtr, phonePtr *string
+	if serviceUser.Email != nil && *serviceUser.Email != "" {
+		emailPtr = serviceUser.Email
+	}
+	if serviceUser.Phone != nil && *serviceUser.Phone != "" {
+		phonePtr = serviceUser.Phone
+	}
+
+	// Get public key
+	var publicKey []byte
+	if a.userService != nil {
+		localUser, err := a.userService.GetUserByID(currentUser.ID)
+		if err == nil && localUser != nil {
+			publicKey = localUser.IdentityKeyPublic
+		}
+	}
+
+	// Update user with new avatar URL (avatarURL is the object key)
+	avatarURLPtr := &avatarURL
+	clerkID := currentUser.ClerkID
+	if err := a.serviceClient.RegisterUser(currentUser.ID, username, emailPtr, phonePtr, avatarURLPtr, publicKey, &clerkID); err != nil {
+		return fmt.Errorf("failed to update user in service: %w", err)
+	}
+
+	fmt.Printf("[R2] Updated user avatar URL: %s\n", avatarURL)
+	return nil
+}
+
+// deriveSlugFromName generates a URL-safe slug from a name (same logic as frontend)
+func deriveSlugFromName(name string) string {
+	slug := strings.ToLower(name)
+	slug = strings.ReplaceAll(slug, " ", "-")
+	// Remove invalid characters (keep only alphanumeric and hyphens)
+	var result strings.Builder
+	for _, r := range slug {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			result.WriteRune(r)
+		}
+	}
+	slug = result.String()
+	// Replace multiple hyphens with single
+	for strings.Contains(slug, "--") {
+		slug = strings.ReplaceAll(slug, "--", "-")
+	}
+	// Remove leading/trailing hyphens
+	slug = strings.Trim(slug, "-")
+	return slug
+}
+
+// ========== Group Service Methods ==========
+
+// UpdateGroup updates group information (name, slug, description)
+func (a *App) UpdateGroup(groupID, name, description string) (*models.Group, error) {
+	if groupID == "" {
+		return nil, fmt.Errorf("group_id is required")
+	}
+	if name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+
+	// Get existing group
+	group, err := a.groupService.GetGroupByID(groupID)
+	if err != nil {
+		return nil, fmt.Errorf("group not found: %w", err)
+	}
+
+	// Generate new slug from name (using same logic as frontend)
+	newSlug := deriveSlugFromName(name)
+
+	// Check if slug changed and if new slug conflicts with existing group
+	if newSlug != group.Slug {
+		existing, err := a.groupService.GetGroupBySlug(newSlug)
+		if err == nil && existing != nil && existing.ID != groupID {
+			return nil, fmt.Errorf("group with slug '%s' already exists", newSlug)
+		}
+		group.Slug = newSlug
+	}
+
+	// Update group fields
+	group.Name = name
+	if description != "" {
+		group.Description = description
+	} else {
+		group.Description = ""
+	}
+
+	// Update in local database
+	if err := a.groupService.UpdateGroup(group); err != nil {
+		return nil, fmt.Errorf("failed to update group: %w", err)
+	}
+
+	// Update on service if online
+	if a.serviceClient != nil && a.networkService != nil && a.networkService.IsOnline() {
+		// Note: Service doesn't have UpdateGroup yet, so we'll need to add it
+		// For now, log that sync is needed
+		fmt.Printf("Info: Group updated locally. Service sync for group updates not yet implemented.\n")
+	}
+
+	return group, nil
+}
+
+// CreateGroup creates a new group
+func (a *App) CreateGroup(slug, name, description, createdBy string) (*models.Group, error) {
+	// Validate input
+	if slug == "" {
+		return nil, fmt.Errorf("slug is required")
+	}
+	if name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	if createdBy == "" {
+		return nil, fmt.Errorf("created_by is required")
+	}
+
+	// Check if group with slug already exists
+	existing, err := a.groupService.GetGroupBySlug(slug)
+	if err == nil && existing != nil {
+		return nil, fmt.Errorf("group with slug '%s' already exists", slug)
+	}
+
+	group := &models.Group{
+		Slug:        slug,
+		Name:        name,
+		Description: description,
+		CreatedBy:   createdBy,
+	}
+
+	if err := a.groupService.CreateGroup(group); err != nil {
+		return nil, fmt.Errorf("failed to create group: %w", err)
+	}
+
+	// Add creator as member
+	if err := a.groupService.AddGroupMember(group.ID, createdBy); err != nil {
+		// Group exists, but member addition failed - this is a critical error
+		return nil, fmt.Errorf("failed to add creator as member: %w", err)
+	}
+
+	// Create on service if online
+	if a.serviceClient != nil && a.networkService != nil && a.networkService.IsOnline() {
+		var descPtr *string
+		if description != "" {
+			descPtr = &description
+		}
+		if err := a.serviceClient.CreateGroup(group.ID, slug, name, descPtr, createdBy); err != nil {
+			// Log error but don't fail - group is created locally
+			fmt.Printf("Warning: failed to create group on service: %v\n", err)
+		} else {
+			fmt.Printf("Group created on service: %s (id: %s)\n", slug, group.ID)
+		}
+	} else {
+		if a.serviceClient == nil {
+			fmt.Printf("Warning: service client not initialized, group not synced to service\n")
+		} else if a.networkService == nil {
+			fmt.Printf("Warning: network service not initialized, group not synced to service\n")
+		} else {
+			fmt.Printf("Warning: network is offline, group not synced to service (will sync when online)\n")
+		}
+	}
+
+	return group, nil
+}
+
+// GetGroup gets a group by ID
+func (a *App) GetGroup(groupID string) (*models.Group, error) {
+	if groupID == "" {
+		return nil, fmt.Errorf("group_id is required")
+	}
+	group, err := a.groupService.GetGroupByID(groupID)
+	if err != nil {
+		return nil, fmt.Errorf("group not found: %w", err)
+	}
+	return group, nil
+}
+
+// GetGroupBySlug gets a group by slug
+func (a *App) GetGroupBySlug(slug string) (*models.Group, error) {
+	if slug == "" {
+		return nil, fmt.Errorf("slug is required")
+	}
+	group, err := a.groupService.GetGroupBySlug(slug)
+	if err != nil {
+		return nil, fmt.Errorf("group not found: %w", err)
+	}
+	return group, nil
+}
+
+// ListUserGroups lists all groups for a user
+func (a *App) ListUserGroups(userIdentifier string) ([]*models.Group, error) {
+	if userIdentifier == "" {
+		return nil, fmt.Errorf("user_identifier is required")
+	}
+	groups, err := a.groupService.ListUserGroups(userIdentifier)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list user groups: %w", err)
+	}
+	return groups, nil
+}
+
+// AddGroupMember adds a member to a group
+func (a *App) AddGroupMember(groupID, userIdentifier string) error {
+	if groupID == "" {
+		return fmt.Errorf("group_id is required")
+	}
+	if userIdentifier == "" {
+		return fmt.Errorf("user_identifier is required")
+	}
+
+	// Check if group exists
+	_, err := a.groupService.GetGroupByID(groupID)
+	if err != nil {
+		return fmt.Errorf("group not found: %w", err)
+	}
+
+	// Check if already a member
+	isMember, err := a.groupService.IsGroupMember(groupID, userIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to check membership: %w", err)
+	}
+	if isMember {
+		return fmt.Errorf("user is already a member of this group")
+	}
+
+	if err := a.groupService.AddGroupMember(groupID, userIdentifier); err != nil {
+		return fmt.Errorf("failed to add group member: %w", err)
+	}
+
+	// Invite on service if online
+	if a.serviceClient != nil && a.networkService.IsOnline() {
+		// Get current user for invited_by
+		user, err := a.GetCurrentUser()
+		if err != nil {
+			// Log but don't fail - member is added locally
+			fmt.Printf("Warning: failed to get current user for service invite: %v\n", err)
+		} else {
+			if err := a.serviceClient.InviteToGroup(groupID, userIdentifier, user.ID); err != nil {
+				// Log but don't fail - member is added locally
+				fmt.Printf("Warning: failed to invite on service: %v\n", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ListGroupMembers lists all members of a group
+func (a *App) ListGroupMembers(groupID string) ([]*models.GroupMember, error) {
+	if groupID == "" {
+		return nil, fmt.Errorf("group_id is required")
+	}
+	members, err := a.groupService.ListGroupMembers(groupID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list group members: %w", err)
+	}
+	return members, nil
+}
+
+// ========== Channel Service Methods ==========
+
+// CreateChannel creates a new channel
+func (a *App) CreateChannel(groupID, slug, name, description, createdBy string) (*models.Channel, error) {
+	// Validate input
+	if groupID == "" {
+		return nil, fmt.Errorf("group_id is required")
+	}
+	if slug == "" {
+		return nil, fmt.Errorf("slug is required")
+	}
+	if name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	if createdBy == "" {
+		return nil, fmt.Errorf("created_by is required")
+	}
+
+	// Verify group exists
+	_, err := a.groupService.GetGroupByID(groupID)
+	if err != nil {
+		return nil, fmt.Errorf("group not found: %w", err)
+	}
+
+	// Check if channel with this slug already exists in the group
+	exists, err := a.channelService.ChannelExistsBySlug(groupID, slug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check channel existence: %w", err)
+	}
+	if exists {
+		return nil, fmt.Errorf("channel with slug '%s' already exists in this group", slug)
+	}
+
+	channel := &models.Channel{
+		GroupID:     groupID,
+		Slug:        slug,
+		Name:        name,
+		Description: description,
+		CreatedBy:   createdBy,
+		ChannelType: "text",
+	}
+
+	if err := a.channelService.CreateChannel(channel); err != nil {
+		return nil, fmt.Errorf("failed to create channel: %w", err)
+	}
+
+	// Create on service if online
+	if a.serviceClient != nil && a.networkService.IsOnline() {
+		var descPtr *string
+		if description != "" {
+			descPtr = &description
+		}
+		if err := a.serviceClient.CreateChannel(channel.ID, groupID, slug, name, descPtr, createdBy); err != nil {
+			// Log error but don't fail - channel is created locally
+			fmt.Printf("Warning: failed to create channel on service: %v\n", err)
+		}
+	}
+
+	return channel, nil
+}
+
+// GetChannel gets a channel by ID
+func (a *App) GetChannel(channelID string) (*models.Channel, error) {
+	if channelID == "" {
+		return nil, fmt.Errorf("channel_id is required")
+	}
+	channel, err := a.channelService.GetChannelByID(channelID)
+	if err != nil {
+		return nil, fmt.Errorf("channel not found: %w", err)
+	}
+	return channel, nil
+}
+
+// ListChannels lists all channels in a group
+func (a *App) ListChannels(groupID string) ([]*models.Channel, error) {
+	if groupID == "" {
+		return nil, fmt.Errorf("group_id is required")
+	}
+	channels, err := a.channelService.ListChannelsByGroup(groupID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list channels: %w", err)
+	}
+	return channels, nil
+}
+
+// ChannelExistsBySlug checks if a channel with the given slug exists in a group
+func (a *App) ChannelExistsBySlug(groupID, slug string) (bool, error) {
+	if groupID == "" || slug == "" {
+		return false, fmt.Errorf("group_id and slug are required")
+	}
+	return a.channelService.ChannelExistsBySlug(groupID, slug)
+}
+
+// GroupExistsBySlug checks if a group with the given slug exists
+func (a *App) GroupExistsBySlug(slug string) (bool, error) {
+	if slug == "" {
+		return false, fmt.Errorf("slug is required")
+	}
+	return a.groupService.GroupExistsBySlug(slug)
+}
+
+// SearchGroup searches for a group by ID, slug, or case-insensitive name
+func (a *App) SearchGroup(queryString string) (*models.Group, error) {
+	if queryString == "" {
+		return nil, fmt.Errorf("search query cannot be empty")
+	}
+	return a.groupService.SearchGroup(queryString)
+}
+
+// ========== Message Service Methods ==========
+
+// SendMessage sends a message (encrypts and stores locally, queues if offline)
+func (a *App) SendMessage(channelID, conversationID, authorID, content string, replyToMessageID string) (*models.Message, error) {
+	// Validate input
+	if content == "" {
+		return nil, fmt.Errorf("message content cannot be empty")
+	}
+	if authorID == "" {
+		return nil, fmt.Errorf("author_id is required")
+	}
+	if channelID == "" && conversationID == "" {
+		return nil, fmt.Errorf("either channel_id or conversation_id must be provided")
+	}
+	if channelID != "" && conversationID != "" {
+		return nil, fmt.Errorf("cannot specify both channel_id and conversation_id")
+	}
+
+	var encryptedContent []byte
+
+	if channelID != "" {
+		// Group message: use sender key
+		channel, err := a.channelService.GetChannelByID(channelID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get channel: %w", err)
+		}
+		senderKey, err := a.signalService.GetOrCreateSenderKey(channel.GroupID, channelID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get sender key: %w", err)
+		}
+		ct, nonce, err := signal.EncryptWithSenderKey(senderKey, []byte(content))
+		if err != nil {
+			return nil, fmt.Errorf("failed to encrypt group message: %w", err)
+		}
+		// store nonce || ciphertext
+		encryptedContent = append(nonce, ct...)
+	} else if conversationID != "" {
+		// DM: use double ratchet
+		conv, err := a.dmService.GetConversationByID(conversationID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get conversation: %w", err)
+		}
+		// Session must already be established via pre-key exchange
+		session, err := a.signalSessionService.GetSession(authorID, conv.User2Identifier)
+		if err != nil || session == nil {
+			return nil, fmt.Errorf("no established session for DM; complete pre-key exchange first")
+		}
+		encryptedContent, err = a.signalService.EncryptMessage(session, []byte(content))
+		if err != nil {
+			return nil, fmt.Errorf("failed to encrypt message: %w", err)
+		}
+	}
+
+	// Create message
+	message := &models.Message{
+		ChannelID:        channelID,
+		ConversationID:   conversationID,
+		AuthorID:         authorID,
+		ContentEncrypted: encryptedContent,
+		ReplyToMessageID: replyToMessageID,
+	}
+
+	if err := a.messageService.CreateMessage(message); err != nil {
+		return nil, fmt.Errorf("failed to create message: %w", err)
+	}
+
+	// Update conversation timestamp if DM
+	if conversationID != "" {
+		if err := a.dmService.UpdateConversationTimestamp(conversationID); err != nil {
+			// Log but don't fail
+			fmt.Printf("Warning: failed to update conversation timestamp: %v\n", err)
+		}
+	}
+
+	// Always add to queue (will be processed when online)
+	if err := a.queueService.AddToQueue(message.ID); err != nil {
+		return nil, fmt.Errorf("failed to queue message: %w", err)
+	}
+
+	// Process queue if online and queue processor is available
+	if a.networkService.IsOnline() && a.queueProcessor != nil {
+		go func() {
+			if err := a.queueProcessor.TriggerProcessing(); err != nil {
+				fmt.Printf("Warning: failed to process queue: %v\n", err)
+			}
+		}()
+	}
+
+	// Set the decrypted content for immediate display (we have the plaintext)
+	message.Content = content
+
+	// Publish to Ably if service is available (async, don't block)
+	if a.ablyRealtimeService != nil {
+		go func() {
+			// Determine which channel/conversation to publish to
+			targetID := channelID
+			if targetID == "" {
+				targetID = conversationID
+			}
+
+			messageData := map[string]interface{}{
+				"message_id":      message.ID,
+				"channel_id":      message.ChannelID,
+				"conversation_id": message.ConversationID,
+				"author_id":       message.AuthorID,
+				"timestamp":       message.Timestamp,
+			}
+
+			err := a.ablyRealtimeService.PublishMessage(targetID, messageData)
+			if err != nil {
+				// Log but don't fail - message is already stored locally
+				fmt.Printf("Warning: failed to publish message to Ably: %v\n", err)
+			}
+		}()
+	}
+
+	return message, nil
+}
+
+// GetMessages gets messages for a channel or conversation
+func (a *App) GetMessages(channelID, conversationID string, limit, offset int) ([]*models.Message, error) {
+	// Validate input
+	if channelID == "" && conversationID == "" {
+		return nil, fmt.Errorf("either channel_id or conversation_id must be provided")
+	}
+	if channelID != "" && conversationID != "" {
+		return nil, fmt.Errorf("cannot specify both channel_id and conversation_id")
+	}
+	if limit <= 0 {
+		limit = 50 // Default limit
+	}
+	if limit > 1000 {
+		limit = 1000 // Max limit
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var messages []*models.Message
+	var err error
+
+	if channelID != "" {
+		messages, err = a.messageService.ListMessagesByChannel(channelID, limit, offset)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get channel messages: %w", err)
+		}
+		// Decrypt messages for channel using sender key
+		channel, err := a.channelService.GetChannelByID(channelID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get channel: %w", err)
+		}
+		senderKey, err := a.signalService.GetOrCreateSenderKey(channel.GroupID, channelID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get sender key: %w", err)
+		}
+		for _, msg := range messages {
+			if len(msg.ContentEncrypted) < encryption.NonceSize {
+				msg.Content = "[decrypt error: invalid ciphertext]"
+				continue
+			}
+			nonce := msg.ContentEncrypted[:encryption.NonceSize]
+			ct := msg.ContentEncrypted[encryption.NonceSize:]
+			pt, err := signal.DecryptWithSenderKey(senderKey, ct, nonce)
+			if err != nil {
+				msg.Content = fmt.Sprintf("[decrypt error: %v]", err)
+				continue
+			}
+			msg.Content = string(pt)
+		}
+	} else if conversationID != "" {
+		messages, err = a.messageService.ListMessagesByConversation(conversationID, limit, offset)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get conversation messages: %w", err)
+		}
+		// Decrypt messages for DM
+		conv, err := a.dmService.GetConversationByID(conversationID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get conversation: %w", err)
+		}
+
+		currentUser, err := a.GetCurrentUser()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get current user: %w", err)
+		}
+
+		var remoteIdentifier string
+		if currentUser.ID == conv.User1ID {
+			remoteIdentifier = conv.User2Identifier
+		} else {
+			remoteIdentifier = conv.User1ID
+		}
+
+		for _, msg := range messages {
+			session, err := a.signalSessionService.GetSession(currentUser.ID, remoteIdentifier)
+			if err != nil || session == nil {
+				msg.Content = "[Unable to decrypt - no session]"
+				continue
+			}
+			decrypted, err := a.signalService.DecryptMessage(session, msg.ContentEncrypted)
+			if err != nil {
+				msg.Content = fmt.Sprintf("[Decryption error: %v]", err)
+				continue
+			}
+			msg.Content = string(decrypted)
+		}
+	}
+
+	return messages, nil
+}
+
+// PinMessage pins a message
+func (a *App) PinMessage(messageID, pinnedBy string) error {
+	return a.messageService.PinMessage(messageID, pinnedBy)
+}
+
+// UnpinMessage unpins a message
+func (a *App) UnpinMessage(messageID string) error {
+	return a.messageService.UnpinMessage(messageID)
+}
+
+// GetPinnedMessages gets pinned messages for a channel or conversation
+func (a *App) GetPinnedMessages(channelID, conversationID string) ([]*models.Message, error) {
+	return a.messageService.GetPinnedMessages(channelID, conversationID)
+}
+
+// ========== DM Service Methods ==========
+
+// CreateOrGetDMConversation creates or gets a DM conversation
+func (a *App) CreateOrGetDMConversation(user1ID, user2Identifier string) (*models.DMConversation, error) {
+	if user1ID == "" {
+		return nil, fmt.Errorf("user1_id is required")
+	}
+	if user2Identifier == "" {
+		return nil, fmt.Errorf("user2_identifier is required")
+	}
+	conv, err := a.dmService.CreateOrGetConversation(user1ID, user2Identifier)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create or get conversation: %w", err)
+	}
+	return conv, nil
+}
+
+// ListDMConversations lists all DM conversations for a user
+func (a *App) ListDMConversations(userID string) ([]*models.DMConversation, error) {
+	if userID == "" {
+		return nil, fmt.Errorf("user_id is required")
+	}
+	conversations, err := a.dmService.ListUserConversations(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list conversations: %w", err)
+	}
+	return conversations, nil
+}
+
+// ========== Queue Service Methods ==========
+
+// GetPendingMessages gets pending messages from the queue
+func (a *App) GetPendingMessages() ([]*models.MessageQueue, error) {
+	return a.queueService.GetPendingMessages()
+}
+
+// CancelQueuedMessage cancels a queued message
+func (a *App) CancelQueuedMessage(messageID string) error {
+	return a.queueService.CancelMessage(messageID)
+}
+
+// ProcessQueue manually triggers queue processing
+func (a *App) ProcessQueue() error {
+	if a.queueProcessor == nil {
+		return fmt.Errorf("queue processor not initialized - call SetServiceURL first")
+	}
+	if !a.networkService.IsOnline() {
+		return fmt.Errorf("network is not available")
+	}
+	return a.queueProcessor.TriggerProcessing()
+}
+
+// ========== Authentication & Session Management Methods ==========
+
+// GetStoredSession retrieves the stored session from keychain
+// Returns a map with userID and clerkToken for Wails binding
+func (a *App) GetStoredSession() (map[string]string, error) {
+	if a.keychainService == nil {
+		return nil, fmt.Errorf("keychain service not initialized")
+	}
+	userID, clerkToken, err := a.keychainService.GetStoredSession()
+	if err != nil {
+		return nil, err
+	}
+	if userID == "" || clerkToken == "" {
+		return nil, nil
+	}
+	return map[string]string{
+		"userID":     userID,
+		"clerkToken": clerkToken,
+	}, nil
+}
+
+// StoreSession stores the session (userID and clerkToken) in keychain
+func (a *App) StoreSession(clerkToken string, userID string) error {
+	if a.keychainService == nil {
+		return fmt.Errorf("keychain service not initialized")
+	}
+	return a.keychainService.StoreSession(userID, clerkToken)
+}
+
+// ClearSession removes the stored session from keychain
+func (a *App) ClearSession() error {
+	if a.keychainService == nil {
+		return fmt.Errorf("keychain service not initialized")
+	}
+	return a.keychainService.ClearSession()
+}
+
+// AuthenticateAndLoadUser authenticates with Clerk and loads/creates the user
+// This replaces CreateProfileWithClerk with a simplified flow
+func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
+	if a.clerkService == nil {
+		return nil, fmt.Errorf("Clerk service not initialized")
+	}
+
+	// Check if token is a JWT (has 3 parts) or a session token
+	var clerkUser *clerk.User
+	var err error
+
+	parts := strings.Split(clerkToken, ".")
+	if len(parts) == 3 {
+		// It's a JWT, use VerifyToken
+		clerkUser, err = a.clerkService.VerifyToken(a.ctx, clerkToken)
+	} else {
+		// It's a session token, use VerifySessionToken
+		clerkUser, err = a.clerkService.VerifySessionToken(a.ctx, clerkToken)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify Clerk token: %w", err)
+	}
+
+	var userID string
+	var user *models.User
+
+	// First, check LOCAL database for existing user by clerk_id
+	// This prevents creating duplicate users when re-authenticating
+	if a.userService != nil {
+		localUser, err := a.userService.GetUserByClerkID(clerkUser.ID)
+		if err == nil && localUser != nil {
+			// User exists locally, use existing User ID
+			userID = localUser.ID
+			user = localUser
+			fmt.Printf("Found existing user in local DB: %s (clerk_id: %s)\n", userID, clerkUser.ID)
+		}
+	}
+
+	// If not found locally, query service for existing User by clerk_id
+	if userID == "" && a.serviceClient != nil && a.networkService != nil && a.networkService.IsOnline() {
+		serviceUser, err := a.serviceClient.GetUserByClerkID(clerkUser.ID)
+		if err == nil && serviceUser != nil && serviceUser.UserId != "" {
+			// User exists in service, use existing User ID
+			userID = serviceUser.UserId
+			fmt.Printf("Found existing user in service: %s (clerk_id: %s)\n", userID, clerkUser.ID)
+		}
+	}
+
+	// If User doesn't exist anywhere, create new User
+	if userID == "" {
+		// Generate ULID for new User
+		userID = utils.NewULID()
+		fmt.Printf("Creating new user: %s (clerk_id: %s)\n", userID, clerkUser.ID)
+	}
+
+	// Check if UserSnapshot exists locally
+	userSnapshotExists := a.profileService.UserSnapshotExists(userID)
+
+	// Generate encryption key if UserSnapshot doesn't exist
+	var encryptionKey []byte
+	if !userSnapshotExists {
+		encryptionKey = make([]byte, 32)
+		if _, err := rand.Read(encryptionKey); err != nil {
+			return nil, fmt.Errorf("failed to generate encryption key: %w", err)
+		}
+		// Store encryption key in keychain
+		if err := a.keychainService.StoreEncryptionKey(userID, encryptionKey); err != nil {
+			return nil, fmt.Errorf("failed to store encryption key: %w", err)
+		}
+	} else {
+		// Get existing encryption key
+		var err error
+		encryptionKey, err = a.keychainService.GetEncryptionKey(userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get encryption key: %w", err)
+		}
+	}
+
+	// Load UserSnapshot
+	if err := a.loadUserSnapshot(userID); err != nil {
+		return nil, fmt.Errorf("failed to load UserSnapshot: %w", err)
+	}
+
+	// Now that UserSnapshot is loaded, check if User exists in local database
+	// (userService is now initialized from loadUserSnapshot)
+	if user == nil && a.userService != nil {
+		localUser, err := a.userService.GetUserByClerkID(clerkUser.ID)
+		if err == nil && localUser != nil {
+			user = localUser
+			fmt.Printf("Found existing user in local DB (after snapshot load): %s (clerk_id: %s)\n", user.ID, clerkUser.ID)
+		}
+	}
+
+	// Create User in local database if it doesn't exist
+	if user == nil {
+		// Generate identity keys for the user
+		publicKey, privateKey, err := a.signalService.GenerateIdentityKeyPair()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate identity keys: %w", err)
+		}
+
+		user = &models.User{
+			ID:                 userID,
+			ClerkID:            clerkUser.ID,
+			IdentityKeyPublic:  publicKey,
+			IdentityKeyPrivate: privateKey,
+		}
+
+		if err := a.userService.CreateUser(user); err != nil {
+			return nil, fmt.Errorf("failed to create user: %w", err)
+		}
+		fmt.Printf("Created new user in local DB: %s (clerk_id: %s)\n", user.ID, user.ClerkID)
+
+		// Register User with service if online
+		if a.serviceClient == nil {
+			fmt.Printf("ERROR: service client not initialized! User NOT registered with service.\n")
+			fmt.Printf("ERROR: This means the user will NOT appear in Turso DB.\n")
+			fmt.Printf("ERROR: Check that VITE_SERVICE_URL is set and service is running.\n")
+		} else if a.networkService == nil {
+			fmt.Printf("ERROR: network service not initialized! User NOT registered with service.\n")
+		} else if !a.networkService.IsOnline() {
+			fmt.Printf("WARNING: network is offline, user not registered with service (will register when online)\n")
+		} else {
+			// Get user data from Clerk for registration
+			username := ""
+			if clerkUser.Username != nil {
+				username = *clerkUser.Username
+			}
+			var emailPtr, phonePtr *string
+			if len(clerkUser.EmailAddresses) > 0 && clerkUser.EmailAddresses[0] != nil {
+				email := clerkUser.EmailAddresses[0].EmailAddress
+				emailPtr = &email
+			}
+			clerkIDPtr := &clerkUser.ID
+			fmt.Printf("=== REGISTERING USER WITH SERVICE ===\n")
+			fmt.Printf("User ID: %s\n", user.ID)
+			fmt.Printf("Clerk ID: %s\n", clerkUser.ID)
+			fmt.Printf("Username: %s\n", username)
+			if emailPtr != nil {
+				fmt.Printf("Email: %s\n", *emailPtr)
+			}
+			fmt.Printf("Service client: %v\n", a.serviceClient != nil)
+			fmt.Printf("Network online: %v\n", a.networkService.IsOnline())
+			if err := a.serviceClient.RegisterUser(user.ID, username, emailPtr, phonePtr, nil, user.IdentityKeyPublic, clerkIDPtr); err != nil {
+				// Log error but don't fail - user is already created locally
+				fmt.Printf("ERROR: Failed to register user with service: %v\n", err)
+				fmt.Printf("ERROR: User will NOT appear in Turso DB until this is fixed.\n")
+			} else {
+				fmt.Printf("SUCCESS: User registered with service: %s (clerk_id: %s)\n", user.ID, clerkUser.ID)
+				fmt.Printf("=== USER SHOULD NOW BE IN TURSO DB ===\n")
+			}
+		}
+	} else {
+		fmt.Printf("Found existing user in local DB: %s (clerk_id: %s)\n", user.ID, user.ClerkID)
+	}
+
+	// Store session
+	if err := a.keychainService.StoreSession(user.ID, clerkToken); err != nil {
+		return nil, fmt.Errorf("failed to store session: %w", err)
+	}
+
+	// Initialize network monitoring
+	if a.networkService != nil {
+		a.networkService.StartMonitoring()
+	}
+
+	return user, nil
+}
+
+// AuthenticateWithClerk opens the default browser for Clerk OAuth flow (desktop only)
+// Returns the Clerk session token which can be used with AuthenticateAndLoadUser
+func (a *App) AuthenticateWithClerk() (string, error) {
+	apiKey := os.Getenv("CLERK_SECRET_KEY")
+	pubKey := os.Getenv("VITE_CLERK_PUBLISHABLE_KEY")
+	if apiKey == "" || pubKey == "" {
+		return "", fmt.Errorf("missing Clerk environment variables")
+	}
+
+	// Generate random state for CSRF protection
+	state := randomState()
+	result := make(chan string, 1)
+
+	// Setup cancel channel
+	a.authCancel = make(chan struct{})
+
+	// Extract Clerk domain from publishable key
+	clerkDomain, err := extractClerkDomain(pubKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to extract Clerk domain: %w", err)
+	}
+
+	// Setup local HTTP server for OAuth callback
+	mux := http.NewServeMux()
+	a.authServer = &http.Server{
+		Addr:    "127.0.0.1:44665",
+		Handler: mux,
+	}
+
+	// Callback endpoint - Clerk redirects here after authentication
+	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		// Verify state
+		receivedState := r.URL.Query().Get("state")
+		if receivedState != state {
+			http.Error(w, "invalid state", http.StatusBadRequest)
+			return
+		}
+
+		// Log all query parameters and cookies for debugging
+		fmt.Printf("[Clerk Callback] Query params: %v\n", r.URL.Query())
+		fmt.Printf("[Clerk Callback] Cookies: %v\n", r.Cookies())
+
+		// Clerk redirects with JWT token when __token parameter is used
+		// Try to get JWT token from various sources
+		// Priority: __token (JWT) > __session (session cookie) > __clerk_db_jwt (dev token)
+		sessionID := r.URL.Query().Get("__token")
+		if sessionID == "" {
+			sessionID = r.URL.Query().Get("__clerk_session_token")
+		}
+		if sessionID == "" {
+			sessionID = r.URL.Query().Get("__session")
+		}
+		if sessionID == "" {
+			// Fall back to __clerk_db_jwt for development compatibility
+			sessionID = r.URL.Query().Get("__clerk_db_jwt")
+		}
+		if sessionID == "" {
+			// Check cookies for session (cookies are set by Clerk's redirect)
+			for _, cookie := range r.Cookies() {
+				if cookie.Name == "__session" {
+					sessionID = cookie.Value
+					fmt.Printf("[Clerk Callback] Found __session cookie: %s... (length: %d)\n", sessionID[:min(20, len(sessionID))], len(sessionID))
+					break
+				} else if cookie.Name == "__token" {
+					sessionID = cookie.Value
+					fmt.Printf("[Clerk Callback] Found __token cookie: %s... (length: %d)\n", sessionID[:min(20, len(sessionID))], len(sessionID))
+					break
+				} else if cookie.Name == "__clerk_db_jwt" {
+					sessionID = cookie.Value
+					fmt.Printf("[Clerk Callback] Found __clerk_db_jwt cookie: %s... (length: %d)\n", sessionID[:min(20, len(sessionID))], len(sessionID))
+					break
+				}
+			}
+		}
+
+		if sessionID == "" {
+			// If no session found, return an error page with debug info
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusBadRequest)
+			debugInfo := fmt.Sprintf(`
+				<p>Query params: %v</p>
+				<p>Cookies: %v</p>
+			`, r.URL.Query(), r.Cookies())
+			w.Write([]byte(`<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Authentication Error</title></head>
+<body style="font-family: sans-serif; text-align: center; padding: 50px; background: #111; color: #ef4444;">
+	<h1>&#10007; Authentication Error</h1>
+	<p>No session found in callback.</p>
+	<div style="font-size: 10px; color: #888; text-align: left; margin: 20px auto; max-width: 600px;">` + debugInfo + `</div>
+</body>
+</html>`))
+			return
+		}
+
+		fmt.Printf("[Clerk Callback] Session ID found: %s... (length: %d)\n", sessionID[:min(20, len(sessionID))], len(sessionID))
+
+		// Check if we already have a JWT token (3 parts = JWT)
+		parts := strings.Split(sessionID, ".")
+		var finalToken string
+		if len(parts) == 3 {
+			// It's already a JWT token, use it directly
+			finalToken = sessionID
+			fmt.Printf("[Clerk Callback] Session ID is already a JWT token\n")
+		} else {
+			// It's a session token (like __clerk_db_jwt), we'll handle it in AuthenticateAndLoadUser
+			// For now, pass it through - AuthenticateAndLoadUser will use VerifySessionToken
+			finalToken = sessionID
+			fmt.Printf("[Clerk Callback] Session ID is not a JWT, will use VerifySessionToken\n")
+		}
+
+		tokenPreview := finalToken
+		if len(finalToken) > 20 {
+			tokenPreview = finalToken[:20]
+		}
+		fmt.Printf("[Clerk Callback] Token obtained: %s... (length: %d)\n", tokenPreview, len(finalToken))
+
+		// Success response
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Authentication Successful</title></head>
+<body style="font-family: sans-serif; text-align: center; padding: 50px; background: #111; color: #fbbf24;">
+	<h1>&#10003; Authentication Successful</h1>
+	<p>You can close this window and return to the app.</p>
+</body>
+</html>`))
+
+		result <- finalToken
+		go a.authServer.Shutdown(context.Background())
+	})
+
+	// Build Clerk hosted sign-in URL
+	// Clerk will handle all OAuth flows and redirect back to our callback endpoint
+	// For desktop apps, we need to request a JWT token in the redirect
+	// Use __token parameter to get a JWT token instead of __clerk_db_jwt
+	callbackURL := fmt.Sprintf("http://127.0.0.1:44665/callback?state=%s", url.QueryEscape(state))
+	// Add __clerk_sign_out=true to force sign-out of any existing session (allows different users)
+	authURL := fmt.Sprintf("https://%s/sign-in?redirect_url=%s&after_sign_in_url=%s&__token=1&__clerk_sign_out=true",
+		clerkDomain,
+		url.QueryEscape(callbackURL),
+		url.QueryEscape(callbackURL),
+	)
+
+	// Start server in background
+	go a.authServer.ListenAndServe()
+
+	// Open browser to Clerk's hosted sign-in page
+	if err := browser.OpenURL(authURL); err != nil {
+		a.authServer.Shutdown(context.Background())
+		a.authServer = nil
+		a.authCancel = nil
+		return "", fmt.Errorf("failed to open browser: %w", err)
+	}
+
+	// Wait for callback, cancel, or timeout
+	select {
+	case token := <-result:
+		a.authServer = nil
+		a.authCancel = nil
+		return token, nil
+	case <-a.authCancel:
+		a.authServer.Shutdown(context.Background())
+		a.authServer = nil
+		a.authCancel = nil
+		return "", fmt.Errorf("authentication cancelled")
+	case <-time.After(5 * time.Minute):
+		a.authServer.Shutdown(context.Background())
+		a.authServer = nil
+		a.authCancel = nil
+		return "", fmt.Errorf("authentication timeout")
+	}
+}
+
+// CancelAuth cancels an in-progress authentication flow
+func (a *App) CancelAuth() error {
+	if a.authCancel != nil {
+		close(a.authCancel)
+	}
+	return nil
+}
+
+// randomState generates a random state string for CSRF protection
+func randomState() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return base64.URLEncoding.EncodeToString(b)
+}
+
+// exchangeSessionForJWT - exchanges __clerk_db_jwt for a proper JWT token
+// __clerk_db_jwt is a development token that can't be exchanged directly
+// The real solution is to configure Clerk's OAuth redirect to return a JWT token
+// For now, return the token as-is and let VerifySessionToken handle it
+func (a *App) exchangeSessionForJWT(sessionID string, apiKey string, clerkDomain string) (string, error) {
+	// __clerk_db_jwt can't be exchanged directly for a JWT token using Backend API
+	// We need to configure Clerk's OAuth redirect to return a JWT token instead
+	// For now, return the token as-is and let VerifySessionToken handle it
+	return sessionID, nil
+}
+
+// extractClerkDomain extracts the Clerk Account Portal domain from the publishable key
+// Publishable key format: pk_test_<base64_encoded_domain>
+// The encoded domain is like "beloved-bird-4.clerk.accounts.dev"
+// But the Account Portal URL is "beloved-bird-4.accounts.dev" (without .clerk)
+func extractClerkDomain(pubKey string) (string, error) {
+	// Remove "pk_test_" or "pk_live_" prefix
+	var encodedDomain string
+	if len(pubKey) > 8 && pubKey[:8] == "pk_test_" {
+		encodedDomain = pubKey[8:]
+	} else if len(pubKey) > 8 && pubKey[:8] == "pk_live_" {
+		encodedDomain = pubKey[8:]
+	} else {
+		return "", fmt.Errorf("invalid publishable key format")
+	}
+
+	// Decode base64
+	decoded, err := base64.StdEncoding.DecodeString(encodedDomain)
+	if err != nil {
+		// Try RawStdEncoding if regular fails
+		decoded, err = base64.RawStdEncoding.DecodeString(encodedDomain)
+		if err != nil {
+			return "", fmt.Errorf("failed to decode domain: %w", err)
+		}
+	}
+
+	// Remove any trailing $ or other special characters
+	domain := string(decoded)
+	if len(domain) > 0 && domain[len(domain)-1] == '$' {
+		domain = domain[:len(domain)-1]
+	}
+
+	// The publishable key encodes "instance.clerk.accounts.dev"
+	// But Account Portal URL is "instance.accounts.dev" (remove .clerk)
+	domain = strings.Replace(domain, ".clerk.accounts.dev", ".accounts.dev", 1)
+
+	return domain, nil
+}
+
+// Logout clears the session and optionally deletes the UserSnapshot
+func (a *App) Logout(deleteSnapshot bool) error {
+	// Get current user ID from session before clearing
+	var userID string
+	if a.db != nil && a.userService != nil {
+		users, err := a.userService.ListUsers()
+		if err == nil && len(users) > 0 {
+			userID = users[0].ID
+		}
+	}
+
+	// Close database
+	if a.db != nil {
+		a.db.Close()
+		a.db = nil
+	}
+
+	// Stop queue processor
+	if a.queueProcessor != nil {
+		a.queueProcessor.Stop()
+		a.queueProcessor = nil
+	}
+
+	// Close service client
+	if a.serviceClient != nil {
+		a.serviceClient.Close()
+		a.serviceClient = nil
+	}
+
+	// Close Ably service
+	if a.ablyRealtimeService != nil {
+		a.ablyRealtimeService.Close()
+		a.ablyRealtimeService = nil
+	}
+
+	// Clear services
+	a.userService = nil
+	a.groupService = nil
+	a.channelService = nil
+	a.messageService = nil
+	a.dmService = nil
+	a.queueService = nil
+	a.signalService = nil
+	a.signalSessionService = nil
+	a.groupKeyService = nil
+
+	// Clear session
+	if err := a.keychainService.ClearSession(); err != nil {
+		fmt.Printf("Warning: failed to clear session: %v\n", err)
+	}
+
+	// Optionally delete UserSnapshot
+	if deleteSnapshot && userID != "" {
+		// Delete encryption key
+		if err := a.keychainService.DeleteEncryptionKey(userID); err != nil {
+			fmt.Printf("Warning: failed to delete encryption key: %v\n", err)
+		}
+		// Delete UserSnapshot directory
+		if err := a.profileService.DeleteUserSnapshot(userID); err != nil {
+			fmt.Printf("Warning: failed to delete UserSnapshot: %v\n", err)
+		}
+	}
+
+	return nil
+}
+
+// ========== Ably Realtime Methods ==========
+
+// SubscribeToChannel subscribes to Ably channel and emits events to frontend
+func (a *App) SubscribeToChannel(channelID string) error {
+	if a.ablyRealtimeService == nil {
+		return fmt.Errorf("Ably service not initialized")
+	}
+
+	return a.ablyRealtimeService.SubscribeToChannel(channelID, func(messageData map[string]interface{}) {
+		// Emit event to frontend via Wails
+		runtime.EventsEmit(a.ctx, "ably:message", messageData)
+	})
+}
+
+// UnsubscribeFromChannel unsubscribes from Ably channel
+func (a *App) UnsubscribeFromChannel(channelID string) error {
+	if a.ablyRealtimeService == nil {
+		return fmt.Errorf("Ably service not initialized")
+	}
+
+	return a.ablyRealtimeService.UnsubscribeFromChannel(channelID)
+}
+
+// IsAblyReady returns whether the Ably service is initialized and ready
+func (a *App) IsAblyReady() bool {
+	return a.ablyRealtimeService != nil
+}
+
+// ========== R2 Object Storage Methods ==========
+
+// PresignedUploadResponse contains the presigned URL and object key for an upload
+type PresignedUploadResponse struct {
+	UploadURL string `json:"upload_url"` // Presigned PUT URL
+	ObjectKey string `json:"object_key"` // Object key to use for the upload
+	PublicURL string `json:"public_url"` // Public URL (if bucket is public, otherwise use presigned GET)
+}
+
+// GetPresignedAvatarUploadURL generates a presigned PUT URL for uploading a user avatar
+// userID: The user's ID
+// aliasID: Optional alias ID (e.g., for different avatars per group/context). Use empty string for default.
+// filename: Original filename (used to determine extension)
+// contentType: MIME type of the file (e.g., "image/png", "image/jpeg")
+// Returns the presigned URL, object key, and public URL
+func (a *App) GetPresignedAvatarUploadURL(userID, aliasID, filename, contentType string) (*PresignedUploadResponse, error) {
+	if a.r2Service == nil {
+		return nil, fmt.Errorf("R2 service not initialized")
+	}
+
+	if userID == "" {
+		return nil, fmt.Errorf("user_id is required")
+	}
+
+	if filename == "" {
+		return nil, fmt.Errorf("filename is required")
+	}
+
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	// Generate object key
+	objectKey := a.r2Service.GenerateAvatarKey(userID, aliasID, filename)
+
+	// Generate presigned URL (valid for 1 hour)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	uploadURL, err := a.r2Service.PresignedUploadURL(ctx, objectKey, contentType, 1*time.Hour)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate presigned URL: %w", err)
+	}
+
+	fmt.Printf("[R2] Generated presigned URL for avatar: %s (object key: %s, content-type: %s)\n",
+		uploadURL[:min(100, len(uploadURL))], objectKey, contentType)
+
+	return &PresignedUploadResponse{
+		UploadURL: uploadURL,
+		ObjectKey: objectKey,
+		PublicURL: a.r2Service.GetPublicURL(objectKey),
+	}, nil
+}
+
+// min returns the minimum of two integers (helper for string truncation)
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// GetPresignedFileUploadURL generates a presigned PUT URL for uploading a file attachment
+// channelID: Channel ID (if channel message) - can be empty
+// conversationID: Conversation ID (if DM) - can be empty
+// messageID: Message ID (if already created) - can be empty for new messages
+// filename: Original filename
+// contentType: MIME type of the file
+// Returns the presigned URL, object key, and public URL
+func (a *App) GetPresignedFileUploadURL(channelID, conversationID, messageID, filename, contentType string) (*PresignedUploadResponse, error) {
+	if a.r2Service == nil {
+		return nil, fmt.Errorf("R2 service not initialized")
+	}
+
+	if channelID == "" && conversationID == "" {
+		return nil, fmt.Errorf("either channel_id or conversation_id is required")
+	}
+
+	if filename == "" {
+		return nil, fmt.Errorf("filename is required")
+	}
+
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	// Generate object key
+	objectKey := a.r2Service.GenerateFileKey(channelID, conversationID, messageID, filename)
+
+	// Generate presigned URL (valid for 1 hour)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	uploadURL, err := a.r2Service.PresignedUploadURL(ctx, objectKey, contentType, 1*time.Hour)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate presigned URL: %w", err)
+	}
+
+	return &PresignedUploadResponse{
+		UploadURL: uploadURL,
+		ObjectKey: objectKey,
+		PublicURL: a.r2Service.GetPublicURL(objectKey),
+	}, nil
+}
+
+// GetPresignedFileDownloadURL generates a presigned GET URL for downloading a file
+// objectKey: The object key in R2
+// Returns the presigned URL (valid for 1 hour)
+func (a *App) GetPresignedFileDownloadURL(objectKey string) (string, error) {
+	if a.r2Service == nil {
+		return "", fmt.Errorf("R2 service not initialized")
+	}
+
+	if objectKey == "" {
+		return "", fmt.Errorf("object_key is required")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	downloadURL, err := a.r2Service.PresignedGetURL(ctx, objectKey, 1*time.Hour)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate presigned download URL: %w", err)
+	}
+
+	return downloadURL, nil
+}

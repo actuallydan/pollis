@@ -1,0 +1,10 @@
+{
+  "name": "app",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd .. && wails dev",
+    "build": "cd .. && wails build"
+  }
+}
+

@@ -1,0 +1,336 @@
+syntax = "proto3";
+
+package pollis;
+
+option go_package = "pollis/pkg/proto";
+
+service PollisService {
+  // User Management
+  rpc RegisterUser(RegisterUserRequest) returns (RegisterUserResponse);
+  rpc GetUserByClerkID(GetUserByClerkIDRequest) returns (GetUserByClerkIDResponse);
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
+  
+  // Pre-Key / Identity
+  rpc RegisterPreKeys(RegisterPreKeysRequest) returns (RegisterPreKeysResponse);
+  rpc GetPreKeyBundle(GetPreKeyBundleRequest) returns (GetPreKeyBundleResponse);
+  rpc RotateSignedPreKey(RotateSignedPreKeyRequest) returns (RotateSignedPreKeyResponse);
+  
+  // Group Management
+  rpc CreateGroup(CreateGroupRequest) returns (CreateGroupResponse);
+  rpc GetGroup(GetGroupRequest) returns (GetGroupResponse);
+  rpc SearchGroup(SearchGroupRequest) returns (SearchGroupResponse);
+  rpc InviteToGroup(InviteToGroupRequest) returns (InviteToGroupResponse);
+  rpc ListUserGroups(ListUserGroupsRequest) returns (ListUserGroupsResponse);
+  
+  // Channel Management
+  rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse);
+  rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse);
+  rpc GetSenderKey(GetSenderKeyRequest) returns (GetSenderKeyResponse);
+  rpc DistributeSenderKey(DistributeSenderKeyRequest) returns (DistributeSenderKeyResponse);
+  
+  // Key Exchange
+  rpc SendKeyExchange(SendKeyExchangeRequest) returns (SendKeyExchangeResponse);
+  rpc GetKeyExchangeMessages(GetKeyExchangeMessagesRequest) returns (GetKeyExchangeMessagesResponse);
+  rpc MarkKeyExchangeRead(MarkKeyExchangeReadRequest) returns (MarkKeyExchangeReadResponse);
+  
+  // WebRTC Signaling (for future voice channels)
+  rpc SendWebRTCSignal(SendWebRTCSignalRequest) returns (SendWebRTCSignalResponse);
+  rpc GetWebRTCSignals(GetWebRTCSignalsRequest) returns (GetWebRTCSignalsResponse);
+  
+  // Key Backup (for recovery with Clerk)
+  rpc StoreKeyBackup(StoreKeyBackupRequest) returns (StoreKeyBackupResponse);
+  rpc GetKeyBackup(GetKeyBackupRequest) returns (GetKeyBackupResponse);
+}
+
+// User Messages
+message RegisterUserRequest {
+  string user_id = 1;
+  string clerk_id = 2;                     // Required, links to Clerk account
+  string username = 3;
+  optional string email = 4;
+  optional string phone = 5;
+  optional string avatar_url = 6;           // R2 object key or public URL
+  bytes public_key = 7;
+}
+
+message GetUserByClerkIDRequest {
+  string clerk_id = 1;
+}
+
+message GetUserByClerkIDResponse {
+  string user_id = 1;              // Empty if user not found
+  optional string username = 2;
+  optional string email = 3;
+  optional string phone = 4;
+  optional string avatar_url = 5;   // R2 object key or public URL
+  bytes public_key = 6;             // Empty if user not found
+}
+
+message RegisterUserResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetUserRequest {
+  string user_identifier = 1;  // username, email, or phone
+}
+
+message GetUserResponse {
+  string user_id = 1;
+  string username = 2;
+  optional string email = 3;
+  optional string phone = 4;
+  bytes public_key = 5;
+}
+
+message SearchUsersRequest {
+  string query = 1;
+  int32 limit = 2;
+}
+
+message SearchUsersResponse {
+  repeated GetUserResponse users = 1;
+}
+
+// Pre-Key / Identity Messages
+message RegisterPreKeysRequest {
+  string user_id = 1;
+  bytes identity_key = 2;            // Ed25519 public key
+  bytes signed_pre_key = 3;          // X25519 public key
+  bytes signed_pre_key_sig = 4;      // Ed25519 signature over signed_pre_key
+  repeated bytes one_time_pre_keys = 5; // X25519 public keys
+}
+
+message RegisterPreKeysResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetPreKeyBundleRequest {
+  string user_identifier = 1; // username/email/phone
+}
+
+message GetPreKeyBundleResponse {
+  string user_id = 1;
+  bytes identity_key = 2;       // Ed25519 public key
+  bytes signed_pre_key = 3;     // X25519 public key
+  bytes signed_pre_key_sig = 4; // Ed25519 signature
+  bytes one_time_pre_key = 5;   // Optional X25519 public key
+}
+
+message RotateSignedPreKeyRequest {
+  string user_id = 1;
+  bytes signed_pre_key = 2;     // New X25519 public key
+  bytes signed_pre_key_sig = 3; // Ed25519 signature
+}
+
+message RotateSignedPreKeyResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Group Messages
+message CreateGroupRequest {
+  string group_id = 1;
+  string slug = 2;
+  string name = 3;
+  optional string description = 4;
+  string created_by = 5;
+}
+
+message CreateGroupResponse {
+  bool success = 1;
+  string group_id = 2;
+  string message = 3;
+}
+
+message GetGroupRequest {
+  string group_id = 1;
+}
+
+message GetGroupResponse {
+  string group_id = 1;
+  string slug = 2;
+  string name = 3;
+  optional string description = 4;
+  string created_by = 5;
+  repeated string member_identifiers = 6;
+}
+
+message SearchGroupRequest {
+  string slug = 1;
+  string user_identifier = 2;  // Only returns group if user is a member
+}
+
+message SearchGroupResponse {
+  optional GetGroupResponse group = 1;
+  bool is_member = 2;
+}
+
+message InviteToGroupRequest {
+  string group_id = 1;
+  string user_identifier = 2;  // username, email, or phone
+  string invited_by = 3;
+}
+
+message InviteToGroupResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ListUserGroupsRequest {
+  string user_identifier = 1;
+}
+
+message ListUserGroupsResponse {
+  repeated GetGroupResponse groups = 1;
+}
+
+// Channel Messages
+message CreateChannelRequest {
+  string channel_id = 1;
+  string group_id = 2;
+  string slug = 3;
+  string name = 4;
+  optional string description = 5;
+  string created_by = 6;
+}
+
+message CreateChannelResponse {
+  bool success = 1;
+  string channel_id = 2;
+  string message = 3;
+}
+
+message ListChannelsRequest {
+  string group_id = 1;
+}
+
+message ListChannelsResponse {
+  repeated ChannelInfo channels = 1;
+}
+
+message ChannelInfo {
+  string channel_id = 1;
+  string slug = 2;
+  string name = 3;
+  optional string description = 4;
+  string created_by = 5;
+  string channel_type = 6;
+}
+
+// Sender Key Messages
+message GetSenderKeyRequest {
+  string group_id = 1;
+  string channel_id = 2;
+}
+
+message GetSenderKeyResponse {
+  bool success = 1;
+  bytes sender_key = 2;       // AES-256 key material
+  int32 key_version = 3;
+  int64 created_at = 4;
+}
+
+message DistributeSenderKeyRequest {
+  string group_id = 1;
+  string channel_id = 2;
+  bytes sender_key = 3;
+  int32 key_version = 4;
+  repeated string recipient_identifiers = 5; // usernames/emails/phones
+}
+
+message DistributeSenderKeyResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Key Exchange Messages
+message SendKeyExchangeRequest {
+  string from_user_id = 1;
+  string to_user_identifier = 2;
+  string message_type = 3;  // 'prekey_bundle', 'key_exchange', etc.
+  bytes encrypted_data = 4;
+  int64 expires_in_seconds = 5;
+}
+
+message SendKeyExchangeResponse {
+  bool success = 1;
+  string message_id = 2;
+  string message = 3;
+}
+
+message GetKeyExchangeMessagesRequest {
+  string user_identifier = 1;
+}
+
+message GetKeyExchangeMessagesResponse {
+  repeated KeyExchangeMessage messages = 1;
+}
+
+message KeyExchangeMessage {
+  string message_id = 1;
+  string from_user_id = 2;
+  string message_type = 3;
+  bytes encrypted_data = 4;
+  int64 created_at = 5;
+}
+
+message MarkKeyExchangeReadRequest {
+  repeated string message_ids = 1;
+}
+
+message MarkKeyExchangeReadResponse {
+  bool success = 1;
+}
+
+// WebRTC Signaling Messages
+message SendWebRTCSignalRequest {
+  string from_user_id = 1;
+  string to_user_id = 2;
+  string signal_type = 3;  // 'offer', 'answer', 'ice_candidate'
+  string signal_data = 4;  // JSON string
+  int64 expires_in_seconds = 5;
+}
+
+message SendWebRTCSignalResponse {
+  bool success = 1;
+  string signal_id = 2;
+}
+
+message GetWebRTCSignalsRequest {
+  string user_id = 1;
+}
+
+message GetWebRTCSignalsResponse {
+  repeated WebRTCSignal signals = 1;
+}
+
+message WebRTCSignal {
+  string signal_id = 1;
+  string from_user_id = 2;
+  string signal_type = 3;
+  string signal_data = 4;
+  int64 created_at = 5;
+}
+
+// Key Backup Messages (for recovery with Clerk)
+message StoreKeyBackupRequest {
+  string user_id = 1;
+  bytes encrypted_key = 2;  // Encrypted with Clerk token
+}
+
+message StoreKeyBackupResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetKeyBackupRequest {
+  string user_id = 1;
+}
+
+message GetKeyBackupResponse {
+  bytes encrypted_key = 1;
+}
+
