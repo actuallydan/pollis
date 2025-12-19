@@ -1,5 +1,4 @@
-import React, { useEffect, useRef } from 'react';
-import { SignIn, SignUp, useAuth, useUser } from '@clerk/clerk-react';
+import React, { useState } from 'react';
 import { Card } from '../Card';
 import { Header } from '../Header';
 import { Paragraph } from '../Paragraph';
@@ -10,91 +9,55 @@ interface ClerkAuthProps {
   onCancel: () => void;
 }
 
+/**
+ * ClerkAuth - Simplified authentication component
+ *
+ * Uses browser-based OAuth flow exclusively (no embedded Clerk UI)
+ * Tokens are handled entirely by the Wails Go backend for security
+ *
+ * Per AUTH_AND_DB_MIGRATION.md:
+ * - Frontend never handles raw Clerk tokens
+ * - Backend owns loopback server and token storage
+ * - CSRF protection via state parameter
+ */
 export const ClerkAuth: React.FC<ClerkAuthProps> = ({ mode, onSuccess, onCancel }) => {
-  const { isSignedIn, getToken, isLoaded } = useAuth();
-  const { user, isLoaded: userLoaded } = useUser();
-  const hasCalledSuccess = useRef(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const handleAuthSuccess = async () => {
-      // Wait for Clerk to fully load
-      if (!isLoaded || !userLoaded) return;
-      
-      // Prevent calling onSuccess multiple times
-      if (hasCalledSuccess.current) return;
-      
-      if (isSignedIn && user) {
-        try {
-          // Get the session token
-          const token = await getToken();
-          if (token) {
-            hasCalledSuccess.current = true;
-            const email = user.primaryEmailAddress?.emailAddress || '';
-            const avatarUrl = user.imageUrl;
-            onSuccess(user.id, token, email, avatarUrl);
-          }
-        } catch (error) {
-          console.error('Failed to get Clerk token:', error);
-        }
+  const handleAuth = async () => {
+    try {
+      setIsAuthenticating(true);
+      setError(null);
+
+      // Check if we're in desktop (Wails) environment
+      const isDesktop = typeof window !== 'undefined' && 'go' in window;
+
+      if (isDesktop) {
+        // Desktop: Trigger browser OAuth flow via Wails backend
+        // @ts-ignore - Wails runtime
+        const { AuthenticateWithClerk } = window.go.main.App;
+
+        // This will open the system browser and handle the OAuth callback
+        // The backend will emit an event when auth is complete
+        await AuthenticateWithClerk();
+
+        // Note: The actual onSuccess callback will be triggered by
+        // a runtime event from the Go backend after successful auth
+      } else {
+        // Web: Not supported in this migration
+        // In the future, could implement web-based auth flow
+        setError('Web authentication not yet supported. Please use the desktop app.');
       }
-    };
-
-    handleAuthSuccess();
-  }, [isSignedIn, user, getToken, onSuccess, isLoaded, userLoaded]);
-
-  // Reset the ref when component unmounts or mode changes
-  useEffect(() => {
-    hasCalledSuccess.current = false;
-  }, [mode]);
-
-  const clerkAppearance = {
-    elements: {
-      rootBox: "w-full",
-      card: "bg-transparent shadow-none border-0",
-      headerTitle: "text-orange-300 text-xl font-bold",
-      headerSubtitle: "text-orange-300/80 text-sm",
-      socialButtonsBlockButton: "border-orange-300/40 text-orange-300 bg-orange-300/5 hover:bg-orange-300/15 hover:border-orange-300/60",
-      socialButtonsBlockButtonText: "text-orange-300",
-      socialButtonsBlockButtonArrow: "text-orange-300",
-      formButtonPrimary: "bg-orange-300 text-black hover:bg-orange-200 font-semibold",
-      formFieldInput: "bg-gray-900 border-orange-300/40 text-orange-100 focus:border-orange-300 focus:ring-2 focus:ring-orange-300/20",
-      formFieldLabel: "text-orange-300/90 font-medium",
-      formFieldErrorText: "text-red-400",
-      footerActionLink: "text-orange-300 hover:text-orange-200 font-medium",
-      identityPreviewText: "text-orange-300/90",
-      identityPreviewEditButton: "text-orange-300 hover:text-orange-200",
-      formResendCodeLink: "text-orange-300 hover:text-orange-200",
-      otpCodeFieldInput: "bg-gray-900 border-orange-300/40 text-orange-100",
-    },
-    variables: {
-      colorPrimary: "#f97316",
-      colorText: "#fbbf24",
-      colorTextSecondary: "#fbbf24",
-      colorBackground: "#111111",
-      colorInputBackground: "#1a1a1a",
-      colorInputText: "#fbbf24",
-      colorNeutral: "#fbbf24",
-      borderRadius: "0.375rem",
+    } catch (err) {
+      console.error('Authentication error:', err);
+      setError(err instanceof Error ? err.message : 'Authentication failed');
+      setIsAuthenticating(false);
     }
   };
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-black p-4">
       <Card className="w-full max-w-md" variant="bordered">
-        <style>{`
-          .clerk-auth-container {
-            --clerk-primary: #f97316;
-            --clerk-text: #fbbf24;
-            --clerk-bg: #111111;
-            --clerk-input-bg: #1a1a1a;
-          }
-          .clerk-auth-container * {
-            color-scheme: dark;
-          }
-          .clerk-auth-container svg {
-            filter: brightness(1.2);
-          }
-        `}</style>
         <Header size="lg" className="mb-2 text-center">
           {mode === 'signup' ? 'Create Profile' : 'Sign In'}
         </Header>
@@ -103,16 +66,45 @@ export const ClerkAuth: React.FC<ClerkAuthProps> = ({ mode, onSuccess, onCancel 
             ? 'Sign up to create a new profile'
             : 'Sign in to access your profile'}
         </Paragraph>
-        <div className="clerk-auth-container">
-          {mode === 'signup' ? (
-            <SignUp appearance={clerkAppearance} />
-          ) : (
-            <SignIn appearance={clerkAppearance} />
-          )}
+
+        {error && (
+          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded">
+            <Paragraph size="sm" className="text-red-400">{error}</Paragraph>
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <button
+            onClick={handleAuth}
+            disabled={isAuthenticating}
+            className="w-full bg-orange-300 text-black hover:bg-orange-200 disabled:bg-orange-300/50 disabled:cursor-not-allowed font-semibold py-3 px-4 rounded transition-colors flex items-center justify-center"
+          >
+            {isAuthenticating ? (
+              <span className="flex items-center">
+                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Opening browser...
+              </span>
+            ) : (
+              mode === 'signup' ? 'Sign Up' : 'Sign In'
+            )}
+          </button>
         </div>
+
+        <div className="mt-6 text-center">
+          <Paragraph size="sm" className="text-orange-300/50">
+            Authentication opens in your default browser
+          </Paragraph>
+          <Paragraph size="sm" className="text-orange-300/50 mt-1">
+            After signing in, you can close the browser window
+          </Paragraph>
+        </div>
+
         <button
           onClick={onCancel}
-          className="mt-4 text-orange-300/70 hover:text-orange-300 text-sm text-center w-full"
+          className="mt-4 text-orange-300/70 hover:text-orange-300 text-sm text-center w-full transition-colors"
         >
           Cancel
         </button>

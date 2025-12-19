@@ -1,16 +1,12 @@
 package models
 
-// User represents a user in the service (metadata only)
+// User represents a user in the service (minimal metadata only)
+// Per AUTH_AND_DB_MIGRATION.md: username, email, phone, avatar_url removed
 type User struct {
 	ID        string `json:"id"`       // ULID
 	ClerkID   string `json:"clerk_id"` // Required, links to Clerk account
-	Username  string `json:"username,omitempty"`
-	Email     string `json:"email,omitempty"`
-	Phone     string `json:"phone,omitempty"`
-	AvatarURL string `json:"avatar_url,omitempty"` // R2 object key or public URL
-	PublicKey []byte `json:"-"`                    // Public identity key
 	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	Disabled  int    `json:"disabled"` // 0 = enabled, 1 = disabled
 }
 
 // Group represents a group/organization

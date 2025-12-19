@@ -35,23 +35,31 @@ type App struct {
 	// Auth flow
 	authServer *http.Server
 	authCancel chan struct{}
-	// Existing fields
-	db                   *database.DB
-	userService          *services.UserService
-	groupService         *services.GroupService
-	channelService       *services.ChannelService
-	messageService       *services.MessageService
-	dmService            *services.DMService
-	queueService         *services.QueueService
+	// Database
+	db *database.DB
+	// Core services
+	userService    *services.UserService
+	groupService   *services.GroupService
+	channelService *services.ChannelService
+	messageService *services.MessageService
+	dmService      *services.DMService
+	queueService   *services.QueueService
+	// New auth and crypto services
+	authSessionService *services.AuthSessionService
+	deviceService      *services.DeviceService
+	identityKeyService *services.IdentityKeyService
+	prekeyService      *services.PrekeyService
+	// Signal protocol services
 	signalService        *services.SignalService
 	signalSessionService *services.SignalSessionService
 	groupKeyService      *services.GroupKeyService
-	networkService       *services.NetworkService
-	serviceClient        *services.ServiceClient
-	queueProcessor       *services.QueueProcessor
-	serviceURL           string
-	ablyRealtimeService  *services.AblyRealtimeService
-	r2Service            *services.R2Service
+	// Network and external services
+	networkService      *services.NetworkService
+	serviceClient       *services.ServiceClient
+	queueProcessor      *services.QueueProcessor
+	serviceURL          string
+	ablyRealtimeService *services.AblyRealtimeService
+	r2Service           *services.R2Service
 }
 
 // NewApp creates a new App application struct
@@ -84,8 +92,7 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize Clerk service (get API key from env or config)
 	clerkAPIKey := os.Getenv("CLERK_SECRET_KEY")
 	if clerkAPIKey != "" {
-		clerkPubKey := os.Getenv("VITE_CLERK_PUBLISHABLE_KEY")
-		a.clerkService = services.NewClerkServiceWithPublishableKey(clerkAPIKey, clerkPubKey)
+		a.clerkService = services.NewClerkService(clerkAPIKey)
 	} else {
 		fmt.Println("Warning: CLERK_SECRET_KEY not found in environment")
 	}
@@ -134,20 +141,9 @@ func (a *App) startup(ctx context.Context) {
 	fmt.Println("Checking for stored session...")
 	userID, clerkToken, err := a.keychainService.GetStoredSession()
 	if err == nil && userID != "" && clerkToken != "" {
-		// Verify token with Clerk (handle both JWT and session tokens)
+		// Verify token with Clerk
 		if a.clerkService != nil {
-			var clerkUser *clerk.User
-			var verifyErr error
-
-			// Check if token is a JWT (has 3 parts) or a session token
-			parts := strings.Split(clerkToken, ".")
-			if len(parts) == 3 {
-				// It's a JWT, use VerifyToken
-				clerkUser, verifyErr = a.clerkService.VerifyToken(a.ctx, clerkToken)
-			} else {
-				// It's a session token, use VerifySessionToken
-				clerkUser, verifyErr = a.clerkService.VerifySessionToken(a.ctx, clerkToken)
-			}
+			clerkUser, verifyErr := a.clerkService.VerifySessionToken(a.ctx, clerkToken)
 
 			if verifyErr == nil && clerkUser != nil {
 				// Token is valid, try to load UserSnapshot
@@ -165,23 +161,10 @@ func (a *App) startup(ctx context.Context) {
 				}
 			} else {
 				fmt.Printf("Stored session token invalid: %v\n", verifyErr)
-				// If token verification failed but we have a userID, try loading UserSnapshot anyway
-				// This handles the case where __clerk_db_jwt can't be verified but the userID is still valid
-				if userID != "" {
-					fmt.Printf("Attempting to load UserSnapshot by userID despite token verification failure\n")
-					if err := a.loadUserSnapshot(userID); err == nil {
-						fmt.Println("UserSnapshot loaded successfully by userID")
-						// Don't clear session - userID is valid, token just can't be verified
-						// This is expected for __clerk_db_jwt tokens
-						return
-					} else {
-						fmt.Printf("Failed to load UserSnapshot by userID: %v\n", err)
-					}
-				}
 			}
 		}
-		// Only clear session if we couldn't load UserSnapshot by userID
-		fmt.Println("Clearing invalid session (could not load UserSnapshot)")
+		// Clear invalid session
+		fmt.Println("Clearing invalid session")
 		a.keychainService.ClearSession()
 	}
 
@@ -261,15 +244,27 @@ func (a *App) loadUserSnapshot(userID string) error {
 	}
 
 	// Initialize all services with the new database connection
-	a.userService = services.NewUserService(a.db.GetConn())
-	a.groupService = services.NewGroupService(a.db.GetConn())
-	a.channelService = services.NewChannelService(a.db.GetConn())
-	a.messageService = services.NewMessageService(a.db.GetConn())
-	a.dmService = services.NewDMService(a.db.GetConn())
-	a.queueService = services.NewQueueService(a.db.GetConn())
-	a.signalSessionService = services.NewSignalSessionService(a.db.GetConn())
-	a.groupKeyService = services.NewGroupKeyService(a.db.GetConn())
+	conn := a.db.GetConn()
+
+	// Core services
+	a.userService = services.NewUserService(conn)
+	a.groupService = services.NewGroupService(conn)
+	a.channelService = services.NewChannelService(conn)
+	a.messageService = services.NewMessageService(conn)
+	a.dmService = services.NewDMService(conn)
+	a.queueService = services.NewQueueService(conn)
+
+	// New auth and crypto services
+	a.authSessionService = services.NewAuthSessionService(conn)
+	a.deviceService = services.NewDeviceService(conn)
+	a.identityKeyService = services.NewIdentityKeyService(conn)
+	a.prekeyService = services.NewPrekeyService(conn)
+
+	// Signal protocol services
+	a.signalSessionService = services.NewSignalSessionService(conn)
+	a.groupKeyService = services.NewGroupKeyService(conn)
 	a.signalService = services.NewSignalService(a.signalSessionService, a.groupKeyService)
+
 	// Network service is initialized in startup() before service client
 	// Only create if not already initialized
 	if a.networkService == nil {
@@ -542,8 +537,9 @@ func (a *App) GetServiceUserData() (map[string]interface{}, error) {
 	return result, nil
 }
 
-// UpdateServiceUserData updates user data (username, email, phone, avatar_url) in the service DB
-// If avatarURL is nil, it won't be updated (preserves existing value)
+// UpdateServiceUserData updates user data in the service DB
+// Per AUTH_AND_DB_MIGRATION.md: user metadata (username, email, phone, avatar_url) no longer stored in service
+// This method now only ensures user is registered with minimal schema
 func (a *App) UpdateServiceUserData(username string, email, phone, avatarURL *string) error {
 	currentUser, err := a.GetCurrentUser()
 	if err != nil || currentUser == nil {
@@ -554,71 +550,25 @@ func (a *App) UpdateServiceUserData(username string, email, phone, avatarURL *st
 		return fmt.Errorf("service not available or offline")
 	}
 
-	// Get current public key
-	// We need to get the user's public key to register/update
-	var publicKey []byte
-	if a.userService != nil {
-		localUser, err := a.userService.GetUserByID(currentUser.ID)
-		if err == nil && localUser != nil {
-			publicKey = localUser.IdentityKeyPublic
-		}
-	}
-
 	clerkID := currentUser.ClerkID
-	if err := a.serviceClient.RegisterUser(currentUser.ID, username, email, phone, avatarURL, publicKey, &clerkID); err != nil {
+	if err := a.serviceClient.RegisterUser(currentUser.ID, &clerkID); err != nil {
 		return fmt.Errorf("failed to update user in service: %w", err)
 	}
 
 	return nil
 }
 
-// UpdateServiceUserAvatar updates user avatar URL in the service DB
+// UpdateServiceUserAvatar updates user avatar URL
+// Per AUTH_AND_DB_MIGRATION.md: avatar URLs no longer stored in service DB
+// Avatar is stored locally only (avatarURL parameter kept for backward compatibility)
 func (a *App) UpdateServiceUserAvatar(avatarURL string) error {
 	currentUser, err := a.GetCurrentUser()
 	if err != nil || currentUser == nil {
 		return fmt.Errorf("no current user found")
 	}
 
-	if a.serviceClient == nil || a.networkService == nil || !a.networkService.IsOnline() {
-		return fmt.Errorf("service not available or offline")
-	}
-
-	// Get current user data from service
-	serviceUser, err := a.serviceClient.GetUserByClerkID(currentUser.ClerkID)
-	if err != nil || serviceUser == nil {
-		return fmt.Errorf("user not found in service")
-	}
-
-	// Get username, email, phone from service user
-	username := ""
-	if serviceUser.Username != nil {
-		username = *serviceUser.Username
-	}
-	var emailPtr, phonePtr *string
-	if serviceUser.Email != nil && *serviceUser.Email != "" {
-		emailPtr = serviceUser.Email
-	}
-	if serviceUser.Phone != nil && *serviceUser.Phone != "" {
-		phonePtr = serviceUser.Phone
-	}
-
-	// Get public key
-	var publicKey []byte
-	if a.userService != nil {
-		localUser, err := a.userService.GetUserByID(currentUser.ID)
-		if err == nil && localUser != nil {
-			publicKey = localUser.IdentityKeyPublic
-		}
-	}
-
-	// Update user with new avatar URL (avatarURL is the object key)
-	avatarURLPtr := &avatarURL
-	clerkID := currentUser.ClerkID
-	if err := a.serviceClient.RegisterUser(currentUser.ID, username, emailPtr, phonePtr, avatarURLPtr, publicKey, &clerkID); err != nil {
-		return fmt.Errorf("failed to update user in service: %w", err)
-	}
-
-	fmt.Printf("[R2] Updated user avatar URL: %s\n", avatarURL)
+	// Avatar is now stored locally only - no service update needed
+	fmt.Printf("[R2] Avatar URL stored locally: %s\n", avatarURL)
 	return nil
 }
 
@@ -1012,12 +962,12 @@ func (a *App) SendMessage(channelID, conversationID, authorID, content string, r
 		}
 	}
 
-	// Create message
+	// Create message (using new schema field names)
 	message := &models.Message{
 		ChannelID:        channelID,
 		ConversationID:   conversationID,
-		AuthorID:         authorID,
-		ContentEncrypted: encryptedContent,
+		SenderID:         authorID,
+		Ciphertext:       encryptedContent,
 		ReplyToMessageID: replyToMessageID,
 	}
 
@@ -1063,8 +1013,8 @@ func (a *App) SendMessage(channelID, conversationID, authorID, content string, r
 				"message_id":      message.ID,
 				"channel_id":      message.ChannelID,
 				"conversation_id": message.ConversationID,
-				"author_id":       message.AuthorID,
-				"timestamp":       message.Timestamp,
+				"sender_id":       message.SenderID,
+				"created_at":      message.CreatedAt,
 			}
 
 			err := a.ablyRealtimeService.PublishMessage(targetID, messageData)
@@ -1115,12 +1065,12 @@ func (a *App) GetMessages(channelID, conversationID string, limit, offset int) (
 			return nil, fmt.Errorf("failed to get sender key: %w", err)
 		}
 		for _, msg := range messages {
-			if len(msg.ContentEncrypted) < encryption.NonceSize {
+			if len(msg.Ciphertext) < encryption.NonceSize {
 				msg.Content = "[decrypt error: invalid ciphertext]"
 				continue
 			}
-			nonce := msg.ContentEncrypted[:encryption.NonceSize]
-			ct := msg.ContentEncrypted[encryption.NonceSize:]
+			nonce := msg.Ciphertext[:encryption.NonceSize]
+			ct := msg.Ciphertext[encryption.NonceSize:]
 			pt, err := signal.DecryptWithSenderKey(senderKey, ct, nonce)
 			if err != nil {
 				msg.Content = fmt.Sprintf("[decrypt error: %v]", err)
@@ -1157,7 +1107,7 @@ func (a *App) GetMessages(channelID, conversationID string, limit, offset int) (
 				msg.Content = "[Unable to decrypt - no session]"
 				continue
 			}
-			decrypted, err := a.signalService.DecryptMessage(session, msg.ContentEncrypted)
+			decrypted, err := a.signalService.DecryptMessage(session, msg.Ciphertext)
 			if err != nil {
 				msg.Content = fmt.Sprintf("[Decryption error: %v]", err)
 				continue
@@ -1284,14 +1234,8 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 	var clerkUser *clerk.User
 	var err error
 
-	parts := strings.Split(clerkToken, ".")
-	if len(parts) == 3 {
-		// It's a JWT, use VerifyToken
-		clerkUser, err = a.clerkService.VerifyToken(a.ctx, clerkToken)
-	} else {
-		// It's a session token, use VerifySessionToken
-		clerkUser, err = a.clerkService.VerifySessionToken(a.ctx, clerkToken)
-	}
+	// All tokens are now verified using VerifySessionToken (JWT verification)
+	clerkUser, err = a.clerkService.VerifySessionToken(a.ctx, clerkToken)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify Clerk token: %w", err)
@@ -1369,23 +1313,32 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 
 	// Create User in local database if it doesn't exist
 	if user == nil {
+		// Per AUTH_AND_DB_MIGRATION.md: Identity keys now stored separately via IdentityKeyService
 		// Generate identity keys for the user
 		publicKey, privateKey, err := a.signalService.GenerateIdentityKeyPair()
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate identity keys: %w", err)
 		}
 
+		// Create minimal user record (no identity keys)
 		user = &models.User{
-			ID:                 userID,
-			ClerkID:            clerkUser.ID,
-			IdentityKeyPublic:  publicKey,
-			IdentityKeyPrivate: privateKey,
+			ID:      userID,
+			ClerkID: clerkUser.ID,
 		}
 
 		if err := a.userService.CreateUser(user); err != nil {
 			return nil, fmt.Errorf("failed to create user: %w", err)
 		}
 		fmt.Printf("Created new user in local DB: %s (clerk_id: %s)\n", user.ID, user.ClerkID)
+
+		// Store identity keys via IdentityKeyService
+		if a.identityKeyService != nil {
+			_, err := a.identityKeyService.CreateIdentityKey(publicKey, privateKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to store identity keys: %w", err)
+			}
+			fmt.Printf("Stored identity keys for user: %s\n", user.ID)
+		}
 
 		// Register User with service if online
 		if a.serviceClient == nil {
@@ -1397,27 +1350,13 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 		} else if !a.networkService.IsOnline() {
 			fmt.Printf("WARNING: network is offline, user not registered with service (will register when online)\n")
 		} else {
-			// Get user data from Clerk for registration
-			username := ""
-			if clerkUser.Username != nil {
-				username = *clerkUser.Username
-			}
-			var emailPtr, phonePtr *string
-			if len(clerkUser.EmailAddresses) > 0 && clerkUser.EmailAddresses[0] != nil {
-				email := clerkUser.EmailAddresses[0].EmailAddress
-				emailPtr = &email
-			}
 			clerkIDPtr := &clerkUser.ID
 			fmt.Printf("=== REGISTERING USER WITH SERVICE ===\n")
 			fmt.Printf("User ID: %s\n", user.ID)
 			fmt.Printf("Clerk ID: %s\n", clerkUser.ID)
-			fmt.Printf("Username: %s\n", username)
-			if emailPtr != nil {
-				fmt.Printf("Email: %s\n", *emailPtr)
-			}
 			fmt.Printf("Service client: %v\n", a.serviceClient != nil)
 			fmt.Printf("Network online: %v\n", a.networkService.IsOnline())
-			if err := a.serviceClient.RegisterUser(user.ID, username, emailPtr, phonePtr, nil, user.IdentityKeyPublic, clerkIDPtr); err != nil {
+			if err := a.serviceClient.RegisterUser(user.ID, clerkIDPtr); err != nil {
 				// Log error but don't fail - user is already created locally
 				fmt.Printf("ERROR: Failed to register user with service: %v\n", err)
 				fmt.Printf("ERROR: User will NOT appear in Turso DB until this is fixed.\n")

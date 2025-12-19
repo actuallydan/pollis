@@ -113,15 +113,15 @@ export namespace models {
 	}
 	export class Message {
 	    id: string;
+	    conversation_id: string;
+	    sender_id: string;
+	    created_at: number;
+	    delivered: boolean;
 	    channel_id?: string;
-	    conversation_id?: string;
-	    author_id: string;
 	    content?: string;
 	    reply_to_message_id?: string;
 	    thread_id?: string;
 	    is_pinned: boolean;
-	    timestamp: number;
-	    created_at: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Message(source);
@@ -130,15 +130,15 @@ export namespace models {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
-	        this.channel_id = source["channel_id"];
 	        this.conversation_id = source["conversation_id"];
-	        this.author_id = source["author_id"];
+	        this.sender_id = source["sender_id"];
+	        this.created_at = source["created_at"];
+	        this.delivered = source["delivered"];
+	        this.channel_id = source["channel_id"];
 	        this.content = source["content"];
 	        this.reply_to_message_id = source["reply_to_message_id"];
 	        this.thread_id = source["thread_id"];
 	        this.is_pinned = source["is_pinned"];
-	        this.timestamp = source["timestamp"];
-	        this.created_at = source["created_at"];
 	    }
 	}
 	export class MessageQueue {

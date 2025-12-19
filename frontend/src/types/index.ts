@@ -41,15 +41,16 @@ export interface Channel {
 export interface Message {
   id: string; // ULID
   channel_id?: string; // NULL for direct messages
-  conversation_id?: string; // NULL for channel messages, ULID for DMs
-  author_id: string; // user_id
-  content_encrypted: Uint8Array;
+  conversation_id?: string; // ULID (required - channel or DM conversation)
+  sender_id: string; // user_id (renamed from author_id per migration)
+  ciphertext: Uint8Array; // encrypted content (renamed from content_encrypted)
+  nonce: Uint8Array; // nonce for encryption
   content_decrypted?: string; // Decrypted content (client-side only)
   reply_to_message_id?: string; // ULID of message being replied to
   thread_id?: string; // ULID of thread root (NULL if not in thread)
   is_pinned: boolean;
-  timestamp: number;
-  created_at: number;
+  created_at: number; // primary timestamp
+  delivered: boolean; // delivery status
   attachments?: MessageAttachment[];
   // UI state
   status?: 'pending' | 'sending' | 'sent' | 'failed' | 'cancelled';

@@ -91,6 +91,10 @@ export function UnpinMessage(arg1:string):Promise<void>;
 
 export function UnsubscribeFromChannel(arg1:string):Promise<void>;
 
-export function UpdateServiceUserData(arg1:string,arg2:any,arg3:any):Promise<void>;
+export function UpdateGroup(arg1:string,arg2:string,arg3:string):Promise<models.Group>;
+
+export function UpdateServiceUserAvatar(arg1:string):Promise<void>;
+
+export function UpdateServiceUserData(arg1:string,arg2:any,arg3:any,arg4:any):Promise<void>;
 
 export function UpdateUser(arg1:models.User):Promise<void>;

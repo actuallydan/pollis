@@ -8,7 +8,8 @@ import (
 )
 
 // UserService handles user-related operations
-// Note: username, email, phone are stored in service DB, not locally
+// Note: Identity keys are now stored in separate identity_key table
+// Note: Username, email, phone are stored in service DB, not locally
 type UserService struct {
 	db *sql.DB
 }
@@ -20,6 +21,7 @@ func NewUserService(db *sql.DB) *UserService {
 
 // CreateUser creates a new user
 // clerk_id is required
+// Identity keys should be managed via IdentityKeyService
 func (s *UserService) CreateUser(user *models.User) error {
 	if user.ID == "" {
 		user.ID = utils.NewULID()
@@ -28,25 +30,16 @@ func (s *UserService) CreateUser(user *models.User) error {
 		return fmt.Errorf("clerk_id is required")
 	}
 
-	// Note: username, email, phone are stored in service DB, not locally
-	// For local DB, we provide placeholder values to satisfy NOT NULL constraints
-	// The migration 004 should make these nullable, but SQLite doesn't support ALTER COLUMN
-	// So we provide placeholders until the schema is properly migrated
-	placeholderUsername := user.ID // Use user ID as placeholder username
-	placeholderEmail := ""
-	placeholderPhone := ""
-	
 	query := `
-		INSERT INTO users (id, clerk_id, username, email, phone, identity_key_public, identity_key_private, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO users (id, clerk_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?)
 	`
 
 	now := utils.GetCurrentTimestamp()
 	user.CreatedAt = now
 	user.UpdatedAt = now
 
-	_, err := s.db.Exec(query, user.ID, user.ClerkID, placeholderUsername, placeholderEmail, placeholderPhone,
-		user.IdentityKeyPublic, user.IdentityKeyPrivate, user.CreatedAt, user.UpdatedAt)
+	_, err := s.db.Exec(query, user.ID, user.ClerkID, user.CreatedAt, user.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
 	}
@@ -57,17 +50,34 @@ func (s *UserService) CreateUser(user *models.User) error {
 // GetUserByID retrieves a user by ID
 func (s *UserService) GetUserByID(id string) (*models.User, error) {
 	user := &models.User{}
+
+	// Try new schema first (without identity keys)
 	query := `
-		SELECT id, clerk_id, identity_key_public, identity_key_private, created_at, updated_at
+		SELECT id, clerk_id, created_at, updated_at
 		FROM users
 		WHERE id = ?
 	`
 
 	err := s.db.QueryRow(query, id).Scan(
 		&user.ID, &user.ClerkID,
-		&user.IdentityKeyPublic, &user.IdentityKeyPrivate,
 		&user.CreatedAt, &user.UpdatedAt,
 	)
+
+	// If column doesn't exist, table might still have old schema
+	if err != nil && (err.Error() == "sql: expected 4 destination arguments in Scan, not 2" ||
+		err.Error() == "no such column: identity_key_public") {
+		// Try old schema with identity keys (for backward compatibility during migration)
+		queryOld := `
+			SELECT id, clerk_id, created_at, updated_at
+			FROM users
+			WHERE id = ?
+		`
+		err = s.db.QueryRow(queryOld, id).Scan(
+			&user.ID, &user.ClerkID,
+			&user.CreatedAt, &user.UpdatedAt,
+		)
+	}
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("user not found")
@@ -82,7 +92,7 @@ func (s *UserService) GetUserByID(id string) (*models.User, error) {
 func (s *UserService) GetUserByClerkID(clerkID string) (*models.User, error) {
 	user := &models.User{}
 	query := `
-		SELECT id, clerk_id, identity_key_public, identity_key_private, created_at, updated_at
+		SELECT id, clerk_id, created_at, updated_at
 		FROM users
 		WHERE clerk_id = ?
 		LIMIT 1
@@ -90,7 +100,6 @@ func (s *UserService) GetUserByClerkID(clerkID string) (*models.User, error) {
 
 	err := s.db.QueryRow(query, clerkID).Scan(
 		&user.ID, &user.ClerkID,
-		&user.IdentityKeyPublic, &user.IdentityKeyPrivate,
 		&user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
@@ -132,18 +141,18 @@ func (s *UserService) UserExists(clerkID string) (bool, error) {
 }
 
 // UpdateUser updates user information
-// Note: Only identity keys can be updated locally (username/email/phone are in service DB)
+// Note: Identity keys should be managed via IdentityKeyService
+// This method only updates the updated_at timestamp
 func (s *UserService) UpdateUser(user *models.User) error {
 	user.UpdatedAt = utils.GetCurrentTimestamp()
 
 	query := `
 		UPDATE users
-		SET identity_key_public = ?, identity_key_private = ?, updated_at = ?
+		SET updated_at = ?
 		WHERE id = ?
 	`
 
-	_, err := s.db.Exec(query,
-		user.IdentityKeyPublic, user.IdentityKeyPrivate, user.UpdatedAt, user.ID)
+	_, err := s.db.Exec(query, user.UpdatedAt, user.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
@@ -151,10 +160,30 @@ func (s *UserService) UpdateUser(user *models.User) error {
 	return nil
 }
 
+// DeleteUser deletes a user (use with caution)
+func (s *UserService) DeleteUser(id string) error {
+	query := `DELETE FROM users WHERE id = ?`
+	_, err := s.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+	return nil
+}
+
+// DeleteUserByClerkID deletes a user by Clerk ID (use with caution)
+func (s *UserService) DeleteUserByClerkID(clerkID string) error {
+	query := `DELETE FROM users WHERE clerk_id = ?`
+	_, err := s.db.Exec(query, clerkID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+	return nil
+}
+
 // ListUsers lists all users (for admin/debugging purposes)
 func (s *UserService) ListUsers() ([]*models.User, error) {
 	query := `
-		SELECT id, clerk_id, identity_key_public, identity_key_private, created_at, updated_at
+		SELECT id, clerk_id, created_at, updated_at
 		FROM users
 		ORDER BY created_at DESC
 	`
@@ -170,7 +199,6 @@ func (s *UserService) ListUsers() ([]*models.User, error) {
 		user := &models.User{}
 		err := rows.Scan(
 			&user.ID, &user.ClerkID,
-			&user.IdentityKeyPublic, &user.IdentityKeyPrivate,
 			&user.CreatedAt, &user.UpdatedAt,
 		)
 		if err != nil {

@@ -1,0 +1,165 @@
+package services
+
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+
+	"pollis-service/internal/database"
+	"pollis-service/internal/models"
+	"pollis-service/internal/utils"
+)
+
+type UserService struct {
+	db *database.DB
+}
+
+func NewUserService(db *database.DB) *UserService {
+	return &UserService{db: db}
+}
+
+// RegisterUser creates or updates a user in the service
+// Per AUTH_AND_DB_MIGRATION.md: username, email, phone, avatar_url removed from schema
+// clerkID is now required (not optional)
+func (s *UserService) RegisterUser(userID, clerkID string) error {
+	// Validate inputs
+	if err := utils.ValidateUserID(userID); err != nil {
+		return err
+	}
+	if clerkID == "" {
+		return fmt.Errorf("clerk_id is required")
+	}
+
+	now := utils.GetCurrentTimestamp()
+
+	// Check if user already exists
+	var exists bool
+	err := s.db.GetConn().QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM user WHERE id = ?)",
+		userID,
+	).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to check user existence: %w", err)
+	}
+
+	if exists {
+		// User already exists - nothing to update (clerk_id is immutable)
+		return nil
+	} else {
+		// Insert new user (minimal schema per migration)
+		_, err = s.db.GetConn().Exec(`
+			INSERT INTO user (id, clerk_id, created_at, disabled)
+			VALUES (?, ?, ?, 0)
+		`, userID, clerkID, now)
+		if err != nil {
+			return fmt.Errorf("failed to insert user: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// GetUserByID retrieves a user by ID
+func (s *UserService) GetUserByID(userID string) (*models.User, error) {
+	if err := utils.ValidateUserID(userID); err != nil {
+		return nil, err
+	}
+
+	user := &models.User{}
+	err := s.db.GetConn().QueryRow(`
+		SELECT id, clerk_id, created_at, disabled
+		FROM user
+		WHERE id = ?
+	`, userID).Scan(
+		&user.ID,
+		&user.ClerkID,
+		&user.CreatedAt,
+		&user.Disabled,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil // User not found
+		}
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	return user, nil
+}
+
+// GetUserByClerkID retrieves a user by Clerk ID
+func (s *UserService) GetUserByClerkID(clerkID string) (*models.User, error) {
+	if clerkID == "" {
+		return nil, fmt.Errorf("clerk_id is required")
+	}
+
+	user := &models.User{}
+	err := s.db.GetConn().QueryRow(`
+		SELECT id, clerk_id, created_at, disabled
+		FROM user
+		WHERE clerk_id = ?
+	`, clerkID).Scan(
+		&user.ID,
+		&user.ClerkID,
+		&user.CreatedAt,
+		&user.Disabled,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil // User not found
+		}
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	return user, nil
+}
+
+// DisableUser marks a user as disabled
+func (s *UserService) DisableUser(userID string) error {
+	if err := utils.ValidateUserID(userID); err != nil {
+		return err
+	}
+
+	_, err := s.db.GetConn().Exec(`
+		UPDATE user
+		SET disabled = 1
+		WHERE id = ?
+	`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to disable user: %w", err)
+	}
+
+	return nil
+}
+
+// EnableUser re-enables a disabled user
+func (s *UserService) EnableUser(userID string) error {
+	if err := utils.ValidateUserID(userID); err != nil {
+		return err
+	}
+
+	_, err := s.db.GetConn().Exec(`
+		UPDATE user
+		SET disabled = 0
+		WHERE id = ?
+	`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to enable user: %w", err)
+	}
+
+	return nil
+}
+
+// GetUser retrieves a user by identifier (deprecated - kept for backward compatibility)
+// Note: In the new schema, username/email/phone are not stored in the user table
+// This method is kept for backward compatibility but will only work with user IDs
+func (s *UserService) GetUser(userIdentifier string) (*models.User, error) {
+	return s.GetUserByID(userIdentifier)
+}
+
+// SearchUsers is deprecated in the new schema (no username/email/phone fields)
+// Returns empty list for backward compatibility
+func (s *UserService) SearchUsers(query string, limit int32) ([]*models.User, error) {
+	// In the new schema, user search is not supported at the service level
+	// User discovery should happen via Clerk (email/phone lookup)
+	return []*models.User{}, nil
+}

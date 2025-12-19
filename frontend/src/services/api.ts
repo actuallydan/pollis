@@ -160,9 +160,7 @@ export async function updateServiceUserData(
 ): Promise<void> {
   if (isDesktop()) {
     const { UpdateServiceUserData } = await import('../../wailsjs/go/main/App');
-    const emailPtr = email && email.trim() !== "" ? email : null;
-    const phonePtr = phone && phone.trim() !== "" ? phone : null;
-    await UpdateServiceUserData(username, emailPtr, phonePtr);
+    await UpdateServiceUserData(username, email, phone);
     return;
   }
   
@@ -325,14 +323,15 @@ export async function listMessages(channelId: string, conversationId?: string): 
       id: m.id,
       channel_id: m.channel_id,
       conversation_id: m.conversation_id,
-      author_id: m.author_id,
-      content_encrypted: new Uint8Array(),
+      sender_id: m.sender_id,
+      ciphertext: new Uint8Array(),
+      nonce: new Uint8Array(),
       content_decrypted: m.content || '',
       reply_to_message_id: m.reply_to_message_id,
       thread_id: m.thread_id,
       is_pinned: m.is_pinned || false,
-      timestamp: m.timestamp || m.created_at || 0,
       created_at: m.created_at || 0,
+      delivered: m.delivered || false,
       status: 'sent' as const,
     }));
   }
@@ -347,14 +346,15 @@ export async function listMessages(channelId: string, conversationId?: string): 
     id: m.id,
     channel_id: m.channel_id,
     conversation_id: m.conversation_id,
-    author_id: m.author_id,
-    content_encrypted: m.content_encrypted || new Uint8Array(),
+    sender_id: m.sender_id,
+    ciphertext: m.ciphertext || new Uint8Array(),
+    nonce: m.nonce || new Uint8Array(),
     content_decrypted: m.content_decrypted || '',
     reply_to_message_id: m.reply_to_message_id,
     thread_id: m.thread_id,
     is_pinned: m.is_pinned || false,
-    timestamp: m.timestamp || m.created_at || 0,
     created_at: m.created_at || 0,
+    delivered: m.delivered || false,
     status: m.status || 'sent',
   }));
 }
@@ -370,14 +370,15 @@ export async function sendMessage(channelId: string, conversationId: string, con
       id: msg.id,
       channel_id: msg.channel_id,
       conversation_id: msg.conversation_id,
-      author_id: msg.author_id,
-      content_encrypted: new Uint8Array(),
+      sender_id: msg.sender_id,
+      ciphertext: new Uint8Array(),
+      nonce: new Uint8Array(),
       content_decrypted: msg.content || content,
       reply_to_message_id: msg.reply_to_message_id,
       thread_id: msg.thread_id,
       is_pinned: msg.is_pinned || false,
-      timestamp: msg.timestamp || msg.created_at || Date.now(),
       created_at: msg.created_at || Date.now(),
+      delivered: msg.delivered || false,
       status: 'sent' as const,
     };
   }
@@ -394,13 +395,14 @@ export async function sendMessage(channelId: string, conversationId: string, con
     id: messageId,
     channel_id: channelId || undefined,
     conversation_id: conversationId || undefined,
-    author_id: user.id,
-    content_encrypted: new Uint8Array(),
+    sender_id: user.id,
+    ciphertext: new Uint8Array(),
+    nonce: new Uint8Array(),
     content_decrypted: content,
     reply_to_message_id: replyToId,
     is_pinned: false,
-    timestamp,
     created_at: timestamp,
+    delivered: false,
     status: 'sent' as const,
   };
   

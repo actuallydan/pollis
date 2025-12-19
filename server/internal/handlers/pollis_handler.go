@@ -121,26 +121,10 @@ func (h *PollisHandler) RegisterUser(ctx context.Context, req *proto.RegisterUse
 		}, nil
 	}
 
-	var email, phone, avatarURL *string
-	if req.Email != nil {
-		email = req.Email
-	}
-	if req.Phone != nil {
-		phone = req.Phone
-	}
-	if req.AvatarUrl != nil {
-		avatarURL = req.AvatarUrl
-	}
-
-	log.Printf("[RegisterUser] Registering user: user_id=%s, clerk_id=%s, username=%s", req.UserId, req.ClerkId, req.Username)
+	log.Printf("[RegisterUser] Registering user: user_id=%s, clerk_id=%s", req.UserId, req.ClerkId)
 	err := h.userService.RegisterUser(
 		req.UserId,
 		req.ClerkId,
-		req.Username,
-		email,
-		phone,
-		avatarURL,
-		req.PublicKey,
 	)
 	if err != nil {
 		log.Printf("[RegisterUser] ERROR: Failed to register user %s: %v", req.UserId, err)
@@ -170,50 +154,33 @@ func (h *PollisHandler) GetUserByClerkID(ctx context.Context, req *proto.GetUser
 	}
 
 	resp := &proto.GetUserByClerkIDResponse{
-		UserId:    user.ID,
-		PublicKey: user.PublicKey,
-	}
-
-	if user.Username != "" {
-		resp.Username = &user.Username
-	}
-	if user.Email != "" {
-		resp.Email = &user.Email
-	}
-	if user.Phone != "" {
-		resp.Phone = &user.Phone
-	}
-	if user.AvatarURL != "" {
-		resp.AvatarUrl = &user.AvatarURL
+		UserId: user.ID,
 	}
 
 	return resp, nil
 }
 
 // GetUser retrieves a user by identifier
+// Note: In the new schema, only ID and clerk_id are stored
 func (h *PollisHandler) GetUser(ctx context.Context, req *proto.GetUserRequest) (*proto.GetUserResponse, error) {
 	user, err := h.userService.GetUser(req.UserIdentifier)
 	if err != nil {
 		return nil, fmt.Errorf("user not found: %w", err)
 	}
 
-	resp := &proto.GetUserResponse{
-		UserId:    user.ID,
-		Username:  user.Username,
-		PublicKey: user.PublicKey,
+	if user == nil {
+		return &proto.GetUserResponse{}, nil
 	}
 
-	if user.Email != "" {
-		resp.Email = &user.Email
-	}
-	if user.Phone != "" {
-		resp.Phone = &user.Phone
+	resp := &proto.GetUserResponse{
+		UserId: user.ID,
 	}
 
 	return resp, nil
 }
 
 // SearchUsers searches for users
+// Note: In the new schema, user search is deprecated (returns empty list)
 func (h *PollisHandler) SearchUsers(ctx context.Context, req *proto.SearchUsersRequest) (*proto.SearchUsersResponse, error) {
 	users, err := h.userService.SearchUsers(req.Query, req.Limit)
 	if err != nil {
@@ -226,18 +193,8 @@ func (h *PollisHandler) SearchUsers(ctx context.Context, req *proto.SearchUsersR
 
 	for i, user := range users {
 		userResp := &proto.GetUserResponse{
-			UserId:    user.ID,
-			Username:  user.Username,
-			PublicKey: user.PublicKey,
+			UserId: user.ID,
 		}
-
-		if user.Email != "" {
-			userResp.Email = &user.Email
-		}
-		if user.Phone != "" {
-			userResp.Phone = &user.Phone
-		}
-
 		resp.Users[i] = userResp
 	}
 

@@ -178,8 +178,16 @@ export function UnsubscribeFromChannel(arg1) {
   return window['go']['main']['App']['UnsubscribeFromChannel'](arg1);
 }
 
-export function UpdateServiceUserData(arg1, arg2, arg3) {
-  return window['go']['main']['App']['UpdateServiceUserData'](arg1, arg2, arg3);
+export function UpdateGroup(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UpdateGroup'](arg1, arg2, arg3);
+}
+
+export function UpdateServiceUserAvatar(arg1) {
+  return window['go']['main']['App']['UpdateServiceUserAvatar'](arg1);
+}
+
+export function UpdateServiceUserData(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UpdateServiceUserData'](arg1, arg2, arg3, arg4);
 }
 
 export function UpdateUser(arg1) {

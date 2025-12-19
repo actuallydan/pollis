@@ -5,7 +5,6 @@ import React, {
   useMemo,
   useRef,
 } from "react";
-import { ClerkProvider } from "@clerk/clerk-react";
 import { useAppStore } from "./stores/appStore";
 import { Sidebar } from "./components/Layout/Sidebar";
 import { MainContent } from "./components/Layout/MainContent";

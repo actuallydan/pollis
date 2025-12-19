@@ -42,14 +42,15 @@ export const MainContent: React.FC = () => {
           id: m.id,
           channel_id: m.channel_id,
           conversation_id: m.conversation_id,
-          author_id: m.author_id,
-          content_encrypted: new Uint8Array(), // Encrypted content not exposed in models
+          sender_id: m.sender_id,
+          ciphertext: new Uint8Array(),
+          nonce: new Uint8Array(),
           content_decrypted: m.content,
           reply_to_message_id: m.reply_to_message_id,
           thread_id: m.thread_id,
           is_pinned: m.is_pinned,
-          timestamp: m.timestamp,
           created_at: m.created_at,
+          delivered: m.delivered || false,
           attachments: m.attachments || [],
         }));
 
@@ -110,14 +111,15 @@ export const MainContent: React.FC = () => {
         id: sentMessage.id,
         channel_id: sentMessage.channel_id,
         conversation_id: sentMessage.conversation_id,
-        author_id: sentMessage.author_id,
-        content_encrypted: new Uint8Array(), // Encrypted content not exposed in models
+        sender_id: sentMessage.sender_id,
+        ciphertext: new Uint8Array(),
+        nonce: new Uint8Array(),
         content_decrypted: (sentMessage as any).content, // Backend returns 'content', we use 'content_decrypted'
         reply_to_message_id: sentMessage.reply_to_message_id,
         thread_id: sentMessage.thread_id,
         is_pinned: sentMessage.is_pinned,
-        timestamp: sentMessage.timestamp,
         created_at: sentMessage.created_at,
+        delivered: sentMessage.delivered || false,
         attachments: messageAttachments,
         status: "sent",
       };
