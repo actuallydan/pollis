@@ -699,7 +699,7 @@ function MainApp({
             <DotMatrix algorithm={pulsingWaveAlgorithm} />
             <Card
               className="relative z-10 text-center max-w-md bg-black/90"
-              variant="bordered"
+              // variant="bordered"
             >
               <h1 className="text-2xl font-bold text-orange-300 mb-4">
                 Welcome to Pollis

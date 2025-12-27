@@ -17,7 +17,7 @@ require (
 	github.com/wailsapp/wails/v2 v2.11.0
 	golang.org/x/crypto v0.43.0
 	google.golang.org/grpc v1.77.0
-	pollis/pkg/proto v0.0.0
+	pollis/pkg/proto v0.0.0-00010101000000-000000000000
 )
 
 require (

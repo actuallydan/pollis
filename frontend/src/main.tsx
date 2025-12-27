@@ -1,5 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import "@fontsource/atkinson-hyperlegible";
 import "./index.css";
 import App from "./App";
 

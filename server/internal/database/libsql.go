@@ -28,38 +28,15 @@ func NewDB(dbURL string) (*DB, error) {
 	var conn *sql.DB
 	var err error
 
-	// Check if it's a remote libSQL URL (Turso)
-	if strings.HasPrefix(dbURL, "libsql://") && !strings.Contains(dbURL, "file:") {
-		// Remote libSQL/Turso connection
-		conn, err = sql.Open("libsql", dbURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open database: %w", err)
-		}
-	} else {
-		// Local SQLite file - use libsql driver
-		// Normalize the path
-		var dbPath string
-		if strings.HasPrefix(dbURL, "file:") {
-			dbPath = dbURL
-		} else if strings.HasPrefix(dbURL, "./") {
-			absPath, err := filepath.Abs(strings.TrimPrefix(dbURL, "./"))
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve absolute path: %w", err)
-			}
-			dbPath = "file:" + absPath
-		} else {
-			absPath, err := filepath.Abs(dbURL)
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve absolute path: %w", err)
-			}
-			dbPath = "file:" + absPath
-		}
+	// Only support Turso remote databases
+	if !strings.HasPrefix(dbURL, "libsql://") {
+		return nil, fmt.Errorf("invalid database URL: must start with libsql:// (Turso URL)")
+	}
 
-		// Use libsql driver for local files
-		conn, err = sql.Open("libsql", dbPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open database: %w", err)
-		}
+	// Remote libSQL/Turso connection
+	conn, err = sql.Open("libsql", dbURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
 	// Test connection

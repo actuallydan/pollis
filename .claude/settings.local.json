@@ -21,7 +21,25 @@
       "Bash(GODEBUG=asyncpreemptoff=1 ./build/bin/pollis-dev-linux-amd64:*)",
       "Bash(go mod tidy:*)",
       "Bash(go list:*)",
-      "Bash(go get:*)"
+      "Bash(go get:*)",
+      "Bash(pnpm dev:*)",
+      "Bash(go env:*)",
+      "Bash(echo:*)",
+      "Bash(source ~/.zshrc)",
+      "Bash(test:*)",
+      "Bash(pnpm proto:*)",
+      "Bash(brew install:*)",
+      "Bash(go install:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm build:*)",
+      "Bash(curl:*)",
+      "Bash(lsof:*)",
+      "Bash(pnpm dev:app:*)",
+      "Bash(pnpm --filter=app dev:*)",
+      "Bash(open:*)",
+      "Bash(pkill:*)",
+      "Bash(xargs kill:*)",
+      "Bash(pnpm store prune:*)"
     ]
   }
 }

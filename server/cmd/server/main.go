@@ -67,16 +67,11 @@ func main() {
 		log.Fatal("Database URL is required. Provide -db flag, DB_URL, or TURSO_URL[/TURSO_TOKEN].")
 	}
 
-	// Validate that we're using Turso (not a local file)
-	// The service should ALWAYS use Turso - local DBs are only for desktop app UserSnapshots
-	if strings.HasPrefix(*dbURL, "libsql://") && !strings.Contains(*dbURL, "file:") {
-		log.Printf("✓ Using Turso remote database")
-	} else if strings.Contains(*dbURL, "file:") || strings.HasSuffix(*dbURL, ".db") {
-		log.Fatalf("ERROR: Service must use Turso remote database, not local file. Got: %s\n"+
-			"Please set DB_URL to a Turso URL (libsql://host:port?authToken=...)", *dbURL)
-	} else {
-		log.Printf("⚠ Warning: Database URL doesn't match expected Turso format: %s", *dbURL)
+	// Validate that we're using Turso
+	if !strings.HasPrefix(*dbURL, "libsql://") {
+		log.Fatalf("ERROR: Database URL must be a Turso URL starting with libsql://\nGot: %s", *dbURL)
 	}
+	log.Printf("✓ Using Turso remote database")
 
 	// Initialize database
 	log.Printf("Connecting to database: %s", maskAuthToken(*dbURL))

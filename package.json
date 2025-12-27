@@ -3,10 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "GODEBUG=asyncpreemptoff=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 turbo run dev --filter=app --filter=server --parallel",
-    "dev:app": "GODEBUG=asyncpreemptoff=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 turbo run dev --filter=app",
+    "dev": "GODEBUG=asyncpreemptoff=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 GOTRACEBACK=all ./scripts/dev-wails.sh",
     "dev:frontend": "turbo run dev --filter=frontend",
-    "dev:server": "turbo run dev --filter=server",
+    "dev:server": "cd server && go run cmd/server/main.go -port=${PORT:-50051}",
     "build": "turbo run build",
     "build:app": "wails build",
     "lint": "turbo run lint",
