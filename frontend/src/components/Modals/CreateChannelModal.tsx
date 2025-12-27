@@ -1,12 +1,7 @@
 import React, { useState } from "react";
 import { X } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
-import { Card } from "../Card";
-import { Button } from "../Button";
-import { TextInput } from "../TextInput";
-import { Textarea } from "../Textarea";
-import { Header } from "../Header";
-import { Paragraph } from "../Paragraph";
+import { Card, Button, TextInput, Textarea, Header, Paragraph } from "monopollis";
 import { CreateChannel } from "../../../wailsjs/go/main/App";
 import { deriveSlug, updateURL } from "../../utils/urlRouting";
 

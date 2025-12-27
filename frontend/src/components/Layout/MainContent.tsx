@@ -4,9 +4,8 @@ import { ChannelHeader } from "./ChannelHeader";
 import { MessageList } from "../Message/MessageList";
 import { ReplyPreview } from "../Message/ReplyPreview";
 import { MessageQueue } from "../Message/MessageQueue";
-import { ChatInput } from "../ChatInput";
+import { ChatInput, type Attachment } from "monopollis";
 import { GetMessages, SendMessage } from "../../../wailsjs/go/main/App";
-import type { Attachment } from "../ChatInput";
 import type { MessageAttachment } from "../../types";
 
 export const MainContent: React.FC = () => {

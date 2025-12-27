@@ -19,8 +19,6 @@ import (
 	"pollis/internal/signal"
 	"pollis/internal/utils"
 
-	"github.com/clerk/clerk-sdk-go/v2"
-
 	"github.com/pkg/browser"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -151,10 +149,6 @@ func (a *App) startup(ctx context.Context) {
 				if err := a.loadUserSnapshot(userID); err == nil {
 					// UserSnapshot loaded successfully
 					fmt.Println("UserSnapshot loaded successfully")
-					// Initialize network monitoring
-					if a.networkService != nil {
-						a.networkService.StartMonitoring()
-					}
 					return
 				} else {
 					fmt.Printf("Failed to load UserSnapshot: %v\n", err)
@@ -1230,12 +1224,8 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 		return nil, fmt.Errorf("Clerk service not initialized")
 	}
 
-	// Check if token is a JWT (has 3 parts) or a session token
-	var clerkUser *clerk.User
-	var err error
-
-	// All tokens are now verified using VerifySessionToken (JWT verification)
-	clerkUser, err = a.clerkService.VerifySessionToken(a.ctx, clerkToken)
+	// Verify the token (handles both JWTs and session tokens)
+	clerkUser, err := a.clerkService.VerifySessionToken(a.ctx, clerkToken)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify Clerk token: %w", err)
@@ -1372,11 +1362,6 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 	// Store session
 	if err := a.keychainService.StoreSession(user.ID, clerkToken); err != nil {
 		return nil, fmt.Errorf("failed to store session: %w", err)
-	}
-
-	// Initialize network monitoring
-	if a.networkService != nil {
-		a.networkService.StartMonitoring()
 	}
 
 	return user, nil

@@ -2,9 +2,7 @@ import React, { useState, useRef } from "react";
 import { X, Upload, Loader2, Image as ImageIcon } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
 import { uploadGroupIcon } from "../../services/r2-upload";
-import { Button } from "../Button";
-import { Paragraph } from "../Paragraph";
-import { Header } from "../Header";
+import { Button, Paragraph, Header } from "monopollis";
 import type { Group } from "../../types";
 
 interface GroupIconModalProps {

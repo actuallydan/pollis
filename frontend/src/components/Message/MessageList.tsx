@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useMemo, useState } from "react";
 import { VariableSizeList as List } from "react-window";
 import { MessageItem } from "./MessageItem";
-import { Paragraph } from "../Paragraph";
+import { Paragraph } from "monopollis";
 import type { Message } from "../../types";
 
 interface MessageListProps {
@@ -39,7 +39,7 @@ const ListItem: React.FC<ListItemProps> = ({ index, style, data }) => {
   if (!message) return null;
 
   const authorUsername = data.getAuthorUsername
-    ? data.getAuthorUsername(message.author_id)
+    ? data.getAuthorUsername(message.sender_id)
     : "Unknown";
 
   return (

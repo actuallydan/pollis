@@ -1,6 +1,6 @@
 module pollis
 
-go 1.24.0
+go 1.25
 
 require (
 	github.com/99designs/keyring v1.2.1
@@ -11,7 +11,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.94.0
 	github.com/clerk/clerk-sdk-go/v2 v2.5.0
 	github.com/joho/godotenv v1.5.1
-	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/tursodatabase/libsql-client-go v0.0.0-20251205113610-b69dd6e475fc

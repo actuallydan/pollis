@@ -1,8 +1,7 @@
 import React from 'react';
 import { Wifi, WifiOff, Shield } from 'lucide-react';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
-import { Badge } from './Badge';
-import { Switch } from './Switch';
+import { Badge, Switch } from 'monopollis';
 
 export const NetworkStatusIndicator: React.FC = () => {
   const { networkStatus, killSwitchEnabled, toggleKillSwitch } = useNetworkStatus();

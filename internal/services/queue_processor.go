@@ -17,6 +17,7 @@ type QueueProcessor struct {
 	signalService   *SignalService
 	mu              sync.Mutex
 	isProcessing    bool
+	isRunning       bool // Track if processor is already running
 	stopChan        chan struct{}
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -40,18 +41,39 @@ func NewQueueProcessor(
 		stopChan:       make(chan struct{}),
 		ctx:            ctx,
 		cancel:         cancel,
+		isRunning:      false,
 	}
 }
 
 // Start starts the queue processor
+// This method is idempotent - calling it multiple times will not create duplicate processors
 func (p *QueueProcessor) Start() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Check if already running to prevent duplicate goroutines
+	if p.isRunning {
+		return
+	}
+
+	p.isRunning = true
 	go p.processLoop()
 }
 
 // Stop stops the queue processor
 func (p *QueueProcessor) Stop() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !p.isRunning {
+		return
+	}
+
+	p.isRunning = false
 	p.cancel()
-	close(p.stopChan)
+
+	// Don't close stopChan - it might be closed already
+	// Instead, use context cancellation only
 }
 
 // ProcessQueue processes all pending messages in the queue
@@ -171,8 +193,6 @@ func (p *QueueProcessor) processLoop() {
 	for {
 		select {
 		case <-p.ctx.Done():
-			return
-		case <-p.stopChan:
 			return
 		case <-ticker.C:
 			// Only process if online

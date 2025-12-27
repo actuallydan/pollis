@@ -1,7 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
-import { Paragraph } from '../Paragraph';
+import { Paragraph } from 'monopollis';
 
 interface ReplyPreviewProps {
   messageId: string;

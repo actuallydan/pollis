@@ -1,10 +1,6 @@
 import React from "react";
 import { ShieldAlert, ShieldCheck, XCircle } from "lucide-react";
-import { Card } from "../Card";
-import { Header } from "../Header";
-import { Paragraph } from "../Paragraph";
-import { Button } from "../Button";
-import { Badge } from "../Badge";
+import { Card, Header, Paragraph, Button, Badge } from "monopollis";
 
 interface KeyChangeWarningProps {
   contactName: string;

@@ -1,12 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Check, Copy, ShieldAlert, ShieldCheck, X } from "lucide-react";
-import { Card } from "../Card";
-import { Header } from "../Header";
-import { Paragraph } from "../Paragraph";
-import { Button } from "../Button";
-import { TextInput } from "../TextInput";
-import { Badge } from "../Badge";
+import { Card, Header, Paragraph, Button, TextInput, Badge } from "monopollis";
 
 interface KeyVerificationProps {
   contactName: string;

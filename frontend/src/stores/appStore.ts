@@ -79,14 +79,14 @@ export const useAppStore = create<AppStore>((set) => ({
   })),
   addMessagesBatch: (key, messages) => set((state) => {
     const current = state.messages[key] || [];
-    // Merge and deduplicate by ID, then sort by timestamp
+    // Merge and deduplicate by ID, then sort by created_at
     const messageMap = new Map<string, Message>();
     current.forEach(msg => messageMap.set(msg.id, msg));
     messages.forEach(msg => messageMap.set(msg.id, msg));
-    
+
     const merged = Array.from(messageMap.values())
-      .sort((a, b) => a.timestamp - b.timestamp);
-    
+      .sort((a, b) => a.created_at - b.created_at);
+
     return {
       messages: { ...state.messages, [key]: merged }
     };

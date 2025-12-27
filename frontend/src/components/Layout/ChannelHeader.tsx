@@ -1,8 +1,7 @@
 import React from "react";
 import { Hash, Pin, Info, MessageCircle, Settings } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
-import { Header } from "../Header";
-import { Paragraph } from "../Paragraph";
+import { Header, Paragraph } from "monopollis";
 import { NetworkStatusIndicator } from "../NetworkStatusIndicator";
 import { updateURL } from "../../utils/urlRouting";
 

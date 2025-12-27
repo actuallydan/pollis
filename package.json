@@ -3,8 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "turbo run dev --filter=app --filter=server --parallel",
-    "dev:app": "turbo run dev --filter=app",
+    "dev": "GODEBUG=asyncpreemptoff=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 turbo run dev --filter=app --filter=server --parallel",
+    "dev:app": "GODEBUG=asyncpreemptoff=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 turbo run dev --filter=app",
     "dev:frontend": "turbo run dev --filter=frontend",
     "dev:server": "turbo run dev --filter=server",
     "build": "turbo run build",

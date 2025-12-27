@@ -1,11 +1,7 @@
 import React from 'react';
 import { X, Clock, Send, AlertCircle } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
-import { Card } from '../Card';
-import { Badge } from '../Badge';
-import { Button } from '../Button';
-import { Paragraph } from '../Paragraph';
-import { Header } from '../Header';
+import { Card, Badge, Button, Paragraph, Header } from 'monopollis';
 
 export const MessageQueue: React.FC = () => {
   const {

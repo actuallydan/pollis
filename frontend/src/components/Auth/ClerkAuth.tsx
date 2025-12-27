@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
-import { Card } from '../Card';
-import { Header } from '../Header';
-import { Paragraph } from '../Paragraph';
+import { Card, Header, Paragraph } from 'monopollis';
 
 interface ClerkAuthProps {
   mode: 'signin' | 'signup';

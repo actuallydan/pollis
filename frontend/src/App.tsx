@@ -13,9 +13,8 @@ import { DesktopCallback } from "./pages/DesktopCallback";
 import { DesktopAuth, DesktopAuthSignIn } from "./pages/DesktopAuth";
 import { Settings } from "./pages/Settings";
 import { GroupSettings } from "./pages/GroupSettings";
-import { LoadingSpinner } from "./components/LoadingSpinner";
-import { DotMatrix } from "./components/DotMatrix";
-import { Card } from "./components/Card";
+import { LoadingSpinner, DotMatrix, Card, pulsingWaveAlgorithm } from "monopollis";
+import { ClerkProvider } from "@clerk/clerk-react";
 import {
   CreateGroupModal,
   CreateChannelModal,
@@ -468,8 +467,8 @@ function MainApp({
     } catch (error) {
       console.error("[App] Error checking session:", error);
       // Don't change state if we're already ready (might be a temporary error)
-      const currentState = appState;
-      if (currentState !== "ready" && currentState !== "loading") {
+      // Use type assertion to bypass control flow narrowing
+      if ((appState as AppState) !== "ready" && (appState as AppState) !== "loading") {
         setAppState("clerk-auth");
       }
     }
@@ -672,7 +671,7 @@ function MainApp({
       <div className="flex-1 flex flex-col overflow-hidden">
         {appState === "loading" && (
           <div className="relative flex flex-col items-center justify-center min-h-full bg-black">
-            <DotMatrix />
+            <DotMatrix algorithm={pulsingWaveAlgorithm} />
             <Card
               className="relative z-10 text-center max-w-md bg-black/90"
               variant="bordered"
@@ -697,7 +696,7 @@ function MainApp({
 
         {appState === "clerk-auth" && (
           <div className="relative flex flex-col items-center justify-center h-full bg-black">
-            <DotMatrix />
+            <DotMatrix algorithm={pulsingWaveAlgorithm} />
             <Card
               className="relative z-10 text-center max-w-md bg-black/90"
               variant="bordered"

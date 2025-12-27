@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Pin, Reply, MoreVertical, Download, Image as ImageIcon, File as FileIcon } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
-import { Paragraph } from "../Paragraph";
-import { Badge } from "../Badge";
+import { Paragraph, Badge } from "monopollis";
 import { getFileDownloadUrl } from "../../services/r2-upload";
 import type { Message, MessageAttachment } from "../../types";
 
@@ -22,7 +21,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   onScrollToReply,
 }) => {
   const { currentUser, messages } = useAppStore();
-  const isOwnMessage = message.author_id === currentUser?.id;
+  const isOwnMessage = message.sender_id === currentUser?.id;
 
   // Find reply-to message if exists
   const replyToMessage = message.reply_to_message_id
@@ -50,7 +49,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   const content =
     message.content_decrypted ??
     (message as any).content ??
-    (message.content_encrypted ? "[Encrypted message]" : "[No content]");
+    (message.ciphertext ? "[Encrypted message]" : "[No content]");
   const statusBadge = message.status && message.status !== "sent" && (
     <Badge
       variant={message.status === "failed" ? "error" : "warning"}
@@ -101,7 +100,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
               {authorUsername}
             </Paragraph>
             <Paragraph size="sm" className="text-orange-300/50 font-mono">
-              {formatTimestamp(message.timestamp)}
+              {formatTimestamp(message.created_at)}
             </Paragraph>
             {message.is_pinned && (
               <Pin className="w-3 h-3 text-orange-300/70 flex-shrink-0" />

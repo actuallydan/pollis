@@ -6,7 +6,7 @@ import {
   AlertTriangle,
   Shield,
 } from "lucide-react";
-import { Badge } from "../Badge";
+import { Badge } from "monopollis";
 
 type IndicatorKind =
   | "encrypted"

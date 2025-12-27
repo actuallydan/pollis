@@ -11,9 +11,7 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
-import { Button } from "../Button";
-import { Header } from "../Header";
-import { Paragraph } from "../Paragraph";
+import { Button, Header, Paragraph } from "monopollis";
 import { updateURL, deriveSlug } from "../../utils/urlRouting";
 import logo from "../../assets/images/LogoBigMono.svg";
 

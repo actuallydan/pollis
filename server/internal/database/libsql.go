@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	_ "github.com/tursodatabase/libsql-client-go/libsql"
 )
 
@@ -37,27 +36,27 @@ func NewDB(dbURL string) (*DB, error) {
 			return nil, fmt.Errorf("failed to open database: %w", err)
 		}
 	} else {
-		// Local SQLite file - use sqlite3 driver
+		// Local SQLite file - use libsql driver
 		// Normalize the path
 		var dbPath string
 		if strings.HasPrefix(dbURL, "file:") {
-			dbPath = strings.TrimPrefix(dbURL, "file:")
+			dbPath = dbURL
 		} else if strings.HasPrefix(dbURL, "./") {
 			absPath, err := filepath.Abs(strings.TrimPrefix(dbURL, "./"))
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve absolute path: %w", err)
 			}
-			dbPath = absPath
+			dbPath = "file:" + absPath
 		} else {
 			absPath, err := filepath.Abs(dbURL)
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve absolute path: %w", err)
 			}
-			dbPath = absPath
+			dbPath = "file:" + absPath
 		}
 
-		// Use sqlite3 driver for local files
-		conn, err = sql.Open("sqlite3", dbPath)
+		// Use libsql driver for local files
+		conn, err = sql.Open("libsql", dbPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open database: %w", err)
 		}
@@ -133,10 +132,17 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("failed to read migration %s: %w", file, err)
 		}
 
-		// Execute migration
-		_, err = db.conn.Exec(string(content))
-		if err != nil {
-			return fmt.Errorf("failed to execute migration %s: %w", file, err)
+		// Execute migration - split into individual statements
+		statements := splitSQLStatements(string(content))
+		for i, stmt := range statements {
+			stmt = strings.TrimSpace(stmt)
+			if stmt == "" || strings.HasPrefix(stmt, "--") {
+				continue // Skip empty statements and comments
+			}
+			_, err = db.conn.Exec(stmt)
+			if err != nil {
+				return fmt.Errorf("failed to execute migration %s (statement %d): %w\nStatement: %s", file, i+1, err, stmt[:min(len(stmt), 200)])
+			}
 		}
 
 		// Record migration
@@ -188,4 +194,64 @@ func extractVersion(filename string) int {
 // getCurrentTimestamp returns the current Unix timestamp
 func getCurrentTimestamp() int64 {
 	return time.Now().Unix()
+}
+
+// splitSQLStatements splits a SQL file into individual statements
+func splitSQLStatements(sql string) []string {
+	var statements []string
+	var current strings.Builder
+	inQuote := false
+	quoteChar := rune(0)
+
+	lines := strings.Split(sql, "\n")
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
+		// Skip comment-only lines
+		if strings.HasPrefix(trimmedLine, "--") {
+			continue
+		}
+
+		// Process the line character by character to handle quotes properly
+		for i, ch := range line {
+			if !inQuote {
+				if ch == '\'' || ch == '"' {
+					inQuote = true
+					quoteChar = ch
+				} else if ch == ';' {
+					// End of statement
+					stmt := strings.TrimSpace(current.String())
+					if stmt != "" {
+						statements = append(statements, stmt)
+					}
+					current.Reset()
+					continue
+				}
+			} else if ch == quoteChar {
+				// Check if it's an escaped quote
+				if i+1 < len(line) && rune(line[i+1]) == quoteChar {
+					current.WriteRune(ch)
+					continue
+				}
+				inQuote = false
+			}
+			current.WriteRune(ch)
+		}
+		current.WriteRune('\n')
+	}
+
+	// Add any remaining statement
+	stmt := strings.TrimSpace(current.String())
+	if stmt != "" && stmt != ";" {
+		statements = append(statements, stmt)
+	}
+
+	return statements
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

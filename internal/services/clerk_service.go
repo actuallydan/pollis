@@ -22,34 +22,66 @@ func NewClerkService(apiKey string) *ClerkService {
 	return &ClerkService{apiKey: apiKey}
 }
 
-// VerifySessionToken verifies a Clerk session token (JWT) and returns user info
+// VerifySessionToken verifies a Clerk session token or JWT and returns user info
 // This is the primary method for verifying tokens from the OAuth callback
+// It handles both JWT tokens (with 3 parts) and session tokens (session IDs)
 func (cs *ClerkService) VerifySessionToken(ctx context.Context, sessionToken string) (*clerk.User, error) {
 	if sessionToken == "" {
 		return nil, errors.New("session token is empty")
 	}
 
-	// Verify the JWT token using Clerk's SDK
-	claims, err := jwt.Verify(ctx, &jwt.VerifyParams{
-		Token: sessionToken,
-	})
-	if err != nil {
-		return nil, err
+	// Check if token is a JWT (has 3 parts separated by dots)
+	// JWTs have format: header.payload.signature
+	dotCount := 0
+	for _, c := range sessionToken {
+		if c == '.' {
+			dotCount++
+		}
 	}
 
-	// Extract user ID from claims
-	userID := claims.Subject
-	if userID == "" {
-		return nil, errors.New("token has no subject (user ID)")
-	}
+	if dotCount == 2 {
+		// It's a JWT token, verify using JWT verification
+		claims, err := jwt.Verify(ctx, &jwt.VerifyParams{
+			Token: sessionToken,
+		})
+		if err != nil {
+			return nil, err
+		}
 
-	// Fetch user details
-	usr, err := user.Get(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
+		// Extract user ID from claims
+		userID := claims.Subject
+		if userID == "" {
+			return nil, errors.New("token has no subject (user ID)")
+		}
 
-	return usr, nil
+		// Fetch user details
+		usr, err := user.Get(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+
+		return usr, nil
+	} else {
+		// It's a session ID (not a JWT), get the session and extract user
+		sess, err := session.Get(ctx, sessionToken)
+		if err != nil {
+			return nil, err
+		}
+
+		// Get user ID from session
+		userID := sess.UserID
+		if userID == "" {
+			return nil, errors.New("session has no user ID")
+		}
+
+		// Fetch user details
+		usr, err := user.Get(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+
+		return usr, nil
+	}
 }
 
 // VerifySession verifies a Clerk session ID and returns the session details

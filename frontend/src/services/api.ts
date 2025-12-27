@@ -160,10 +160,10 @@ export async function updateServiceUserData(
 ): Promise<void> {
   if (isDesktop()) {
     const { UpdateServiceUserData } = await import('../../wailsjs/go/main/App');
-    await UpdateServiceUserData(username, email, phone);
+    await UpdateServiceUserData(username, email, phone, null);
     return;
   }
-  
+
   // Web: Not available
   throw new Error("Service user data updates only available in desktop app");
 }
@@ -414,8 +414,8 @@ export async function sendMessage(channelId: string, conversationId: string, con
     channel_id: channelId || undefined,
     conversation_id: conversationId || undefined,
     message_id: messageId,
-    author_id: user.id,
-    timestamp,
+    sender_id: user.id,
+    created_at: timestamp,
   });
   
   return message;

@@ -17,6 +17,7 @@ type NetworkService struct {
 	stopChan      chan struct{}
 	ctx           context.Context
 	cancel        context.CancelFunc
+	isMonitoring  bool // Track if monitoring is already running
 }
 
 // NewNetworkService creates a new network service
@@ -29,18 +30,39 @@ func NewNetworkService() *NetworkService {
 		stopChan:      make(chan struct{}),
 		ctx:           ctx,
 		cancel:        cancel,
+		isMonitoring:  false,
 	}
 }
 
 // StartMonitoring starts network connectivity monitoring
+// This method is idempotent - calling it multiple times will not create duplicate monitors
 func (s *NetworkService) StartMonitoring() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if already monitoring to prevent duplicate goroutines
+	if s.isMonitoring {
+		return
+	}
+
+	s.isMonitoring = true
 	go s.monitor()
 }
 
 // StopMonitoring stops network connectivity monitoring
 func (s *NetworkService) StopMonitoring() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.isMonitoring {
+		return
+	}
+
+	s.isMonitoring = false
 	s.cancel()
-	close(s.stopChan)
+
+	// Don't close stopChan - it might be closed already
+	// Instead, use context cancellation only
 }
 
 // monitor periodically checks network connectivity
@@ -54,8 +76,6 @@ func (s *NetworkService) monitor() {
 	for {
 		select {
 		case <-s.ctx.Done():
-			return
-		case <-s.stopChan:
 			return
 		case <-ticker.C:
 			s.checkConnectivity()

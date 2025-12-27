@@ -1,0 +1,3 @@
+[submodule "packages/monopollis-ui"]
+	path = packages/monopollis-ui
+	url = https://github.com/actuallydan/monopollis-ui.git

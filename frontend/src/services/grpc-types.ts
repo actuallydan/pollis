@@ -254,8 +254,8 @@ export interface DeliverMessageRequest {
   channel_id?: string;
   conversation_id?: string;
   message_id: string;
-  author_id: string;
-  timestamp: number;
+  sender_id: string;
+  created_at: number;
 }
 
 export interface DeliverMessageResponse {

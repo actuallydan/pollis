@@ -1,12 +1,7 @@
 import React, { useState } from "react";
 import { X, Search } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
-import { Card } from "../Card";
-import { Button } from "../Button";
-import { TextInput } from "../TextInput";
-import { Header } from "../Header";
-import { Paragraph } from "../Paragraph";
-import { LoadingSpinner } from "../LoadingSpinner";
+import { Card, Button, TextInput, Header, Paragraph, LoadingSpinner } from "monopollis";
 import { GetGroupBySlug, AddGroupMember } from "../../../wailsjs/go/main/App";
 
 interface SearchGroupModalProps {

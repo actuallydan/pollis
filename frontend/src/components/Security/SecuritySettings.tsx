@@ -9,13 +9,7 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
-import { Card } from "../Card";
-import { Header } from "../Header";
-import { Paragraph } from "../Paragraph";
-import { Button } from "../Button";
-import { TextInput } from "../TextInput";
-import { Badge } from "../Badge";
-import { Switch } from "../Switch";
+import { Card, Header, Paragraph, Button, TextInput, Badge, Switch } from "monopollis";
 
 export interface VerifiedContact {
   id: string;

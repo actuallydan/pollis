@@ -1,11 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ArrowLeft, Upload, Loader2, User } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
-import { Button } from "../components/Button";
-import { Header } from "../components/Header";
-import { Paragraph } from "../components/Paragraph";
-import { TextInput } from "../components/TextInput";
-import { FilePicker, type FileWithPreview } from "../components/FilePicker";
+import { Button, Header, Paragraph, TextInput, FilePicker, type FileWithPreview } from "monopollis";
 import { uploadAvatar, getFileDownloadUrl } from "../services/r2-upload";
 import { updateURL } from "../utils/urlRouting";
 import * as api from "../services/api";

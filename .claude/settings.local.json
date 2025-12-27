@@ -1,10 +1,27 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm --version:*)",
+      "Bash(ls:*)",
+      "Bash(pnpm run build:*)",
+      "Bash(go run:*)",
+      "Bash(npx tsc:*)",
+      "Bash(pnpm add:*)",
+      "Bash(chmod:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:bugs.webkit.org)",
+      "WebFetch(domain:trac.webkit.org)",
+      "Bash(cat:*)",
+      "Bash(wails version:*)",
+      "Bash(bash:*)",
+      "Bash(go version:*)",
+      "WebFetch(domain:clerk.com)",
       "Bash(go build:*)",
-      "Bash(find:*)",
-      "Bash(go doc:*)"
+      "Bash(grep:*)",
+      "Bash(GODEBUG=asyncpreemptoff=1 ./build/bin/pollis-dev-linux-amd64:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(go list:*)",
+      "Bash(go get:*)"
     ]
   }
 }

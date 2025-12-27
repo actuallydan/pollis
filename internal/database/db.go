@@ -12,9 +12,6 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
-	// TODO: Add SQLCipher support with build tags to avoid conflicts
-	// _ "github.com/mutecomm/go-sqlcipher/v4"
 	_ "github.com/tursodatabase/libsql-client-go/libsql"
 )
 
@@ -28,8 +25,8 @@ type DB struct {
 
 // NewDB creates a new database connection
 func NewDB(dbPath string) (*DB, error) {
-	// For local files, use sqlite3 driver directly for better compatibility
-	conn, err := sql.Open("sqlite3", dbPath)
+	// For local files, use libsql driver
+	conn, err := sql.Open("libsql", "file:"+dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -104,22 +101,27 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("failed to read migration %s: %w", file, err)
 		}
 
-		// Execute migration
-		// Some migrations might fail if they're idempotent (e.g., adding a column that already exists)
-		// We'll try to execute and check for specific errors
-		_, err = db.conn.Exec(string(content))
-		if err != nil {
-			// Check if it's a "duplicate column" or "UNIQUE constraint" error
-			// This happens when trying to add a column that already exists or add UNIQUE to existing column
-			errStr := err.Error()
-			if strings.Contains(errStr, "duplicate column") || 
-			   strings.Contains(errStr, "already exists") ||
-			   strings.Contains(errStr, "UNIQUE constraint") ||
-			   strings.Contains(errStr, "Cannot add a UNIQUE column") {
-				// Column already exists or constraint already applied, that's okay - migration is idempotent
-				fmt.Printf("Migration %s: Column/constraint already exists, skipping: %v\n", file, err)
-			} else {
-				return fmt.Errorf("failed to execute migration %s: %w", file, err)
+		// Execute migration - split into individual statements
+		statements := splitSQLStatements(string(content))
+		for i, stmt := range statements {
+			stmt = strings.TrimSpace(stmt)
+			if stmt == "" || strings.HasPrefix(stmt, "--") {
+				continue // Skip empty statements and comments
+			}
+			_, err = db.conn.Exec(stmt)
+			if err != nil {
+				// Check if it's a "duplicate column" or "UNIQUE constraint" error
+				// This happens when trying to add a column that already exists or add UNIQUE to existing column
+				errStr := err.Error()
+				if strings.Contains(errStr, "duplicate column") ||
+				   strings.Contains(errStr, "already exists") ||
+				   strings.Contains(errStr, "UNIQUE constraint") ||
+				   strings.Contains(errStr, "Cannot add a UNIQUE column") {
+					// Column already exists or constraint already applied, that's okay - migration is idempotent
+					fmt.Printf("Migration %s (statement %d): Column/constraint already exists, skipping: %v\n", file, i+1, err)
+				} else {
+					return fmt.Errorf("failed to execute migration %s (statement %d): %w\nStatement: %s", file, i+1, err, stmt[:min(len(stmt), 200)])
+				}
 			}
 		}
 
@@ -174,6 +176,66 @@ func getCurrentTimestamp() int64 {
 	return time.Now().Unix()
 }
 
+// splitSQLStatements splits a SQL file into individual statements
+func splitSQLStatements(sql string) []string {
+	var statements []string
+	var current strings.Builder
+	inQuote := false
+	quoteChar := rune(0)
+
+	lines := strings.Split(sql, "\n")
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
+		// Skip comment-only lines
+		if strings.HasPrefix(trimmedLine, "--") {
+			continue
+		}
+
+		// Process the line character by character to handle quotes properly
+		for i, ch := range line {
+			if !inQuote {
+				if ch == '\'' || ch == '"' {
+					inQuote = true
+					quoteChar = ch
+				} else if ch == ';' {
+					// End of statement
+					stmt := strings.TrimSpace(current.String())
+					if stmt != "" {
+						statements = append(statements, stmt)
+					}
+					current.Reset()
+					continue
+				}
+			} else if ch == quoteChar {
+				// Check if it's an escaped quote
+				if i+1 < len(line) && rune(line[i+1]) == quoteChar {
+					current.WriteRune(ch)
+					continue
+				}
+				inQuote = false
+			}
+			current.WriteRune(ch)
+		}
+		current.WriteRune('\n')
+	}
+
+	// Add any remaining statement
+	stmt := strings.TrimSpace(current.String())
+	if stmt != "" && stmt != ";" {
+		statements = append(statements, stmt)
+	}
+
+	return statements
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // NewEncryptedDB creates a new encrypted database connection for local profile databases
 // Uses sqlite3 driver for local files (libsql is only for remote Turso databases)
 // Note: True encryption would require SQLCipher. For now, the encryptionKey is stored
@@ -188,14 +250,14 @@ func NewEncryptedDB(dbPath string, encryptionKey []byte) (*DB, error) {
 		return nil, fmt.Errorf("failed to resolve absolute path: %w", err)
 	}
 
-	// Use sqlite3 driver for local files
+	// Use libsql driver for local files
 	// SQLite will create the file if it doesn't exist, but we need to ensure the directory exists
 	dir := filepath.Dir(absPath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	conn, err := sql.Open("sqlite3", absPath)
+	conn, err := sql.Open("libsql", "file:"+absPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}

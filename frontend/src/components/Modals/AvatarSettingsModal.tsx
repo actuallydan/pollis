@@ -2,10 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { X, Upload, User, Loader2 } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
 import { uploadAvatar } from "../../services/r2-upload";
-import { Button } from "../Button";
-import { Paragraph } from "../Paragraph";
-import { Header } from "../Header";
-import { FilePicker, type FileWithPreview } from "../FilePicker";
+import { Button, Paragraph, Header, FilePicker, type FileWithPreview } from "monopollis";
 
 interface AvatarSettingsModalProps {
   isOpen: boolean;
