@@ -254,15 +254,17 @@ CREATE INDEX idx_rtc_session_channel_id ON rtc_session(channel_id);
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS message_queue (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   message_id TEXT NOT NULL,
-  queued_at INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
   retry_count INTEGER NOT NULL DEFAULT 0,
-  last_retry_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
   FOREIGN KEY (message_id) REFERENCES message(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_message_queue_queued_at ON message_queue(queued_at);
+CREATE INDEX idx_message_queue_status ON message_queue(status);
+CREATE INDEX idx_message_queue_created_at ON message_queue(created_at);
 CREATE INDEX idx_message_queue_message_id ON message_queue(message_id);
 
 -- ============================================================================

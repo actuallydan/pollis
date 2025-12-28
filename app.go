@@ -931,7 +931,8 @@ func (a *App) SendMessage(channelID, conversationID, authorID, content string, r
 		return nil, fmt.Errorf("cannot specify both channel_id and conversation_id")
 	}
 
-	var encryptedContent []byte
+	var ciphertext []byte
+	var nonce []byte
 
 	if channelID != "" {
 		// Group message: use sender key
@@ -943,12 +944,12 @@ func (a *App) SendMessage(channelID, conversationID, authorID, content string, r
 		if err != nil {
 			return nil, fmt.Errorf("failed to get sender key: %w", err)
 		}
-		ct, nonce, err := signal.EncryptWithSenderKey(senderKey, []byte(content))
+		ct, n, err := signal.EncryptWithSenderKey(senderKey, []byte(content))
 		if err != nil {
 			return nil, fmt.Errorf("failed to encrypt group message: %w", err)
 		}
-		// store nonce || ciphertext
-		encryptedContent = append(nonce, ct...)
+		ciphertext = ct
+		nonce = n
 	} else if conversationID != "" {
 		// DM: use double ratchet
 		conv, err := a.dmService.GetConversationByID(conversationID)
@@ -960,10 +961,17 @@ func (a *App) SendMessage(channelID, conversationID, authorID, content string, r
 		if err != nil || session == nil {
 			return nil, fmt.Errorf("no established session for DM; complete pre-key exchange first")
 		}
-		encryptedContent, err = a.signalService.EncryptMessage(session, []byte(content))
+		// For DM, EncryptMessage returns nonce || ciphertext combined
+		encryptedContent, err := a.signalService.EncryptMessage(session, []byte(content))
 		if err != nil {
 			return nil, fmt.Errorf("failed to encrypt message: %w", err)
 		}
+		// Split nonce and ciphertext (assuming 24-byte nonce for NaCl)
+		if len(encryptedContent) < 24 {
+			return nil, fmt.Errorf("encrypted content too short")
+		}
+		nonce = encryptedContent[:24]
+		ciphertext = encryptedContent[24:]
 	}
 
 	// Create message (using new schema field names)
@@ -971,7 +979,8 @@ func (a *App) SendMessage(channelID, conversationID, authorID, content string, r
 		ChannelID:        channelID,
 		ConversationID:   conversationID,
 		SenderID:         authorID,
-		Ciphertext:       encryptedContent,
+		Ciphertext:       ciphertext,
+		Nonce:            nonce,
 		ReplyToMessageID: replyToMessageID,
 	}
 
