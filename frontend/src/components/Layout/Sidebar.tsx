@@ -444,7 +444,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 )}
               </div>
               <div className="flex-1 min-w-0 text-left">
-                <div className="font-['Nunito'] text-orange-300 font-medium truncate">
+                <div className="font-sans text-orange-300 font-medium truncate">
                   User
                 </div>
                 <div className="text-xs text-orange-300/50 truncate">
