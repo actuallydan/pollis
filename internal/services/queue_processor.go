@@ -76,6 +76,21 @@ func (p *QueueProcessor) Stop() {
 	// Instead, use context cancellation only
 }
 
+// UpdateServices updates the processor's service references
+// This should be called after user login to update nil services
+func (p *QueueProcessor) UpdateServices(
+	queueService *QueueService,
+	messageService *MessageService,
+	signalService *SignalService,
+) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.queueService = queueService
+	p.messageService = messageService
+	p.signalService = signalService
+}
+
 // ProcessQueue processes all pending messages in the queue
 func (p *QueueProcessor) ProcessQueue() error {
 	p.mu.Lock()
@@ -92,8 +107,13 @@ func (p *QueueProcessor) ProcessQueue() error {
 		p.mu.Unlock()
 	}()
 
+	// Check if services are initialized (user logged in)
+	if p.queueService == nil || p.messageService == nil || p.signalService == nil {
+		return nil // Silently skip if no user logged in
+	}
+
 	// Check if online
-	if !p.networkService.IsOnline() {
+	if p.networkService == nil || !p.networkService.IsOnline() {
 		return fmt.Errorf("network not available")
 	}
 

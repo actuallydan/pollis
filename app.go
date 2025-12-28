@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	_ "embed"
 	"encoding/base64"
 	"fmt"
+	"html/template"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,6 +24,9 @@ import (
 	"github.com/pkg/browser"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+//go:embed internal/templates/clerk_redirect.html
+var clerkRedirectTemplate string
 
 // App struct
 type App struct {
@@ -138,6 +143,11 @@ func (a *App) startup(ctx context.Context) {
 	// Check for stored session
 	fmt.Println("Checking for stored session...")
 	userID, clerkToken, err := a.keychainService.GetStoredSession()
+	if err != nil {
+		fmt.Printf("GetStoredSession error: %v\n", err)
+	} else {
+		fmt.Printf("GetStoredSession success - userID: %s, token length: %d\n", userID, len(clerkToken))
+	}
 	if err == nil && userID != "" && clerkToken != "" {
 		// Verify token with Clerk
 		if a.clerkService != nil {
@@ -1367,26 +1377,53 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 	return user, nil
 }
 
-// AuthenticateWithClerk opens the default browser for Clerk OAuth flow (desktop only)
-// Returns the Clerk session token which can be used with AuthenticateAndLoadUser
+// AuthenticateWithClerk implements browser-based OAuth for desktop apps
+//
+// Flow:
+// 1. Desktop app starts local server on :44665 with two endpoints:
+//    - /clerk-redirect: HTML page that loads Clerk SDK to extract JWT token
+//    - /callback: Receives the JWT token and completes authentication
+// 2. Opens browser to Clerk's hosted sign-in page
+// 3. After sign-in, Clerk redirects to /clerk-redirect (still in browser)
+// 4. The clerk-redirect page uses Clerk SDK to get JWT token from session
+// 5. Redirects to /callback with the token
+// 6. Desktop app receives token and authenticates user
+//
+// Note: The intermediate /clerk-redirect page is necessary because Clerk stores
+// sessions in browser cookies. We need JavaScript in the browser context to
+// extract the JWT token using Clerk's SDK. Production Clerk instances return
+// proper JWTs that work with desktop apps.
+//
+// Environment Variables:
+// - VITE_CLERK_PUBLISHABLE_KEY: Required. Clerk publishable key
+// - CLERK_ACCOUNT_PORTAL_URL: Optional. Override the sign-in URL (e.g., "https://accounts.clerk.com/sign-in/your-instance")
 func (a *App) AuthenticateWithClerk() (string, error) {
-	apiKey := os.Getenv("CLERK_SECRET_KEY")
 	pubKey := os.Getenv("VITE_CLERK_PUBLISHABLE_KEY")
-	if apiKey == "" || pubKey == "" {
-		return "", fmt.Errorf("missing Clerk environment variables")
+	if pubKey == "" {
+		return "", fmt.Errorf("VITE_CLERK_PUBLISHABLE_KEY not set in environment")
 	}
 
 	// Generate random state for CSRF protection
 	state := randomState()
 	result := make(chan string, 1)
-
-	// Setup cancel channel
 	a.authCancel = make(chan struct{})
 
-	// Extract Clerk domain from publishable key
-	clerkDomain, err := extractClerkDomain(pubKey)
+	// Extract Clerk frontend API domain from publishable key
+	frontendAPIDomain, err := extractClerkDomain(pubKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to extract Clerk domain: %w", err)
+	}
+
+	// For sign-in, we need the Account Portal domain, not the Frontend API domain
+	// By convention: clerk.pollis.com → accounts.pollis.com
+	accountPortalDomain := strings.Replace(frontendAPIDomain, "clerk.", "accounts.", 1)
+
+	// Allow override via environment variable for custom Account Portal URLs
+	if overrideDomain := os.Getenv("CLERK_SIGN_IN_URL"); overrideDomain != "" {
+		fmt.Printf("[Auth] Using override sign-in URL from CLERK_SIGN_IN_URL: %s\n", overrideDomain)
+		accountPortalDomain = overrideDomain
+	} else {
+		fmt.Printf("[Auth] Using Account Portal domain: %s (derived from Frontend API: %s)\n", accountPortalDomain, frontendAPIDomain)
 	}
 
 	// Setup local HTTP server for OAuth callback
@@ -1396,125 +1433,111 @@ func (a *App) AuthenticateWithClerk() (string, error) {
 		Handler: mux,
 	}
 
-	// Callback endpoint - Clerk redirects here after authentication
-	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		// Verify state
-		receivedState := r.URL.Query().Get("state")
-		if receivedState != state {
-			http.Error(w, "invalid state", http.StatusBadRequest)
+	// Clerk redirect endpoint - serves HTML that uses Clerk SDK to get JWT token
+	mux.HandleFunc("/clerk-redirect", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Printf("[Auth] Serving Clerk redirect page...\n")
+
+		// Parse template
+		tmpl, err := template.New("clerk-redirect").Parse(clerkRedirectTemplate)
+		if err != nil {
+			http.Error(w, "template error", http.StatusInternalServerError)
 			return
 		}
 
-		// Log all query parameters and cookies for debugging
-		fmt.Printf("[Clerk Callback] Query params: %v\n", r.URL.Query())
-		fmt.Printf("[Clerk Callback] Cookies: %v\n", r.Cookies())
+		// Build callback URL
+		callbackURL := fmt.Sprintf("http://127.0.0.1:44665/callback?state=%s", url.QueryEscape(state))
 
-		// Clerk redirects with JWT token when __token parameter is used
-		// Try to get JWT token from various sources
-		// Priority: __token (JWT) > __session (session cookie) > __clerk_db_jwt (dev token)
-		sessionID := r.URL.Query().Get("__token")
-		if sessionID == "" {
-			sessionID = r.URL.Query().Get("__clerk_session_token")
-		}
-		if sessionID == "" {
-			sessionID = r.URL.Query().Get("__session")
-		}
-		if sessionID == "" {
-			// Fall back to __clerk_db_jwt for development compatibility
-			sessionID = r.URL.Query().Get("__clerk_db_jwt")
-		}
-		if sessionID == "" {
-			// Check cookies for session (cookies are set by Clerk's redirect)
-			for _, cookie := range r.Cookies() {
-				if cookie.Name == "__session" {
-					sessionID = cookie.Value
-					fmt.Printf("[Clerk Callback] Found __session cookie: %s... (length: %d)\n", sessionID[:min(20, len(sessionID))], len(sessionID))
-					break
-				} else if cookie.Name == "__token" {
-					sessionID = cookie.Value
-					fmt.Printf("[Clerk Callback] Found __token cookie: %s... (length: %d)\n", sessionID[:min(20, len(sessionID))], len(sessionID))
-					break
-				} else if cookie.Name == "__clerk_db_jwt" {
-					sessionID = cookie.Value
-					fmt.Printf("[Clerk Callback] Found __clerk_db_jwt cookie: %s... (length: %d)\n", sessionID[:min(20, len(sessionID))], len(sessionID))
-					break
-				}
-			}
-		}
+		// Render template
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		tmpl.Execute(w, map[string]string{
+			"PublishableKey": pubKey,
+			"CallbackURL":    callbackURL,
+		})
+	})
 
-		if sessionID == "" {
-			// If no session found, return an error page with debug info
+	// Callback endpoint - receives JWT token and completes authentication
+	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		// Verify state for CSRF protection
+		receivedState := r.URL.Query().Get("state")
+		if receivedState != state {
+			fmt.Printf("[Auth] Invalid state parameter\n")
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusBadRequest)
-			debugInfo := fmt.Sprintf(`
-				<p>Query params: %v</p>
-				<p>Cookies: %v</p>
-			`, r.URL.Query(), r.Cookies())
 			w.Write([]byte(`<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>Authentication Error</title></head>
+<head><title>Authentication Error</title></head>
 <body style="font-family: sans-serif; text-align: center; padding: 50px; background: #111; color: #ef4444;">
-	<h1>&#10007; Authentication Error</h1>
-	<p>No session found in callback.</p>
-	<div style="font-size: 10px; color: #888; text-align: left; margin: 20px auto; max-width: 600px;">` + debugInfo + `</div>
+	<h1>Authentication Error</h1>
+	<p>Invalid state parameter. Please try again.</p>
 </body>
 </html>`))
 			return
 		}
 
-		fmt.Printf("[Clerk Callback] Session ID found: %s... (length: %d)\n", sessionID[:min(20, len(sessionID))], len(sessionID))
-
-		// Check if we already have a JWT token (3 parts = JWT)
-		parts := strings.Split(sessionID, ".")
-		var finalToken string
-		if len(parts) == 3 {
-			// It's already a JWT token, use it directly
-			finalToken = sessionID
-			fmt.Printf("[Clerk Callback] Session ID is already a JWT token\n")
-		} else {
-			// It's a session token (like __clerk_db_jwt), we'll handle it in AuthenticateAndLoadUser
-			// For now, pass it through - AuthenticateAndLoadUser will use VerifySessionToken
-			finalToken = sessionID
-			fmt.Printf("[Clerk Callback] Session ID is not a JWT, will use VerifySessionToken\n")
+		// Get JWT token from query parameter
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			fmt.Printf("[Auth] No token received\n")
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`<!DOCTYPE html>
+<html>
+<head><title>Authentication Error</title></head>
+<body style="font-family: sans-serif; text-align: center; padding: 50px; background: #111; color: #ef4444;">
+	<h1>Authentication Error</h1>
+	<p>No token received. Please try again.</p>
+</body>
+</html>`))
+			return
 		}
 
-		tokenPreview := finalToken
-		if len(finalToken) > 20 {
-			tokenPreview = finalToken[:20]
-		}
-		fmt.Printf("[Clerk Callback] Token obtained: %s... (length: %d)\n", tokenPreview, len(finalToken))
+		fmt.Printf("[Auth] JWT token received successfully (length: %d)\n", len(token))
 
-		// Success response
+		// Success - show user they can close the browser
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(`<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>Authentication Successful</title></head>
+<head><title>Authentication Successful</title></head>
 <body style="font-family: sans-serif; text-align: center; padding: 50px; background: #111; color: #fbbf24;">
-	<h1>&#10003; Authentication Successful</h1>
+	<h1>✓ Authentication Successful</h1>
 	<p>You can close this window and return to the app.</p>
+	<script>setTimeout(() => window.close(), 2000);</script>
 </body>
 </html>`))
 
-		result <- finalToken
+		result <- token
 		go a.authServer.Shutdown(context.Background())
 	})
 
-	// Build Clerk hosted sign-in URL
-	// Clerk will handle all OAuth flows and redirect back to our callback endpoint
-	// For desktop apps, we need to request a JWT token in the redirect
-	// Use __token parameter to get a JWT token instead of __clerk_db_jwt
-	callbackURL := fmt.Sprintf("http://127.0.0.1:44665/callback?state=%s", url.QueryEscape(state))
-	// Add __clerk_sign_out=true to force sign-out of any existing session (allows different users)
-	authURL := fmt.Sprintf("https://%s/sign-in?redirect_url=%s&after_sign_in_url=%s&__token=1&__clerk_sign_out=true",
-		clerkDomain,
-		url.QueryEscape(callbackURL),
-		url.QueryEscape(callbackURL),
-	)
+	// For production: Use web-hosted callback page that redirects to localhost
+	// For development: Can use localhost directly
+	clerkRedirectURL := os.Getenv("CLERK_REDIRECT_URL")
+	if clerkRedirectURL == "" {
+		// Default to production callback page
+		clerkRedirectURL = "https://pollis.com/auth-callback"
+	}
 
-	// Start server in background
+	// Build the authentication URL with state parameter
+	// The state is appended to the redirect URL so the web callback can pass it through
+	clerkRedirectURLWithState := fmt.Sprintf("%s?state=%s", clerkRedirectURL, url.QueryEscape(state))
+
+	var authURL string
+	if strings.HasPrefix(accountPortalDomain, "http://") || strings.HasPrefix(accountPortalDomain, "https://") {
+		// Full URL provided (from CLERK_SIGN_IN_URL override)
+		authURL = fmt.Sprintf("%s?redirect_url=%s", accountPortalDomain, url.QueryEscape(clerkRedirectURLWithState))
+	} else {
+		// Domain only - construct full URL
+		authURL = fmt.Sprintf("https://%s/sign-in?redirect_url=%s",
+			accountPortalDomain,
+			url.QueryEscape(clerkRedirectURLWithState),
+		)
+	}
+
+	// Start server
 	go a.authServer.ListenAndServe()
 
-	// Open browser to Clerk's hosted sign-in page
+	// Open browser
+	fmt.Printf("[Auth] Opening browser to: %s\n", authURL)
 	if err := browser.OpenURL(authURL); err != nil {
 		a.authServer.Shutdown(context.Background())
 		a.authServer = nil
@@ -1527,6 +1550,7 @@ func (a *App) AuthenticateWithClerk() (string, error) {
 	case token := <-result:
 		a.authServer = nil
 		a.authCancel = nil
+		fmt.Printf("[Auth] Authentication completed successfully\n")
 		return token, nil
 	case <-a.authCancel:
 		a.authServer.Shutdown(context.Background())
@@ -1556,21 +1580,10 @@ func randomState() string {
 	return base64.URLEncoding.EncodeToString(b)
 }
 
-// exchangeSessionForJWT - exchanges __clerk_db_jwt for a proper JWT token
-// __clerk_db_jwt is a development token that can't be exchanged directly
-// The real solution is to configure Clerk's OAuth redirect to return a JWT token
-// For now, return the token as-is and let VerifySessionToken handle it
-func (a *App) exchangeSessionForJWT(sessionID string, apiKey string, clerkDomain string) (string, error) {
-	// __clerk_db_jwt can't be exchanged directly for a JWT token using Backend API
-	// We need to configure Clerk's OAuth redirect to return a JWT token instead
-	// For now, return the token as-is and let VerifySessionToken handle it
-	return sessionID, nil
-}
 
-// extractClerkDomain extracts the Clerk Account Portal domain from the publishable key
-// Publishable key format: pk_test_<base64_encoded_domain>
-// The encoded domain is like "beloved-bird-4.clerk.accounts.dev"
-// But the Account Portal URL is "beloved-bird-4.accounts.dev" (without .clerk)
+// extractClerkDomain extracts the Clerk frontend API domain from the publishable key
+// For development instances: pk_test_... → instance.clerk.accounts.dev
+// For production instances: pk_live_... → custom domain or instance.clerk.accounts.com
 func extractClerkDomain(pubKey string) (string, error) {
 	// Remove "pk_test_" or "pk_live_" prefix
 	var encodedDomain string
@@ -1598,9 +1611,7 @@ func extractClerkDomain(pubKey string) (string, error) {
 		domain = domain[:len(domain)-1]
 	}
 
-	// The publishable key encodes "instance.clerk.accounts.dev"
-	// But Account Portal URL is "instance.accounts.dev" (remove .clerk)
-	domain = strings.Replace(domain, ".clerk.accounts.dev", ".accounts.dev", 1)
+	fmt.Printf("[Auth] Extracted Clerk domain: %s\n", domain)
 
 	return domain, nil
 }

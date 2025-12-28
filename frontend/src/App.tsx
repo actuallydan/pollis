@@ -9,12 +9,9 @@ import { useAppStore } from "./stores/appStore";
 import { Sidebar } from "./components/Layout/Sidebar";
 import { MainContent } from "./components/Layout/MainContent";
 import { TitleBar } from "./components/Layout/TitleBar";
-import { DesktopCallback } from "./pages/DesktopCallback";
-import { DesktopAuth, DesktopAuthSignIn } from "./pages/DesktopAuth";
 import { Settings } from "./pages/Settings";
 import { GroupSettings } from "./pages/GroupSettings";
 import { LoadingSpinner, DotMatrix, Card, pulsingWaveAlgorithm } from "monopollis";
-import { ClerkProvider } from "@clerk/clerk-react";
 import {
   CreateGroupModal,
   CreateChannelModal,
@@ -28,19 +25,12 @@ import { useWailsReady } from "./hooks/useWailsReady";
 import { useAblyRealtime } from "./hooks/useAblyRealtime";
 import { parseURL, deriveSlug } from "./utils/urlRouting";
 
-// Get Clerk publishable key from env
-const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || "";
-
 // Storage keys for state persistence
 const STORAGE_KEYS = {
   SELECTED_GROUP: "pollis_selected_group",
   SELECTED_CHANNEL: "pollis_selected_channel",
   SELECTED_CONVERSATION: "pollis_selected_conversation",
 } as const;
-
-// Desktop auth state keys (used to persist across OAuth redirects)
-const DESKTOP_AUTH_STATE_KEY = "pollis_desktop_auth_state";
-const DESKTOP_AUTH_RETURN_URL_KEY = "pollis_desktop_auth_return_url";
 
 // Helper to safely get from localStorage
 function getStoredSelection() {
@@ -75,74 +65,16 @@ type AppState = "initializing" | "loading" | "clerk-auth" | "ready";
 
 function App() {
   const { isDesktop, isReady: isWailsReady } = useWailsReady();
-  const pathname =
-    typeof window !== "undefined" ? window.location.pathname : "/";
 
-  // Special pages for desktop auth flow (when opened in browser)
-  // These pages need ClerkProvider for Clerk components
-  // Check pathname FIRST - if it's a special route, render it immediately
-  // regardless of isDesktop state (browser pages should always render)
-  if (pathname.startsWith("/desktop-")) {
-    if (pathname === "/desktop-callback") {
-      return (
-        <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>
-          <DesktopCallback />
-        </ClerkProvider>
-      );
-    }
-
-    if (pathname === "/desktop-auth") {
-      return (
-        <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>
-          <DesktopAuth />
-        </ClerkProvider>
-      );
-    }
-
-    if (pathname === "/desktop-auth-signin") {
-      return (
-        <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>
-          <DesktopAuthSignIn />
-        </ClerkProvider>
-      );
-    }
-  }
-
-  // Main desktop app - no ClerkProvider needed (we use browser for auth)
-  // Only render this if we're actually in the desktop app
+  // Desktop app only - browser auth is handled by desktop backend
+  // The backend serves the OAuth callback pages on localhost:44665
   if (!isDesktop) {
-    // If we're in browser but not on a special route, check if we have pending auth state
-    // (Clerk might redirect to / after OAuth, we need to catch that)
-    const hasPendingAuth =
-      typeof window !== "undefined" &&
-      (localStorage.getItem(DESKTOP_AUTH_STATE_KEY) !== null ||
-        window.location.search.includes("__clerk_"));
-
-    if (hasPendingAuth && pathname === "/") {
-      // Redirect back to desktop-auth to complete the flow
-      const storedState = localStorage.getItem(DESKTOP_AUTH_STATE_KEY);
-      const storedReturnUrl =
-        localStorage.getItem(DESKTOP_AUTH_RETURN_URL_KEY) ||
-        "http://127.0.0.1:44665/callback";
-      if (storedState) {
-        window.location.href = `/desktop-auth?state=${encodeURIComponent(
-          storedState
-        )}&return_url=${encodeURIComponent(storedReturnUrl)}`;
-        return (
-          <div className="flex items-center justify-center min-h-screen bg-black">
-            <LoadingSpinner size="lg" />
-          </div>
-        );
-      }
-    }
-
-    // If we're in browser but not on a special route, show error
     return (
       <div className="flex items-center justify-center min-h-screen bg-black">
         <div className="text-center">
-          <div className="text-red-400 mb-2">Invalid Route</div>
+          <div className="text-red-400 mb-2">Desktop Only</div>
           <div className="text-orange-300/70 text-sm">
-            This app is desktop-only. Please use the desktop application.
+            This app requires the desktop application.
           </div>
         </div>
       </div>

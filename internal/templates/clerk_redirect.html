@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Completing Authentication...</title>
+	<style>
+		body {
+			font-family: sans-serif;
+			text-align: center;
+			padding: 50px;
+			background: #111;
+			color: #fbbf24;
+			margin: 0;
+		}
+		h1 {
+			font-size: 24px;
+			margin-bottom: 20px;
+		}
+		#status {
+			font-size: 16px;
+		}
+		.error {
+			color: #ef4444;
+		}
+	</style>
+</head>
+<body>
+	<h1>Completing authentication...</h1>
+	<p id="status">Loading...</p>
+	<script>
+		(async () => {
+			try {
+				const status = document.getElementById('status');
+				const pubKey = '{{.PublishableKey}}';
+				const callbackURL = '{{.CallbackURL}}';
+
+				status.textContent = 'Loading Clerk SDK...';
+
+				// Load Clerk SDK
+				const script = document.createElement('script');
+				script.src = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@latest/dist/clerk.browser.js';
+				script.crossOrigin = 'anonymous';
+
+				await new Promise((resolve, reject) => {
+					script.onload = resolve;
+					script.onerror = reject;
+					document.head.appendChild(script);
+				});
+
+				// Wait for Clerk to be available
+				let attempts = 0;
+				while (!window.Clerk && attempts++ < 50) {
+					await new Promise(r => setTimeout(r, 100));
+				}
+
+				if (!window.Clerk) {
+					throw new Error('Clerk SDK not available');
+				}
+
+				status.textContent = 'Initializing Clerk...';
+				const clerk = new window.Clerk(pubKey);
+				await clerk.load();
+
+				status.textContent = 'Getting session token...';
+
+				if (!clerk.session) {
+					throw new Error('No active session found. Please sign in again.');
+				}
+
+				const token = await clerk.session.getToken();
+
+				if (!token) {
+					throw new Error('Failed to get authentication token');
+				}
+
+				status.textContent = 'Redirecting to app...';
+				window.location.href = callbackURL + '&token=' + encodeURIComponent(token);
+			} catch (error) {
+				console.error('Authentication error:', error);
+				const status = document.getElementById('status');
+				status.textContent = 'Error: ' + error.message;
+				status.className = 'error';
+			}
+		})();
+	</script>
+</body>
+</html>

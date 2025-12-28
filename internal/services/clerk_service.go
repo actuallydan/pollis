@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/clerk/clerk-sdk-go/v2"
 	"github.com/clerk/clerk-sdk-go/v2/jwt"
@@ -63,9 +64,16 @@ func (cs *ClerkService) VerifySessionToken(ctx context.Context, sessionToken str
 		return usr, nil
 	} else {
 		// It's a session ID (not a JWT), get the session and extract user
+
+		// Check if this is a dev browser token (starts with dvb_)
+		if len(sessionToken) > 4 && sessionToken[:4] == "dvb_" {
+			return nil, fmt.Errorf("authentication error: received Clerk development browser token (__clerk_db_jwt) which cannot be used with desktop apps.\n\nFor development:\n1. Your Clerk instance is in development mode and returns browser-only tokens\n2. These tokens only work in web browsers, not desktop apps\n\nTo fix this:\n• Option A: Use a Clerk production instance (recommended for desktop apps)\n• Option B: Configure your Clerk app for native/mobile flows in Dashboard → Settings → Authentication\n• Option C: Implement custom OAuth PKCE flow instead of using Clerk's hosted pages\n\nSee CLERK_SETUP.md for more details")
+		}
+
 		sess, err := session.Get(ctx, sessionToken)
 		if err != nil {
-			return nil, err
+			// If session.Get fails, return a helpful error message
+			return nil, fmt.Errorf("failed to verify Clerk session token: %w", err)
 		}
 
 		// Get user ID from session
