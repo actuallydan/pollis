@@ -6,15 +6,21 @@
 -- Users (Minimal Schema)
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS user (
+CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   clerk_id TEXT UNIQUE NOT NULL,
+  username TEXT UNIQUE,
+  email TEXT UNIQUE,
+  phone TEXT UNIQUE,
   created_at INTEGER NOT NULL,
   disabled INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE INDEX idx_user_clerk_id ON user(clerk_id);
-CREATE INDEX idx_user_disabled ON user(disabled) WHERE disabled = 1;
+CREATE INDEX idx_users_clerk_id ON users(clerk_id);
+CREATE INDEX idx_users_username ON users(username) WHERE username IS NOT NULL;
+CREATE INDEX idx_users_email ON users(email) WHERE email IS NOT NULL;
+CREATE INDEX idx_users_phone ON users(phone) WHERE phone IS NOT NULL;
+CREATE INDEX idx_users_disabled ON users(disabled) WHERE disabled = 1;
 
 -- ============================================================================
 -- Multi-Device Support
@@ -25,7 +31,7 @@ CREATE TABLE IF NOT EXISTS device (
   user_id TEXT NOT NULL,
   public_key BLOB,
   created_at INTEGER NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_device_user_id ON device(user_id);
@@ -39,7 +45,7 @@ CREATE TABLE IF NOT EXISTS identity_key (
   user_id TEXT PRIMARY KEY,
   public_key BLOB NOT NULL,
   created_at INTEGER NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- Signed prekeys
@@ -50,7 +56,7 @@ CREATE TABLE IF NOT EXISTS signed_prekey (
   signature BLOB NOT NULL,
   created_at INTEGER NOT NULL,
   expires_at INTEGER,
-  FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_signed_prekey_user_id ON signed_prekey(user_id);
@@ -63,7 +69,7 @@ CREATE TABLE IF NOT EXISTS one_time_prekey (
   public_key BLOB NOT NULL,
   consumed INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_one_time_prekey_user_id ON one_time_prekey(user_id);
@@ -73,7 +79,7 @@ CREATE INDEX idx_one_time_prekey_consumed ON one_time_prekey(consumed);
 -- Groups & Channels
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS group_table (
+CREATE TABLE IF NOT EXISTS groups (
   id TEXT PRIMARY KEY,
   slug TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
@@ -81,11 +87,11 @@ CREATE TABLE IF NOT EXISTS group_table (
   created_by TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  FOREIGN KEY (created_by) REFERENCES user(id)
+  FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
-CREATE INDEX idx_group_table_slug ON group_table(slug);
-CREATE INDEX idx_group_table_created_by ON group_table(created_by);
+CREATE INDEX idx_groups_slug ON groups(slug);
+CREATE INDEX idx_groups_created_by ON groups(created_by);
 
 -- Group membership
 CREATE TABLE IF NOT EXISTS group_member (
@@ -94,8 +100,8 @@ CREATE TABLE IF NOT EXISTS group_member (
   role TEXT NOT NULL DEFAULT 'member',
   joined_at INTEGER NOT NULL,
   PRIMARY KEY (group_id, user_id),
-  FOREIGN KEY (group_id) REFERENCES group_table(id) ON DELETE CASCADE,
-  FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_group_member_user_id ON group_member(user_id);
@@ -108,8 +114,8 @@ CREATE TABLE IF NOT EXISTS alias (
   display_name TEXT NOT NULL,
   avatar_hash TEXT,
   created_at INTEGER NOT NULL,
-  FOREIGN KEY (group_id) REFERENCES group_table(id) ON DELETE CASCADE,
-  FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_alias_group_id ON alias(group_id);
@@ -125,8 +131,8 @@ CREATE TABLE IF NOT EXISTS channel (
   created_by TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  FOREIGN KEY (group_id) REFERENCES group_table(id) ON DELETE CASCADE,
-  FOREIGN KEY (created_by) REFERENCES user(id),
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id),
   UNIQUE(group_id, slug)
 );
 
@@ -144,8 +150,8 @@ CREATE TABLE IF NOT EXISTS message_envelope (
   ciphertext BLOB NOT NULL,
   created_at INTEGER NOT NULL,
   delivered INTEGER NOT NULL DEFAULT 0,
-  FOREIGN KEY (sender_id) REFERENCES user(id) ON DELETE CASCADE,
-  FOREIGN KEY (recipient_id) REFERENCES user(id) ON DELETE CASCADE,
+  FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (channel_id) REFERENCES channel(id) ON DELETE CASCADE
 );
 
@@ -176,7 +182,7 @@ CREATE TABLE IF NOT EXISTS rtc_participant (
   left_at INTEGER,
   PRIMARY KEY (room_id, user_id),
   FOREIGN KEY (room_id) REFERENCES rtc_room(id) ON DELETE CASCADE,
-  FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_rtc_participant_user_id ON rtc_participant(user_id);
@@ -193,7 +199,7 @@ CREATE TABLE IF NOT EXISTS key_exchange_messages (
   encrypted_data BLOB NOT NULL,
   created_at INTEGER NOT NULL,
   expires_at INTEGER,
-  FOREIGN KEY (from_user_id) REFERENCES user(id) ON DELETE CASCADE
+  FOREIGN KEY (from_user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_key_exchange_messages_to_user ON key_exchange_messages(to_user_identifier);
@@ -208,8 +214,8 @@ CREATE TABLE IF NOT EXISTS webrtc_signaling (
   signal_data TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   expires_at INTEGER,
-  FOREIGN KEY (from_user_id) REFERENCES user(id) ON DELETE CASCADE,
-  FOREIGN KEY (to_user_id) REFERENCES user(id) ON DELETE CASCADE
+  FOREIGN KEY (from_user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (to_user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_webrtc_signaling_to_user ON webrtc_signaling(to_user_id);
@@ -229,9 +235,9 @@ CREATE TABLE IF NOT EXISTS sender_keys (
   key_version INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  FOREIGN KEY (group_id) REFERENCES group_table(id) ON DELETE CASCADE,
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
   FOREIGN KEY (channel_id) REFERENCES channel(id) ON DELETE CASCADE,
-  FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_sender_keys_group_id ON sender_keys(group_id);
@@ -247,3 +253,60 @@ CREATE TABLE IF NOT EXISTS sender_key_recipients (
 );
 
 CREATE INDEX idx_sender_key_recipients_sender_key_id ON sender_key_recipients(sender_key_id);
+
+-- ============================================================================
+-- Prekey Bundles (Additional tables for prekey service)
+-- ============================================================================
+
+-- Prekey bundle storage (aggregates identity + signed prekey)
+CREATE TABLE IF NOT EXISTS prekey_bundles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  identity_key_id TEXT NOT NULL,
+  signed_prekey_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (identity_key_id) REFERENCES identity_key(user_id) ON DELETE CASCADE,
+  FOREIGN KEY (signed_prekey_id) REFERENCES signed_prekey(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_prekey_bundles_user_id ON prekey_bundles(user_id);
+
+-- Prekey bundle requests
+CREATE TABLE IF NOT EXISTS prekey_bundle_requests (
+  id TEXT PRIMARY KEY,
+  requesting_user_id TEXT NOT NULL,
+  target_user_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  fulfilled_at INTEGER,
+  FOREIGN KEY (requesting_user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_prekey_bundle_requests_target_user ON prekey_bundle_requests(target_user_id);
+
+-- One-time prekeys (plural table for multiple keys)
+CREATE TABLE IF NOT EXISTS one_time_prekeys (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  public_key BLOB NOT NULL,
+  consumed INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_one_time_prekeys_user_id ON one_time_prekeys(user_id);
+CREATE INDEX idx_one_time_prekeys_consumed ON one_time_prekeys(consumed);
+
+-- Key backups
+CREATE TABLE IF NOT EXISTS key_backups (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  encrypted_backup BLOB NOT NULL,
+  backup_version INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_key_backups_user_id ON key_backups(user_id);

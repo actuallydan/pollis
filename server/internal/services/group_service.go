@@ -37,12 +37,12 @@ func (s *GroupService) CreateGroup(groupID, slug, name string, description *stri
 	if len(name) > 100 {
 		return fmt.Errorf("group name must be less than 100 characters")
 	}
-	if err := utils.ValidateUserIdentifier(createdBy); err != nil {
+	if err := utils.ValidateUserID(createdBy); err != nil {
 		return err
 	}
 
 	// Verify creator exists
-	exists, err := s.authService.UserExistsByIdentifier(createdBy)
+	exists, err := s.authService.UserExists(createdBy)
 	if err != nil {
 		return err
 	}
@@ -61,11 +61,10 @@ func (s *GroupService) CreateGroup(groupID, slug, name string, description *stri
 	}
 
 	// Add creator as a member
-	memberID := utils.NewULID()
 	_, err = s.db.GetConn().Exec(`
-		INSERT INTO group_members (id, group_id, user_identifier, joined_at)
-		VALUES (?, ?, ?, ?)
-	`, memberID, groupID, createdBy, now)
+		INSERT INTO group_member (group_id, user_id, role, joined_at)
+		VALUES (?, ?, 'member', ?)
+	`, groupID, createdBy, now)
 	if err != nil {
 		// Rollback group creation if member addition fails
 		s.db.GetConn().Exec("DELETE FROM groups WHERE id = ?", groupID)
@@ -106,8 +105,8 @@ func (s *GroupService) GetGroup(groupID string) (*models.Group, []string, error)
 
 	// Get all members
 	rows, err := s.db.GetConn().Query(`
-		SELECT user_identifier
-		FROM group_members
+		SELECT user_id
+		FROM group_member
 		WHERE group_id = ?
 		ORDER BY joined_at ASC
 	`, groupID)
@@ -134,7 +133,7 @@ func (s *GroupService) SearchGroup(slug, userIdentifier string) (*models.Group, 
 	if err := utils.ValidateGroupSlug(slug); err != nil {
 		return nil, nil, false, err
 	}
-	if err := utils.ValidateUserIdentifier(userIdentifier); err != nil {
+	if err := utils.ValidateUserID(userIdentifier); err != nil {
 		return nil, nil, false, err
 	}
 
@@ -169,8 +168,8 @@ func (s *GroupService) SearchGroup(slug, userIdentifier string) (*models.Group, 
 	var isMember bool
 	err = s.db.GetConn().QueryRow(`
 		SELECT EXISTS(
-			SELECT 1 FROM group_members 
-			WHERE group_id = ? AND user_identifier = ?
+			SELECT 1 FROM group_member 
+			WHERE group_id = ? AND user_id = ?
 		)
 	`, group.ID, userIdentifier).Scan(&isMember)
 	if err != nil {
@@ -179,8 +178,8 @@ func (s *GroupService) SearchGroup(slug, userIdentifier string) (*models.Group, 
 
 	// Get all members
 	rows, err := s.db.GetConn().Query(`
-		SELECT user_identifier
-		FROM group_members
+		SELECT user_id
+		FROM group_member
 		WHERE group_id = ?
 		ORDER BY joined_at ASC
 	`, group.ID)
@@ -207,10 +206,10 @@ func (s *GroupService) InviteToGroup(groupID, userIdentifier string, invitedBy s
 	if err := utils.ValidateUserID(groupID); err != nil {
 		return err
 	}
-	if err := utils.ValidateUserIdentifier(userIdentifier); err != nil {
+	if err := utils.ValidateUserID(userIdentifier); err != nil {
 		return err
 	}
-	if err := utils.ValidateUserIdentifier(invitedBy); err != nil {
+	if err := utils.ValidateUserID(invitedBy); err != nil {
 		return err
 	}
 
@@ -236,8 +235,8 @@ func (s *GroupService) InviteToGroup(groupID, userIdentifier string, invitedBy s
 	var alreadyMember bool
 	err = s.db.GetConn().QueryRow(`
 		SELECT EXISTS(
-			SELECT 1 FROM group_members 
-			WHERE group_id = ? AND user_identifier = ?
+			SELECT 1 FROM group_member 
+			WHERE group_id = ? AND user_id = ?
 		)
 	`, groupID, userIdentifier).Scan(&alreadyMember)
 	if err != nil {
@@ -248,12 +247,11 @@ func (s *GroupService) InviteToGroup(groupID, userIdentifier string, invitedBy s
 	}
 
 	// Add member
-	memberID := utils.NewULID()
 	now := utils.GetCurrentTimestamp()
 	_, err = s.db.GetConn().Exec(`
-		INSERT INTO group_members (id, group_id, user_identifier, joined_at)
-		VALUES (?, ?, ?, ?)
-	`, memberID, groupID, userIdentifier, now)
+		INSERT INTO group_member (group_id, user_id, role, joined_at)
+		VALUES (?, ?, 'member', ?)
+	`, groupID, userIdentifier, now)
 	if err != nil {
 		return fmt.Errorf("failed to add member: %w", err)
 	}
@@ -264,15 +262,15 @@ func (s *GroupService) InviteToGroup(groupID, userIdentifier string, invitedBy s
 // ListUserGroups lists all groups a user is a member of
 func (s *GroupService) ListUserGroups(userIdentifier string) ([]*models.Group, [][]string, error) {
 	// Validate inputs
-	if err := utils.ValidateUserIdentifier(userIdentifier); err != nil {
+	if err := utils.ValidateUserID(userIdentifier); err != nil {
 		return nil, nil, err
 	}
 
 	rows, err := s.db.GetConn().Query(`
 		SELECT g.id, g.slug, g.name, g.description, g.created_by, g.created_at, g.updated_at
 		FROM groups g
-		INNER JOIN group_members gm ON g.id = gm.group_id
-		WHERE gm.user_identifier = ?
+		INNER JOIN group_member gm ON g.id = gm.group_id
+		WHERE gm.user_id = ?
 		ORDER BY g.created_at DESC
 	`, userIdentifier)
 	if err != nil {
@@ -316,8 +314,8 @@ func (s *GroupService) ListUserGroups(userIdentifier string) ([]*models.Group, [
 	memberLists := make([][]string, len(groups))
 	for i, groupID := range groupIDs {
 		memberRows, err := s.db.GetConn().Query(`
-			SELECT user_identifier
-			FROM group_members
+			SELECT user_id
+			FROM group_member
 			WHERE group_id = ?
 			ORDER BY joined_at ASC
 		`, groupID)

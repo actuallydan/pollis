@@ -49,8 +49,8 @@ func (s *AuthService) IsGroupMember(groupID, userIdentifier string) (bool, error
 	var isMember bool
 	err := s.db.GetConn().QueryRow(`
 		SELECT EXISTS(
-			SELECT 1 FROM group_members 
-			WHERE group_id = ? AND user_identifier = ?
+			SELECT 1 FROM group_member 
+			WHERE group_id = ? AND user_id = ?
 		)
 	`, groupID, userIdentifier).Scan(&isMember)
 	if err != nil {
@@ -92,7 +92,7 @@ func (s *AuthService) GroupExists(groupID string) (bool, error) {
 func (s *AuthService) ChannelExists(channelID string) (bool, error) {
 	var exists bool
 	err := s.db.GetConn().QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM channels WHERE id = ?)",
+		"SELECT EXISTS(SELECT 1 FROM channel WHERE id = ?)",
 		channelID,
 	).Scan(&exists)
 	if err != nil {

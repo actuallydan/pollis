@@ -97,7 +97,7 @@ func (s *GroupService) AddGroupMember(groupID, userIdentifier string) error {
 	}
 
 	query := `
-		INSERT INTO group_members (id, group_id, user_identifier, joined_at)
+		INSERT INTO group_membership (id, group_id, user_id, joined_at)
 		VALUES (?, ?, ?, ?)
 	`
 
@@ -113,8 +113,8 @@ func (s *GroupService) AddGroupMember(groupID, userIdentifier string) error {
 func (s *GroupService) IsGroupMember(groupID, userIdentifier string) (bool, error) {
 	var count int
 	query := `
-		SELECT COUNT(*) FROM group_members
-		WHERE group_id = ? AND user_identifier = ?
+		SELECT COUNT(*) FROM group_membership
+		WHERE group_id = ? AND user_id = ?
 	`
 
 	err := s.db.QueryRow(query, groupID, userIdentifier).Scan(&count)
@@ -130,8 +130,8 @@ func (s *GroupService) ListUserGroups(userIdentifier string) ([]*models.Group, e
 	query := `
 		SELECT g.id, g.slug, g.name, g.description, g.created_by, g.created_at, g.updated_at
 		FROM groups g
-		INNER JOIN group_members gm ON g.id = gm.group_id
-		WHERE gm.user_identifier = ?
+		INNER JOIN group_membership gm ON g.id = gm.group_id
+		WHERE gm.user_id = ?
 		ORDER BY g.created_at DESC
 	`
 
@@ -160,8 +160,8 @@ func (s *GroupService) ListUserGroups(userIdentifier string) ([]*models.Group, e
 // ListGroupMembers lists all members of a group
 func (s *GroupService) ListGroupMembers(groupID string) ([]*models.GroupMember, error) {
 	query := `
-		SELECT id, group_id, user_identifier, joined_at
-		FROM group_members
+		SELECT id, group_id, user_id, joined_at
+		FROM group_membership
 		WHERE group_id = ?
 		ORDER BY joined_at ASC
 	`
@@ -190,8 +190,8 @@ func (s *GroupService) ListGroupMembers(groupID string) ([]*models.GroupMember, 
 // RemoveGroupMember removes a member from a group
 func (s *GroupService) RemoveGroupMember(groupID, userIdentifier string) error {
 	query := `
-		DELETE FROM group_members
-		WHERE group_id = ? AND user_identifier = ?
+		DELETE FROM group_membership
+		WHERE group_id = ? AND user_id = ?
 	`
 
 	_, err := s.db.Exec(query, groupID, userIdentifier)

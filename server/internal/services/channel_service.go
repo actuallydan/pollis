@@ -37,7 +37,7 @@ func (s *ChannelService) CreateChannel(channelID, groupID, slug, name string, de
 	if err := utils.ValidateChannelName(name); err != nil {
 		return err
 	}
-	if err := utils.ValidateUserIdentifier(createdBy); err != nil {
+	if err := utils.ValidateUserID(createdBy); err != nil {
 		return err
 	}
 
@@ -61,7 +61,7 @@ func (s *ChannelService) CreateChannel(channelID, groupID, slug, name string, de
 
 	now := utils.GetCurrentTimestamp()
 	_, err = s.db.GetConn().Exec(`
-		INSERT INTO channels (id, group_id, slug, name, description, channel_type, created_by, created_at, updated_at)
+		INSERT INTO channel (id, group_id, slug, name, description, channel_type, created_by, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, 'text', ?, ?, ?)
 	`, channelID, groupID, slug, name, description, createdBy, now, now)
 	if err != nil {
@@ -89,7 +89,7 @@ func (s *ChannelService) ListChannels(groupID string) ([]*models.Channel, error)
 
 	rows, err := s.db.GetConn().Query(`
 		SELECT id, group_id, slug, name, description, channel_type, created_by, created_at, updated_at
-		FROM channels
+		FROM channel
 		WHERE group_id = ?
 		ORDER BY created_at ASC
 	`, groupID)
@@ -135,7 +135,7 @@ func (s *ChannelService) GetChannel(channelID string) (*models.Channel, error) {
 
 	err := s.db.GetConn().QueryRow(`
 		SELECT id, group_id, slug, name, description, channel_type, created_by, created_at, updated_at
-		FROM channels
+		FROM channel
 		WHERE id = ?
 	`, channelID).Scan(
 		&channel.ID,
@@ -166,7 +166,7 @@ func (s *ChannelService) GetChannel(channelID string) (*models.Channel, error) {
 func (s *ChannelService) ChannelExistsBySlug(groupID, slug string) (bool, error) {
 	var exists bool
 	err := s.db.GetConn().QueryRow(`
-		SELECT EXISTS(SELECT 1 FROM channels WHERE group_id = ? AND slug = ?)
+		SELECT EXISTS(SELECT 1 FROM channel WHERE group_id = ? AND slug = ?)
 	`, groupID, slug).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("failed to check channel existence: %w", err)

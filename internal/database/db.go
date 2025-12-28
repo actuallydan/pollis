@@ -12,7 +12,8 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/tursodatabase/libsql-client-go/libsql"
+	_ "github.com/tursodatabase/libsql-client-go/libsql" // Turso libSQL driver (wraps SQLite for file: URLs, native for remote)
+	_ "modernc.org/sqlite"                                // Pure Go SQLite driver (used by libsql for local files)
 )
 
 //go:embed migrations/*.sql

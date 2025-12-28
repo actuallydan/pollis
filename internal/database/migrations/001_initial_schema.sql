@@ -130,14 +130,18 @@ CREATE TABLE IF NOT EXISTS group_membership (
 CREATE INDEX idx_group_membership_group_id ON group_membership(group_id);
 CREATE INDEX idx_group_membership_user_id ON group_membership(user_id);
 
--- Sender keys for group encryption
-CREATE TABLE IF NOT EXISTS group_sender_key (
+-- Sender keys for group/channel encryption
+CREATE TABLE IF NOT EXISTS group_keys (
+  id TEXT PRIMARY KEY,
   group_id TEXT NOT NULL,
-  sender_key_encrypted BLOB NOT NULL,
-  distribution_state BLOB,
-  created_at INTEGER NOT NULL,
-  PRIMARY KEY (group_id)
+  channel_id TEXT,
+  key_data BLOB NOT NULL,
+  key_version INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
 );
+
+CREATE INDEX idx_group_keys_group_id ON group_keys(group_id);
+CREATE INDEX idx_group_keys_channel_id ON group_keys(channel_id);
 
 -- Per-group display names (aliases)
 CREATE TABLE IF NOT EXISTS alias (

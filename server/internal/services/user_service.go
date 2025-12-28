@@ -35,7 +35,7 @@ func (s *UserService) RegisterUser(userID, clerkID string) error {
 	// Check if user already exists
 	var exists bool
 	err := s.db.GetConn().QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM user WHERE id = ?)",
+		"SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)",
 		userID,
 	).Scan(&exists)
 	if err != nil {
@@ -48,7 +48,7 @@ func (s *UserService) RegisterUser(userID, clerkID string) error {
 	} else {
 		// Insert new user (minimal schema per migration)
 		_, err = s.db.GetConn().Exec(`
-			INSERT INTO user (id, clerk_id, created_at, disabled)
+			INSERT INTO users (id, clerk_id, created_at, disabled)
 			VALUES (?, ?, ?, 0)
 		`, userID, clerkID, now)
 		if err != nil {
@@ -68,7 +68,7 @@ func (s *UserService) GetUserByID(userID string) (*models.User, error) {
 	user := &models.User{}
 	err := s.db.GetConn().QueryRow(`
 		SELECT id, clerk_id, created_at, disabled
-		FROM user
+		FROM users
 		WHERE id = ?
 	`, userID).Scan(
 		&user.ID,
@@ -95,7 +95,7 @@ func (s *UserService) GetUserByClerkID(clerkID string) (*models.User, error) {
 	user := &models.User{}
 	err := s.db.GetConn().QueryRow(`
 		SELECT id, clerk_id, created_at, disabled
-		FROM user
+		FROM users
 		WHERE clerk_id = ?
 	`, clerkID).Scan(
 		&user.ID,
@@ -120,7 +120,7 @@ func (s *UserService) DisableUser(userID string) error {
 	}
 
 	_, err := s.db.GetConn().Exec(`
-		UPDATE user
+		UPDATE users
 		SET disabled = 1
 		WHERE id = ?
 	`, userID)
@@ -138,7 +138,7 @@ func (s *UserService) EnableUser(userID string) error {
 	}
 
 	_, err := s.db.GetConn().Exec(`
-		UPDATE user
+		UPDATE users
 		SET disabled = 0
 		WHERE id = ?
 	`, userID)
