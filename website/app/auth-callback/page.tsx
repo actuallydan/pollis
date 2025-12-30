@@ -1,6 +1,9 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
+// Use Edge Runtime for faster response times
+export const runtime = 'edge';
+
 export default async function AuthCallback() {
   const { userId, getToken } = await auth();
 
