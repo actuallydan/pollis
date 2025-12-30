@@ -5,6 +5,9 @@ import { useState, useEffect, useRef } from 'react';
  * Returns { isDesktop, isReady }
  * - isDesktop: true if running in Wails desktop app
  * - isReady: true when we've determined the environment (either Wails is ready or we're in web)
+ *
+ * Per Wails docs: The runtime scripts (/wails/ipc.js and /wails/runtime.js) are automatically
+ * injected and populate window.go and window.runtime. We poll for their availability.
  */
 export function useWailsReady() {
   const [isReady, setIsReady] = useState(false);
@@ -14,42 +17,64 @@ export function useWailsReady() {
   useEffect(() => {
     if (hasResolved.current) return;
 
-    // Check if already running in Wails (production build)
-    if (window.location.protocol === 'wails:') {
+    // Check if Wails runtime scripts have loaded and populated the runtime
+    const checkWailsRuntime = () => {
+      const win = window as any;
+
+      // Full runtime check: both bindings and all required methods must be available
+      const hasFullRuntime =
+        typeof win.go !== 'undefined' &&
+        typeof win.go.main !== 'undefined' &&
+        typeof win.go.main.App !== 'undefined' &&
+        typeof win.runtime !== 'undefined' &&
+        typeof win.runtime.EventsOnMultiple !== 'undefined';
+
+      return hasFullRuntime;
+    };
+
+    // Production: wails:// protocol
+    const isWailsProtocol = window.location.protocol === 'wails:';
+
+    // Development: check if we're on localhost (Wails dev server)
+    const isLocalhost = window.location.hostname === 'localhost' ||
+                       window.location.hostname === '127.0.0.1';
+
+    // If we're definitely NOT in Wails (web browser), resolve immediately
+    if (!isWailsProtocol && !isLocalhost) {
+      hasResolved.current = true;
+      setIsDesktop(false);
+      setIsReady(true);
+      return;
+    }
+
+    // Check immediately if runtime is already available
+    if (checkWailsRuntime()) {
       hasResolved.current = true;
       setIsDesktop(true);
       setIsReady(true);
       return;
     }
 
-    // In development, Wails runtime is injected as window.go
-    // It might take a moment to be available
-    const checkWails = () => {
-      if (typeof (window as any).go !== 'undefined') {
+    // Poll for runtime availability (Wails injects scripts asynchronously)
+    // Per docs: scripts are injected into <body>, may take a moment to execute
+    let pollCount = 0;
+    const maxPolls = 50; // 5 seconds max (100ms * 50)
+
+    const pollInterval = setInterval(() => {
+      pollCount++;
+
+      if (checkWailsRuntime()) {
+        // Runtime is ready
+        clearInterval(pollInterval);
         if (!hasResolved.current) {
           hasResolved.current = true;
           setIsDesktop(true);
           setIsReady(true);
         }
-        return true;
-      }
-      return false;
-    };
-
-    // Check immediately
-    if (checkWails()) return;
-
-    // Poll for Wails runtime (it's injected after page load in dev)
-    let attempts = 0;
-    const maxAttempts = 20; // 2 seconds max
-    const interval = setInterval(() => {
-      attempts++;
-      if (checkWails()) {
-        clearInterval(interval);
-      } else if (attempts >= maxAttempts) {
-        clearInterval(interval);
+      } else if (pollCount >= maxPolls) {
+        // Timeout: assume we're in web browser or runtime failed to load
+        clearInterval(pollInterval);
         if (!hasResolved.current) {
-          // After timeout, assume we're in web browser
           hasResolved.current = true;
           setIsDesktop(false);
           setIsReady(true);
@@ -57,7 +82,7 @@ export function useWailsReady() {
       }
     }, 100);
 
-    return () => clearInterval(interval);
+    return () => clearInterval(pollInterval);
   }, []);
 
   return { isDesktop, isReady };

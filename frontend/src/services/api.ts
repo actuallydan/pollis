@@ -19,10 +19,30 @@ function isDesktop(): boolean {
 }
 
 /**
+ * Guard function to ensure Wails runtime is fully initialized before API calls
+ * Prevents race conditions where React tries to call APIs before runtime is ready
+ */
+function ensureWailsRuntimeReady(): void {
+  if (!isDesktop()) return;
+
+  const win = window as any;
+  if (
+    typeof win.go === 'undefined' ||
+    typeof win.go.main === 'undefined' ||
+    typeof win.go.main.App === 'undefined' ||
+    typeof win.runtime === 'undefined' ||
+    typeof win.runtime.EventsOnMultiple === 'undefined'
+  ) {
+    throw new Error('Wails runtime not fully initialized - please wait for wails:ready event');
+  }
+}
+
+/**
  * Get stored session (userID and clerkToken)
  */
 export async function getStoredSession(): Promise<{ userID: string; clerkToken: string } | null> {
   if (isDesktop()) {
+    ensureWailsRuntimeReady();
     const { GetStoredSession } = await import('../../wailsjs/go/main/App');
     try {
       const session = await GetStoredSession();
@@ -79,6 +99,7 @@ export async function clearSession(): Promise<void> {
  */
 export async function authenticateAndLoadUser(clerkToken: string): Promise<User> {
   if (isDesktop()) {
+    ensureWailsRuntimeReady();
     const { AuthenticateAndLoadUser } = await import('../../wailsjs/go/main/App');
     const user = await AuthenticateAndLoadUser(clerkToken);
     return {
@@ -115,6 +136,7 @@ export async function checkIdentity(): Promise<boolean> {
  */
 export async function getCurrentUser(): Promise<User | null> {
   if (isDesktop()) {
+    ensureWailsRuntimeReady();
     const { GetCurrentUser } = await import('../../wailsjs/go/main/App');
     const user = await GetCurrentUser();
     if (!user) return null;
@@ -644,6 +666,7 @@ export async function updateGroup(groupId: string, name: string, description: st
  */
 export async function setServiceURL(url: string): Promise<void> {
   if (isDesktop()) {
+    ensureWailsRuntimeReady();
     const { SetServiceURL } = await import('../../wailsjs/go/main/App');
     await SetServiceURL(url);
   }
