@@ -147,6 +147,7 @@ func (a *App) startup(ctx context.Context) {
 	} else {
 		fmt.Printf("GetStoredSession success - userID: %s, token length: %d\n", userID, len(clerkToken))
 	}
+
 	if err == nil && userID != "" && clerkToken != "" {
 		// Session exists locally - trust it without calling Clerk
 		fmt.Printf("Found stored session for user: %s\n", userID)
@@ -1377,7 +1378,17 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 		var err error
 		encryptionKey, err = a.keychainService.GetEncryptionKey(userID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get encryption key: %w", err)
+			// Encryption key not found - this can happen after migrating to file backend
+			// Generate a new encryption key (user will need to re-sync messages)
+			fmt.Printf("Encryption key not found, generating new key for existing user\n")
+			encryptionKey = make([]byte, 32)
+			if _, err := rand.Read(encryptionKey); err != nil {
+				return nil, fmt.Errorf("failed to generate encryption key: %w", err)
+			}
+			// Store new encryption key in keychain
+			if err := a.keychainService.StoreEncryptionKey(userID, encryptionKey); err != nil {
+				return nil, fmt.Errorf("failed to store encryption key: %w", err)
+			}
 		}
 	}
 

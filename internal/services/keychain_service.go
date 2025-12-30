@@ -2,25 +2,55 @@ package services
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/99designs/keyring"
+	"github.com/denisbrodbeck/machineid"
 )
 
 type KeychainService struct {
 	ring keyring.Keyring
 }
 
+// getMachineKey returns a machine-specific encryption key
+func getMachineKey() (string, error) {
+	// ProtectedID generates a hashed version unique to this machine and app
+	id, err := machineid.ProtectedID("pollis")
+	if err != nil {
+		return "", fmt.Errorf("failed to get machine ID: %w", err)
+	}
+	return id, nil
+}
+
+// ensureKeychainDir ensures the keychain directory exists with proper permissions
+func ensureKeychainDir(dir string) error {
+	expandedDir := os.ExpandEnv(dir)
+	if err := os.MkdirAll(expandedDir, 0700); err != nil {
+		return fmt.Errorf("failed to create keychain directory: %w", err)
+	}
+	return nil
+}
+
 func NewKeychainService() (*KeychainService, error) {
+	keychainDir := "~/.local/share/pollis"
+
+	// Ensure directory exists with correct permissions (owner read/write/execute only)
+	if err := ensureKeychainDir(keychainDir); err != nil {
+		return nil, err
+	}
+
+	// Expand home directory for file backend
+	expandedDir := os.ExpandEnv(keychainDir)
+
 	ring, err := keyring.Open(keyring.Config{
 		ServiceName: "pollis",
-		// Use best available backend per platform
 		AllowedBackends: []keyring.BackendType{
-			keyring.KeychainBackend,      // macOS Keychain
-			keyring.WinCredBackend,       // Windows Credential Manager
-			keyring.SecretServiceBackend, // Linux Secret Service
-			keyring.KWalletBackend,       // KDE Wallet
-			keyring.FileBackend,          // Fallback: encrypted file
+			keyring.FileBackend,
+		},
+		FileDir: expandedDir,
+		FilePasswordFunc: func(prompt string) (string, error) {
+			return getMachineKey()
 		},
 	})
 	if err != nil {
@@ -33,8 +63,10 @@ func NewKeychainService() (*KeychainService, error) {
 // StoreEncryptionKey stores the encryption key for a profile
 func (ks *KeychainService) StoreEncryptionKey(profileID string, key []byte) error {
 	item := keyring.Item{
-		Key:  profileID,
-		Data: key,
+		Key:         profileID,
+		Data:        key,
+		Label:       "Pollis Encryption Key",
+		Description: "Encryption key for secure messaging",
 	}
 
 	if err := ks.ring.Set(item); err != nil {
@@ -74,8 +106,10 @@ func (ks *KeychainService) StoreSession(userID string, clerkToken string) error 
 	// Store session data as JSON-encoded string
 	sessionData := fmt.Sprintf("%s:%s", userID, clerkToken)
 	item := keyring.Item{
-		Key:  "pollis_session",
-		Data: []byte(sessionData),
+		Key:         "pollis_session",
+		Data:        []byte(sessionData),
+		Label:       "Pollis Session",
+		Description: "Authentication session for Pollis",
 	}
 
 	if err := ks.ring.Set(item); err != nil {

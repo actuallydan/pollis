@@ -10,6 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.6
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.94.0
 	github.com/clerk/clerk-sdk-go/v2 v2.5.0
+	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/joho/godotenv v1.5.1
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
