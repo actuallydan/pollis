@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"pollis-service/internal/database"
 	"pollis-service/internal/models"
@@ -19,9 +20,8 @@ func NewUserService(db *database.DB) *UserService {
 }
 
 // RegisterUser creates or updates a user in the service
-// Per AUTH_AND_DB_MIGRATION.md: username, email, phone, avatar_url removed from schema
-// clerkID is now required (not optional)
-func (s *UserService) RegisterUser(userID, clerkID string) error {
+// Now includes email and phone fields
+func (s *UserService) RegisterUser(userID, clerkID string, email, phone *string) error {
 	// Validate inputs
 	if err := utils.ValidateUserID(userID); err != nil {
 		return err
@@ -43,14 +43,49 @@ func (s *UserService) RegisterUser(userID, clerkID string) error {
 	}
 
 	if exists {
-		// User already exists - nothing to update (clerk_id is immutable)
+		// User already exists - only set email/phone if not already set (don't overwrite)
+		if email != nil || phone != nil {
+			// First check what's already in the database
+			var existingEmail, existingPhone sql.NullString
+			err = s.db.GetConn().QueryRow(
+				"SELECT email, phone FROM users WHERE id = ?",
+				userID,
+			).Scan(&existingEmail, &existingPhone)
+			if err != nil {
+				return fmt.Errorf("failed to check existing user data: %w", err)
+			}
+
+			query := "UPDATE users SET"
+			args := []interface{}{}
+			updates := []string{}
+
+			// Only update email if not already set
+			if email != nil && !existingEmail.Valid {
+				updates = append(updates, " email = ?")
+				args = append(args, *email)
+			}
+			// Only update phone if not already set
+			if phone != nil && !existingPhone.Valid {
+				updates = append(updates, " phone = ?")
+				args = append(args, *phone)
+			}
+
+			if len(updates) > 0 {
+				query += strings.Join(updates, ",") + " WHERE id = ?"
+				args = append(args, userID)
+				_, err = s.db.GetConn().Exec(query, args...)
+				if err != nil {
+					return fmt.Errorf("failed to update user: %w", err)
+				}
+			}
+		}
 		return nil
 	} else {
-		// Insert new user (minimal schema per migration)
+		// Insert new user with email and phone
 		_, err = s.db.GetConn().Exec(`
-			INSERT INTO users (id, clerk_id, created_at, disabled)
-			VALUES (?, ?, ?, 0)
-		`, userID, clerkID, now)
+			INSERT INTO users (id, clerk_id, email, phone, created_at, disabled)
+			VALUES (?, ?, ?, ?, ?, 0)
+		`, userID, clerkID, email, phone, now)
 		if err != nil {
 			return fmt.Errorf("failed to insert user: %w", err)
 		}

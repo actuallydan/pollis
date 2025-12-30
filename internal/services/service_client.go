@@ -47,14 +47,21 @@ func (c *ServiceClient) Close() error {
 }
 
 // RegisterUser registers a user with the service
-// Per AUTH_AND_DB_MIGRATION.md: only userID and clerkID are needed (minimal schema)
-func (c *ServiceClient) RegisterUser(userID string, clerkID *string) error {
+func (c *ServiceClient) RegisterUser(userID string, clerkID *string, email *string, phone *string) error {
 	req := &pollispb.RegisterUserRequest{
 		UserId: userID,
 	}
 
 	if clerkID != nil {
 		req.ClerkId = *clerkID
+	}
+
+	if email != nil {
+		req.Email = email
+	}
+
+	if phone != nil {
+		req.Phone = phone
 	}
 
 	_, err := c.client.RegisterUser(c.ctx, req)

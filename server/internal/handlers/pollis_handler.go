@@ -121,10 +121,13 @@ func (h *PollisHandler) RegisterUser(ctx context.Context, req *proto.RegisterUse
 		}, nil
 	}
 
-	log.Printf("[RegisterUser] Registering user: user_id=%s, clerk_id=%s", req.UserId, req.ClerkId)
+	log.Printf("[RegisterUser] Registering user: user_id=%s, clerk_id=%s, email=%v, phone=%v",
+		req.UserId, req.ClerkId, req.Email, req.Phone)
 	err := h.userService.RegisterUser(
 		req.UserId,
 		req.ClerkId,
+		req.Email,
+		req.Phone,
 	)
 	if err != nil {
 		log.Printf("[RegisterUser] ERROR: Failed to register user %s: %v", req.UserId, err)

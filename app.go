@@ -614,8 +614,7 @@ func (a *App) GetServiceUserData() (map[string]interface{}, error) {
 }
 
 // UpdateServiceUserData updates user data in the service DB
-// Per AUTH_AND_DB_MIGRATION.md: user metadata (username, email, phone, avatar_url) no longer stored in service
-// This method now only ensures user is registered with minimal schema
+// Now includes email and phone when registering/updating user in Turso
 func (a *App) UpdateServiceUserData(username string, email, phone, avatarURL *string) error {
 	currentUser, err := a.GetCurrentUser()
 	if err != nil || currentUser == nil {
@@ -627,7 +626,7 @@ func (a *App) UpdateServiceUserData(username string, email, phone, avatarURL *st
 	}
 
 	clerkID := currentUser.ClerkID
-	if err := a.serviceClient.RegisterUser(currentUser.ID, &clerkID); err != nil {
+	if err := a.serviceClient.RegisterUser(currentUser.ID, &clerkID, email, phone); err != nil {
 		return fmt.Errorf("failed to update user in service: %w", err)
 	}
 
@@ -1447,12 +1446,32 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 			fmt.Printf("WARNING: network is offline, user not registered with service (will register when online)\n")
 		} else {
 			clerkIDPtr := &clerkUser.ID
-			fmt.Printf("=== REGISTERING USER WITH SERVICE ===\n")
-			fmt.Printf("User ID: %s\n", user.ID)
-			fmt.Printf("Clerk ID: %s\n", clerkUser.ID)
-			fmt.Printf("Service client: %v\n", a.serviceClient != nil)
-			fmt.Printf("Network online: %v\n", a.networkService.IsOnline())
-			if err := a.serviceClient.RegisterUser(user.ID, clerkIDPtr); err != nil {
+
+			// Extract primary email and phone from Clerk user
+			var emailPtr *string
+			var phonePtr *string
+
+			// Get primary email
+			if clerkUser.PrimaryEmailAddressID != nil && len(clerkUser.EmailAddresses) > 0 {
+				for _, emailAddr := range clerkUser.EmailAddresses {
+					if emailAddr.ID == *clerkUser.PrimaryEmailAddressID {
+						emailPtr = &emailAddr.EmailAddress
+						break
+					}
+				}
+			}
+
+			// Get primary phone
+			if clerkUser.PrimaryPhoneNumberID != nil && len(clerkUser.PhoneNumbers) > 0 {
+				for _, phoneNum := range clerkUser.PhoneNumbers {
+					if phoneNum.ID == *clerkUser.PrimaryPhoneNumberID {
+						phonePtr = &phoneNum.PhoneNumber
+						break
+					}
+				}
+			}
+
+			if err := a.serviceClient.RegisterUser(user.ID, clerkIDPtr, emailPtr, phonePtr); err != nil {
 				// Log error but don't fail - user is already created locally
 				fmt.Printf("ERROR: Failed to register user with service: %v\n", err)
 				fmt.Printf("ERROR: User will NOT appear in Turso DB until this is fixed.\n")
@@ -1477,8 +1496,9 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 //
 // Flow:
 // 1. Desktop app starts local server on :44665 with two endpoints:
-//    - /clerk-redirect: HTML page that loads Clerk SDK to extract JWT token
-//    - /callback: Receives the JWT token and completes authentication
+//   - /clerk-redirect: HTML page that loads Clerk SDK to extract JWT token
+//   - /callback: Receives the JWT token and completes authentication
+//
 // 2. Opens browser to Clerk's hosted sign-in page
 // 3. After sign-in, Clerk redirects to /clerk-redirect (still in browser)
 // 4. The clerk-redirect page uses Clerk SDK to get JWT token from session
@@ -1675,7 +1695,6 @@ func randomState() string {
 	rand.Read(b)
 	return base64.URLEncoding.EncodeToString(b)
 }
-
 
 // extractClerkDomain extracts the Clerk frontend API domain from the publishable key
 // For development instances: pk_test_... → instance.clerk.accounts.dev
