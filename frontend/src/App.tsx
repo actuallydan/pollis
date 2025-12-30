@@ -597,10 +597,16 @@ function MainApp({
     );
   }
 
-  const renderApp = () => (
-    <div className="h-full w-full flex flex-col bg-black overflow-hidden">
-      {isDesktop && <TitleBar />}
-      <div className="flex-1 flex flex-col overflow-hidden">
+  const renderApp = () => {
+    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+
+    return (
+      <div className="h-full w-full flex flex-col bg-black overflow-hidden">
+        {isMac && isDesktop && (
+          <div className="h-8 w-full absolute top-0 left-0 z-50 titlebar-drag" />
+        )}
+        {isDesktop && <TitleBar />}
+        <div className={`flex-1 flex flex-col overflow-hidden ${isMac && isDesktop ? 'pt-8' : ''}`}>
         {appState === "loading" && (
           <div className="relative flex flex-col items-center justify-center min-h-full bg-black">
             <DotMatrix algorithm={pulsingWaveAlgorithm} />
@@ -745,7 +751,8 @@ function MainApp({
         )}
       </div>
     </div>
-  );
+    );
+  };
 
   return renderApp();
 }

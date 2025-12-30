@@ -4,11 +4,13 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/joho/godotenv"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 )
 
 //go:embed all:frontend/dist
@@ -26,14 +28,18 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 
-	// Create application with options
-	err := wails.Run(&options.App{
+	// Platform-specific window configuration
+	// macOS: Use framed window with minimal titlebar (App Store compatible)
+	// Linux: Use frameless (Linux titlebars are inconsistent across distros)
+	frameless := runtime.GOOS != "darwin"
+
+	appOptions := &options.App{
 		Title:             "Pollis",
 		Width:             1280,
 		Height:            800,
 		MinWidth:          300,
 		MinHeight:         600,
-		Frameless:         true, // Frameless window for transparent title bar
+		Frameless:         frameless,
 		StartHidden:       false,
 		HideWindowOnClose: false,
 		AssetServer: &assetserver.Options{
@@ -45,7 +51,26 @@ func main() {
 			app,
 		},
 		// App icon is automatically loaded from build/appicon.png
-	})
+	}
+
+	// macOS-specific: Customize titlebar appearance
+	if runtime.GOOS == "darwin" {
+		appOptions.Mac = &mac.Options{
+			TitleBar: &mac.TitleBar{
+				TitlebarAppearsTransparent: true,
+				HideTitle:                  true,
+				HideTitleBar:               false,
+				FullSizeContent:            true,
+				UseToolbar:                 false,
+				HideToolbarSeparator:       true,
+			},
+			WebviewIsTransparent: true,
+			WindowIsTranslucent:  false,
+		}
+	}
+
+	// Create application with options
+	err := wails.Run(appOptions)
 
 	if err != nil {
 		println("Error:", err.Error())
