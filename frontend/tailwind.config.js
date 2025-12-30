@@ -23,7 +23,7 @@ export default {
         },
       },
       fontFamily: {
-        mono: ['"Nunito"', 'monospace'],
+        mono: ['"Atkinson Hyperlegible"', 'monospace'],
       },
     },
   },

@@ -651,14 +651,14 @@ function MainApp({
                 Welcome to Pollis
               </h1>
               <p className="text-orange-300/70 mb-6">
-                Sign in with your account to continue
+                Sign in or create an account to continue
               </p>
               {isDesktop ? (
                 <button
                   onClick={handleStartAuth}
                   className="px-6 py-3 bg-orange-300 text-black font-semibold rounded hover:bg-orange-200 transition-colors"
                 >
-                  Sign In
+                  Continue
                 </button>
               ) : (
                 <p className="text-orange-300/50 text-sm">
