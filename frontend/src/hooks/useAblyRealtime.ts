@@ -136,34 +136,37 @@ export function useAblyRealtime() {
     console.log('[Ably] Received message event:', eventData);
     const data = eventData as AblyMessageEvent;
 
+    // Normalize field names - server sends sender_id/created_at, we expect author_id/timestamp
+    const normalizedData = {
+      ...data,
+      author_id: (data as any).sender_id || data.author_id,
+      timestamp: (data as any).created_at || data.timestamp,
+    };
+
     // Validate required fields
-    if (!data.message_id || !data.author_id || !data.timestamp) {
-      console.warn('[Ably] Invalid message event:', data);
+    if (!normalizedData.message_id || !normalizedData.author_id || !normalizedData.timestamp) {
+      console.warn('[Ably] Invalid message event:', normalizedData);
       return;
     }
 
     // Deduplication check
-    if (processedMessageIdsRef.current.has(data.message_id)) {
-      console.log('[Ably] Duplicate message, skipping:', data.message_id);
+    if (processedMessageIdsRef.current.has(normalizedData.message_id)) {
+      console.log('[Ably] Duplicate message, skipping:', normalizedData.message_id);
       return;
     }
-    processedMessageIdsRef.current.add(data.message_id);
+    processedMessageIdsRef.current.add(normalizedData.message_id);
 
-    // Don't add our own messages (already added optimistically)
-    // NOTE: For testing with same user, you can comment out this check
-    // In production, always filter out own messages to prevent duplicates
-    const TEST_MODE_ALLOW_OWN_MESSAGES = true; // Set to false in production
-    
-    if (!TEST_MODE_ALLOW_OWN_MESSAGES && data.author_id === currentUser?.id) {
-      console.log('[Ably] Own message, skipping (already added optimistically):', data.message_id);
+    // Don't add our own messages (already added optimistically in MainContent)
+    if (normalizedData.author_id === currentUser?.id) {
+      console.log('[Ably] Own message, skipping (already added optimistically):', normalizedData.message_id);
       return;
     }
-    console.log('[Ably] Processing message from:', data.author_id, '(current user:', currentUser?.id, ')');
+    console.log('[Ably] Processing message from:', normalizedData.author_id, '(current user:', currentUser?.id, ')');
 
     // Determine message key
-    const messageKey = data.channel_id || data.conversation_id || '';
+    const messageKey = normalizedData.channel_id || normalizedData.conversation_id || '';
     if (!messageKey) {
-      console.warn('[Ably] Message missing channel_id and conversation_id:', data);
+      console.warn('[Ably] Message missing channel_id and conversation_id:', normalizedData);
       return;
     }
 
@@ -171,36 +174,58 @@ export function useAblyRealtime() {
     // This ensures the message is properly decrypted before being added to the store
     const fetchAndAddMessage = async () => {
       try {
+        // Import GetMessages directly (same function MainContent uses)
+        const { GetMessages } = await import('../../wailsjs/go/main/App');
+
         // Fetch recent messages for this channel to get the new one (with decryption)
-        const messages = await api.listMessages(
-          data.channel_id || '',
-          data.conversation_id || ''
+        const loadedMessages = await GetMessages(
+          normalizedData.channel_id || '',
+          normalizedData.conversation_id || '',
+          50,
+          0
         );
-        
+
+        // Convert to Message type (same as MainContent does)
+        const messages = (loadedMessages || []).map((m: any) => ({
+          id: m.id,
+          channel_id: m.channel_id,
+          conversation_id: m.conversation_id,
+          sender_id: m.sender_id,
+          ciphertext: new Uint8Array(),
+          nonce: new Uint8Array(),
+          content_decrypted: m.content,
+          reply_to_message_id: m.reply_to_message_id,
+          thread_id: m.thread_id,
+          is_pinned: m.is_pinned,
+          created_at: m.created_at,
+          delivered: m.delivered || false,
+          attachments: m.attachments || [],
+        }));
+
         // Find the message we just received
-        const fullMessage = messages.find(m => m.id === data.message_id);
-        
+        const fullMessage = messages.find(m => m.id === normalizedData.message_id);
+
         if (fullMessage) {
           // Add the fully decrypted message
           batchBufferRef.current.push(fullMessage);
           scheduleBatchFlush();
-          console.log('[Ably] Fetched and added decrypted message:', data.message_id);
+          console.log('[Ably] Fetched and added decrypted message:', normalizedData.message_id);
         } else {
           // Message not found in recent messages - might be a race condition
           // Add placeholder and it will be loaded on next refresh
-          console.warn('[Ably] Message not found in recent messages, adding placeholder:', data.message_id);
+          console.warn('[Ably] Message not found in recent messages, adding placeholder:', normalizedData.message_id);
           const placeholder: Message = {
-            id: data.message_id,
-            channel_id: data.channel_id || '',
-            conversation_id: data.conversation_id || '',
-            sender_id: data.author_id,
+            id: normalizedData.message_id,
+            channel_id: normalizedData.channel_id || '',
+            conversation_id: normalizedData.conversation_id || '',
+            sender_id: normalizedData.author_id,
             ciphertext: new Uint8Array(),
             nonce: new Uint8Array(),
             content_decrypted: '[Loading...]',
             reply_to_message_id: '',
             thread_id: '',
             is_pinned: false,
-            created_at: data.timestamp,
+            created_at: normalizedData.timestamp,
             delivered: false,
             status: 'sent',
           };
@@ -211,17 +236,17 @@ export function useAblyRealtime() {
         console.error('[Ably] Failed to fetch message:', error);
         // Fallback: add placeholder
         const placeholder: Message = {
-          id: data.message_id,
-          channel_id: data.channel_id || '',
-          conversation_id: data.conversation_id || '',
-          sender_id: data.author_id,
+          id: normalizedData.message_id,
+          channel_id: normalizedData.channel_id || '',
+          conversation_id: normalizedData.conversation_id || '',
+          sender_id: normalizedData.author_id,
           ciphertext: new Uint8Array(),
           nonce: new Uint8Array(),
           content_decrypted: '[Failed to load]',
           reply_to_message_id: '',
           thread_id: '',
           is_pinned: false,
-          created_at: data.timestamp,
+          created_at: normalizedData.timestamp,
           delivered: false,
           status: 'sent',
         };

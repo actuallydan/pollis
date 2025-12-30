@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useCallback } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { ChannelHeader } from "./ChannelHeader";
 import { MessageList } from "../Message/MessageList";
@@ -17,13 +17,14 @@ export const MainContent: React.FC = () => {
     setReplyToMessageId,
     setMessages,
     addMessage,
+    addMessagesBatch,
     currentUser,
   } = useAppStore();
 
   const messageKey = selectedChannelId || selectedConversationId || "";
   const currentMessages = messages[messageKey] || [];
 
-  // Load messages when channel/conversation changes
+  // Load messages when channel/conversation changes - REPLACES messages (clears old channel)
   useEffect(() => {
     const loadMessages = async () => {
       if (!messageKey) return;
@@ -53,6 +54,7 @@ export const MainContent: React.FC = () => {
           attachments: m.attachments || [],
         }));
 
+        // Use setMessages to REPLACE - clears previous channel's messages
         setMessages(messageKey, messagesData);
       } catch (error) {
         console.error("Failed to load messages:", error);
@@ -60,7 +62,7 @@ export const MainContent: React.FC = () => {
     };
 
     loadMessages();
-  }, [selectedChannelId, selectedConversationId, messageKey, setMessages]);
+  }, [messageKey, selectedChannelId, selectedConversationId, setMessages]);
 
   const handleSend = async (messageText: string, attachments: Attachment[]) => {
     if (!messageText.trim() && attachments.length === 0) return;
@@ -124,6 +126,37 @@ export const MainContent: React.FC = () => {
       };
 
       addMessage(messageKey, messageData);
+
+      // Reload messages from database to ensure persistence - use MERGE to keep optimistic add
+      try {
+        const reloadedMessages = await GetMessages(
+          selectedChannelId || "",
+          selectedConversationId || "",
+          50,
+          0
+        );
+
+        const messagesData = (reloadedMessages || []).map((m: any) => ({
+          id: m.id,
+          channel_id: m.channel_id,
+          conversation_id: m.conversation_id,
+          sender_id: m.sender_id,
+          ciphertext: new Uint8Array(),
+          nonce: new Uint8Array(),
+          content_decrypted: m.content,
+          reply_to_message_id: m.reply_to_message_id,
+          thread_id: m.thread_id,
+          is_pinned: m.is_pinned,
+          created_at: m.created_at,
+          delivered: m.delivered || false,
+          attachments: m.attachments || [],
+        }));
+
+        // Use addMessagesBatch to MERGE - preserves optimistic add and deduplicates by ID
+        addMessagesBatch(messageKey, messagesData);
+      } catch (error) {
+        console.error("Failed to reload messages:", error);
+      }
 
       // Clear reply after sending
       setReplyToMessageId(null);

@@ -28,8 +28,8 @@ func (s *MessageService) CreateMessage(message *models.Message) error {
 	}
 
 	query := `
-		INSERT INTO message (id, conversation_id, sender_id, ciphertext, nonce, created_at, delivered)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO message (id, conversation_id, channel_id, sender_id, ciphertext, nonce, created_at, delivered)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	delivered := 0
@@ -37,7 +37,7 @@ func (s *MessageService) CreateMessage(message *models.Message) error {
 		delivered = 1
 	}
 
-	_, err := s.db.Exec(query, message.ID, message.ConversationID,
+	_, err := s.db.Exec(query, message.ID, message.ConversationID, message.ChannelID,
 		message.SenderID, message.Ciphertext, message.Nonce, message.CreatedAt, delivered)
 	if err != nil {
 		return fmt.Errorf("failed to create message: %w", err)
@@ -50,14 +50,15 @@ func (s *MessageService) CreateMessage(message *models.Message) error {
 func (s *MessageService) GetMessageByID(id string) (*models.Message, error) {
 	message := &models.Message{}
 	query := `
-		SELECT id, conversation_id, sender_id, ciphertext, nonce, created_at, delivered
+		SELECT id, conversation_id, channel_id, sender_id, ciphertext, nonce, created_at, delivered
 		FROM message
 		WHERE id = ?
 	`
 
 	var delivered int
+	var channelID sql.NullString
 	err := s.db.QueryRow(query, id).Scan(
-		&message.ID, &message.ConversationID, &message.SenderID,
+		&message.ID, &message.ConversationID, &channelID, &message.SenderID,
 		&message.Ciphertext, &message.Nonce, &message.CreatedAt, &delivered,
 	)
 	if err != nil {
@@ -68,6 +69,9 @@ func (s *MessageService) GetMessageByID(id string) (*models.Message, error) {
 	}
 
 	message.Delivered = delivered == 1
+	if channelID.Valid {
+		message.ChannelID = channelID.String
+	}
 	return message, nil
 }
 
@@ -80,14 +84,14 @@ func (s *MessageService) ListMessagesByChannel(channelID string, limit, offset i
 // ListMessagesByConversation lists messages in a conversation
 func (s *MessageService) ListMessagesByConversation(conversationID string, limit, offset int) ([]*models.Message, error) {
 	query := `
-		SELECT id, conversation_id, sender_id, ciphertext, nonce, created_at, delivered
+		SELECT id, conversation_id, channel_id, sender_id, ciphertext, nonce, created_at, delivered
 		FROM message
-		WHERE conversation_id = ?
+		WHERE conversation_id = ? OR channel_id = ?
 		ORDER BY created_at ASC
 		LIMIT ? OFFSET ?
 	`
 
-	rows, err := s.db.Query(query, conversationID, limit, offset)
+	rows, err := s.db.Query(query, conversationID, conversationID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list messages: %w", err)
 	}
@@ -97,14 +101,18 @@ func (s *MessageService) ListMessagesByConversation(conversationID string, limit
 	for rows.Next() {
 		message := &models.Message{}
 		var delivered int
+		var channelID sql.NullString
 		err := rows.Scan(
-			&message.ID, &message.ConversationID, &message.SenderID,
+			&message.ID, &message.ConversationID, &channelID, &message.SenderID,
 			&message.Ciphertext, &message.Nonce, &message.CreatedAt, &delivered,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan message: %w", err)
 		}
 		message.Delivered = delivered == 1
+		if channelID.Valid {
+			message.ChannelID = channelID.String
+		}
 		messages = append(messages, message)
 	}
 

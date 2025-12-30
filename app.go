@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"pollis/internal/database"
-	"pollis/internal/encryption"
 	"pollis/internal/models"
 	"pollis/internal/services"
 	"pollis/internal/signal"
@@ -1078,13 +1077,12 @@ func (a *App) GetMessages(channelID, conversationID string, limit, offset int) (
 			return nil, fmt.Errorf("failed to get sender key: %w", err)
 		}
 		for _, msg := range messages {
-			if len(msg.Ciphertext) < encryption.NonceSize {
-				msg.Content = "[decrypt error: invalid ciphertext]"
+			// Nonce and ciphertext are stored separately in DB
+			if len(msg.Nonce) == 0 || len(msg.Ciphertext) == 0 {
+				msg.Content = "[decrypt error: missing nonce or ciphertext]"
 				continue
 			}
-			nonce := msg.Ciphertext[:encryption.NonceSize]
-			ct := msg.Ciphertext[encryption.NonceSize:]
-			pt, err := signal.DecryptWithSenderKey(senderKey, ct, nonce)
+			pt, err := signal.DecryptWithSenderKey(senderKey, msg.Ciphertext, msg.Nonce)
 			if err != nil {
 				msg.Content = fmt.Sprintf("[decrypt error: %v]", err)
 				continue
@@ -1120,7 +1118,13 @@ func (a *App) GetMessages(channelID, conversationID string, limit, offset int) (
 				msg.Content = "[Unable to decrypt - no session]"
 				continue
 			}
-			decrypted, err := a.signalService.DecryptMessage(session, msg.Ciphertext)
+			// DecryptMessage expects nonce || ciphertext combined (same format as EncryptMessage output)
+			if len(msg.Nonce) == 0 || len(msg.Ciphertext) == 0 {
+				msg.Content = "[decrypt error: missing nonce or ciphertext]"
+				continue
+			}
+			combined := append(msg.Nonce, msg.Ciphertext...)
+			decrypted, err := a.signalService.DecryptMessage(session, combined)
 			if err != nil {
 				msg.Content = fmt.Sprintf("[Decryption error: %v]", err)
 				continue
