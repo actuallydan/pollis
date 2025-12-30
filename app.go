@@ -148,27 +148,18 @@ func (a *App) startup(ctx context.Context) {
 		fmt.Printf("GetStoredSession success - userID: %s, token length: %d\n", userID, len(clerkToken))
 	}
 	if err == nil && userID != "" && clerkToken != "" {
-		// Verify token with Clerk
-		if a.clerkService != nil {
-			clerkUser, verifyErr := a.clerkService.VerifySessionToken(a.ctx, clerkToken)
-
-			if verifyErr == nil && clerkUser != nil {
-				// Token is valid, try to load UserSnapshot
-				fmt.Printf("Found stored session for user: %s (clerk_id: %s)\n", userID, clerkUser.ID)
-				if err := a.loadUserSnapshot(userID); err == nil {
-					// UserSnapshot loaded successfully
-					fmt.Println("UserSnapshot loaded successfully")
-					return
-				} else {
-					fmt.Printf("Failed to load UserSnapshot: %v\n", err)
-				}
-			} else {
-				fmt.Printf("Stored session token invalid: %v\n", verifyErr)
-			}
+		// Session exists locally - trust it without calling Clerk
+		fmt.Printf("Found stored session for user: %s\n", userID)
+		if err := a.loadUserSnapshot(userID); err == nil {
+			// UserSnapshot loaded successfully
+			fmt.Println("UserSnapshot loaded successfully")
+			return
+		} else {
+			fmt.Printf("Failed to load UserSnapshot: %v\n", err)
+			// Clear session if user database can't be loaded
+			fmt.Println("Clearing session due to failed UserSnapshot load")
+			a.keychainService.ClearSession()
 		}
-		// Clear invalid session
-		fmt.Println("Clearing invalid session")
-		a.keychainService.ClearSession()
 	}
 
 	// No session or invalid, app will show auth screen (handled by frontend)
