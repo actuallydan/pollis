@@ -36,7 +36,7 @@ func main() {
 	appOptions := &options.App{
 		Title:             "Pollis",
 		Width:             1280,
-		Height:            800,
+		Height:            720,
 		MinWidth:          300,
 		MinHeight:         600,
 		Frameless:         frameless,
@@ -47,6 +47,7 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 1},
 		OnStartup:        app.startup,
+		OnShutdown:       app.shutdown,
 		Bind: []interface{}{
 			app,
 		},

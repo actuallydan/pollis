@@ -90,6 +90,10 @@ func (ks *KeychainService) StoreSession(userID string, clerkToken string) error 
 func (ks *KeychainService) GetStoredSession() (string, string, error) {
 	item, err := ks.ring.Get("pollis_session")
 	if err != nil {
+		// Return empty strings if session not found (don't treat as error)
+		if err == keyring.ErrKeyNotFound {
+			return "", "", nil
+		}
 		return "", "", fmt.Errorf("failed to get session: %w", err)
 	}
 

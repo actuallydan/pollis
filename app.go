@@ -166,6 +166,84 @@ func (a *App) startup(ctx context.Context) {
 	fmt.Println("No valid session found, showing auth screen")
 }
 
+// shutdown is called when the app is closing
+func (a *App) shutdown(ctx context.Context) {
+	a.saveWindowBounds()
+}
+
+// saveWindowBounds saves current window size and position to database
+func (a *App) saveWindowBounds() {
+	if a.db == nil {
+		return
+	}
+
+	width, height := runtime.WindowGetSize(a.ctx)
+	x, y := runtime.WindowGetPosition(a.ctx)
+
+	// Store as JSON in key_value table
+	bounds := fmt.Sprintf(`{"width":%d,"height":%d,"x":%d,"y":%d}`, width, height, x, y)
+
+	_, err := a.db.GetConn().Exec(
+		`INSERT OR REPLACE INTO key_value (key, value) VALUES ('window_bounds', ?)`,
+		bounds,
+	)
+	if err != nil {
+		fmt.Printf("Failed to save window bounds: %v\n", err)
+	}
+}
+
+// restoreWindowBounds restores window size and position from database
+func (a *App) restoreWindowBounds() {
+	if a.db == nil {
+		return
+	}
+
+	// Get screen size to calculate sensible defaults
+	screens, err := runtime.ScreenGetAll(a.ctx)
+	if err != nil || len(screens) == 0 {
+		return
+	}
+	screen := screens[0] // Primary screen
+
+	// Sensible defaults: max 1280x720, or 80% of screen (whichever is smaller)
+	maxWidth := min(1280, int(float64(screen.Width)*0.8))
+	maxHeight := min(720, int(float64(screen.Height)*0.8))
+
+	// Try to load saved bounds
+	var bounds string
+	err = a.db.GetConn().QueryRow(`SELECT value FROM key_value WHERE key = 'window_bounds'`).Scan(&bounds)
+	if err != nil {
+		// No saved bounds - use defaults and center
+		x := (screen.Width - maxWidth) / 2
+		y := (screen.Height - maxHeight) / 2
+		runtime.WindowSetSize(a.ctx, maxWidth, maxHeight)
+		runtime.WindowSetPosition(a.ctx, x, y)
+		return
+	}
+
+	// Parse saved bounds
+	var width, height, x, y int
+	_, err = fmt.Sscanf(bounds, `{"width":%d,"height":%d,"x":%d,"y":%d}`, &width, &height, &x, &y)
+	if err != nil {
+		return
+	}
+
+	// Validate bounds are still on screen and reasonable
+	if width < 300 || height < 600 || width > screen.Width || height > screen.Height ||
+		x < 0 || y < 0 || x+width > screen.Width || y+height > screen.Height {
+		// Invalid bounds - use defaults
+		x = (screen.Width - maxWidth) / 2
+		y = (screen.Height - maxHeight) / 2
+		runtime.WindowSetSize(a.ctx, maxWidth, maxHeight)
+		runtime.WindowSetPosition(a.ctx, x, y)
+		return
+	}
+
+	// Saved bounds are valid - use them
+	runtime.WindowSetSize(a.ctx, width, height)
+	runtime.WindowSetPosition(a.ctx, x, y)
+}
+
 // Helper function to load a user's UserSnapshot database
 // If loading fails, creates a new snapshot and keeps the old one
 func (a *App) loadUserSnapshot(userID string) error {
@@ -264,6 +342,9 @@ func (a *App) loadUserSnapshot(userID string) error {
 	if a.networkService == nil {
 		a.networkService = services.NewNetworkService()
 	}
+
+	// Restore window bounds now that database is loaded
+	a.restoreWindowBounds()
 
 	return nil
 }

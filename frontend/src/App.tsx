@@ -603,7 +603,15 @@ function MainApp({
     return (
       <div className="h-full w-full flex flex-col bg-black overflow-hidden">
         {isMac && isDesktop && (
-          <div className="h-8 w-full absolute top-0 left-0 z-50 titlebar-drag" />
+          <div
+            className="h-8 w-full absolute top-0 left-0 z-50 titlebar-drag"
+            onDoubleClick={() => {
+              const runtime = (window as any).runtime;
+              if (runtime?.WindowToggleMaximise) {
+                runtime.WindowToggleMaximise();
+              }
+            }}
+          />
         )}
         {isDesktop && <TitleBar />}
         <div className={`flex-1 flex flex-col overflow-hidden ${isMac && isDesktop ? 'pt-8' : ''}`}>
