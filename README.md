@@ -2,6 +2,8 @@
 
 An end-to-end encrypted desktop messaging application built with Wails (Go + React/TypeScript), designed to function like Slack but with full Signal protocol encryption.
 
+![Pollis App](readme/app.png)
+
 ## Architecture
 
 - **Desktop App**: Wails v2 application (Go backend + React frontend)
