@@ -21,7 +21,6 @@ interface SidebarProps {
   onSearchGroup?: () => void;
   onStartDM?: () => void;
   onLogout?: () => void;
-  onOpenGroupIcon?: (groupId: string) => void;
 }
 
 interface SidebarIconButtonProps {
@@ -53,12 +52,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSearchGroup,
   onStartDM,
   onLogout,
-  onOpenGroupIcon,
 }) => {
   const {
     groups,
     channels,
     currentUser,
+    username,
+    userAvatarUrl,
+    setUserAvatarUrl,
     selectedGroupId,
     selectedChannelId,
     selectedConversationId,
@@ -67,8 +68,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setSelectedConversationId,
     dmConversations,
   } = useAppStore();
-
-  const [userAvatarUrl, setUserAvatarUrl] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(256);
   const isResizingRef = useRef(false);
   const startXRef = useRef(0);
@@ -110,43 +109,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const selectedGroup = groups.find((g) => g.id === selectedGroupId);
   const groupChannels = selectedGroupId ? channels[selectedGroupId] || [] : [];
-
-  // Load user avatar URL
-  useEffect(() => {
-    const loadUserAvatar = async () => {
-      if (!currentUser) {
-        setUserAvatarUrl(null);
-        return;
-      }
-
-      try {
-        // Get user data from service (Turso DB)
-        const { getServiceUserData } = await import("../../services/api");
-        const userData = await getServiceUserData();
-
-        // Load avatar from service
-        if (userData.avatar_url) {
-          try {
-            const { getFileDownloadUrl } = await import(
-              "../../services/r2-upload"
-            );
-            const downloadUrl = await getFileDownloadUrl(userData.avatar_url);
-            setUserAvatarUrl(downloadUrl);
-          } catch (error) {
-            console.error("Failed to get avatar download URL:", error);
-            setUserAvatarUrl(null);
-          }
-        } else {
-          setUserAvatarUrl(null);
-        }
-      } catch (error) {
-        console.error("Failed to load user avatar:", error);
-        setUserAvatarUrl(null);
-      }
-    };
-
-    loadUserAvatar();
-  }, [currentUser]);
 
   return (
     <div
@@ -276,18 +238,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       >
                         {group.name}
                       </Header>
-                      {onOpenGroupIcon && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenGroupIcon(group.id);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 p-1 text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-all"
-                          aria-label={`Change icon for ${group.name}`}
-                        >
-                          <ImageIcon className="w-4 h-4" />
-                        </button>
-                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          updateURL(`/g/${group.slug}/settings`);
+                          window.dispatchEvent(new PopStateEvent("popstate"));
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-all"
+                        aria-label={`Settings for ${group.name}`}
+                      >
+                        <Settings className="w-4 h-4" />
+                      </button>
                     </div>
                   )}
                 </button>
@@ -445,10 +406,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
               <div className="flex-1 min-w-0 text-left">
                 <div className="font-sans text-orange-300 font-medium truncate">
-                  User
+                  {username || "User"}
                 </div>
                 <div className="text-xs text-orange-300/50 truncate">
-                  {currentUser.id.substring(0, 8)}...
+                  {username ? `@${username}` : `${currentUser.id.substring(0, 8)}...`}
                 </div>
               </div>
               <Settings className="w-4 h-4 text-orange-300/50 group-hover:text-orange-300 transition-colors flex-shrink-0" />

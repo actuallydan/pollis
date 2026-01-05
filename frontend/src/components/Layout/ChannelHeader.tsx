@@ -87,12 +87,6 @@ export const ChannelHeader: React.FC = () => {
             <Settings className="w-5 h-5" />
           </button>
         )}
-        <button
-          className="p-2 text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-colors"
-          aria-label="Channel info"
-        >
-          <Info className="w-5 h-5" />
-        </button>
       </div>
     </div>
   );

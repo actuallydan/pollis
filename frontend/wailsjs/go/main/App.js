@@ -50,6 +50,10 @@ export function CreateUser(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateUser'](arg1, arg2, arg3);
 }
 
+export function DeleteFile(arg1) {
+  return window['go']['main']['App']['DeleteFile'](arg1);
+}
+
 export function GetChannel(arg1) {
   return window['go']['main']['App']['GetChannel'](arg1);
 }

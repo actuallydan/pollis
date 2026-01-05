@@ -27,6 +27,8 @@ export function CreateOrGetDMConversation(arg1:string,arg2:string):Promise<model
 
 export function CreateUser(arg1:string,arg2:string,arg3:string):Promise<models.User>;
 
+export function DeleteFile(arg1:string):Promise<void>;
+
 export function GetChannel(arg1:string):Promise<models.Channel>;
 
 export function GetCurrentUser():Promise<models.User>;

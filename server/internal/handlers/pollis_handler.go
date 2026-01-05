@@ -121,13 +121,22 @@ func (h *PollisHandler) RegisterUser(ctx context.Context, req *proto.RegisterUse
 		}, nil
 	}
 
-	log.Printf("[RegisterUser] Registering user: user_id=%s, clerk_id=%s, email=%v, phone=%v",
-		req.UserId, req.ClerkId, req.Email, req.Phone)
+	log.Printf("[RegisterUser] Registering user: user_id=%s, clerk_id=%s, username=%s, email=%v, phone=%v, avatar_url=%v",
+		req.UserId, req.ClerkId, req.Username, req.Email, req.Phone, req.AvatarUrl)
+
+	// Extract username pointer if provided
+	var usernamePtr *string
+	if req.Username != "" {
+		usernamePtr = &req.Username
+	}
+
 	err := h.userService.RegisterUser(
 		req.UserId,
 		req.ClerkId,
+		usernamePtr,
 		req.Email,
 		req.Phone,
+		req.AvatarUrl,
 	)
 	if err != nil {
 		log.Printf("[RegisterUser] ERROR: Failed to register user %s: %v", req.UserId, err)
@@ -157,14 +166,17 @@ func (h *PollisHandler) GetUserByClerkID(ctx context.Context, req *proto.GetUser
 	}
 
 	resp := &proto.GetUserByClerkIDResponse{
-		UserId: user.ID,
+		UserId:    user.ID,
+		Username:  user.Username,
+		Email:     user.Email,
+		Phone:     user.Phone,
+		AvatarUrl: user.AvatarURL,
 	}
 
 	return resp, nil
 }
 
 // GetUser retrieves a user by identifier
-// Note: In the new schema, only ID and clerk_id are stored
 func (h *PollisHandler) GetUser(ctx context.Context, req *proto.GetUserRequest) (*proto.GetUserResponse, error) {
 	user, err := h.userService.GetUser(req.UserIdentifier)
 	if err != nil {
@@ -176,10 +188,21 @@ func (h *PollisHandler) GetUser(ctx context.Context, req *proto.GetUserRequest) 
 	}
 
 	resp := &proto.GetUserResponse{
-		UserId: user.ID,
+		UserId:   user.ID,
+		Username: getUsernameString(user.Username),
+		Email:    user.Email,
+		Phone:    user.Phone,
 	}
 
 	return resp, nil
+}
+
+// Helper to get username as string (not pointer)
+func getUsernameString(username *string) string {
+	if username == nil {
+		return ""
+	}
+	return *username
 }
 
 // SearchUsers searches for users

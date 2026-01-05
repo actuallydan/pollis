@@ -3,11 +3,11 @@ import { ArrowLeft, Upload, Loader2 } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
 import { Button, Header, Paragraph, TextInput, FilePicker, type FileWithPreview } from "monopollis";
 import { uploadGroupIcon, getFileDownloadUrl } from "../services/r2-upload";
-import { updateURL, deriveSlug } from "../utils/urlRouting";
+import { updateURL, deriveSlug, parseURL } from "../utils/urlRouting";
 import * as api from "../services/api";
 
 export const GroupSettings: React.FC = () => {
-  const { groups, setGroups, selectedGroupId } = useAppStore();
+  const { groups, setGroups, selectedGroupId, setSelectedGroupId } = useAppStore();
   const [groupName, setGroupName] = useState("");
   const [slugPreview, setSlugPreview] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -21,7 +21,18 @@ export const GroupSettings: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [filePickerKey, setFilePickerKey] = useState(0);
 
-  const currentGroup = groups.find((g) => g.id === selectedGroupId);
+  // Find group by slug from URL, not by selectedGroupId
+  const urlData = parseURL();
+  const currentGroup = urlData.type === "group-settings" && urlData.groupSlug
+    ? groups.find((g) => g.slug === urlData.groupSlug)
+    : groups.find((g) => g.id === selectedGroupId);
+
+  // Set selectedGroupId if we found the group by slug
+  useEffect(() => {
+    if (currentGroup && currentGroup.id !== selectedGroupId) {
+      setSelectedGroupId(currentGroup.id);
+    }
+  }, [currentGroup, selectedGroupId, setSelectedGroupId]);
 
   // Clean up preview URL when component unmounts or file changes
   useEffect(() => {

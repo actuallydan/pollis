@@ -4,6 +4,8 @@
 // /g/<group-slug>/<channel-slug> - Channel view
 // /c/<conversation-id> - Direct message view
 // /settings - Settings page
+// /create-group - Create group page
+// /create-channel - Create channel page
 // /g/<group-slug>/settings - Group settings page
 
 export const deriveSlug = (name: string): string => {
@@ -20,18 +22,28 @@ export const updateURL = (path: string) => {
 };
 
 export const parseURL = (): {
-  type: "group" | "channel" | "dm" | "settings" | "group-settings" | null;
+  type: "group" | "channel" | "dm" | "settings" | "create-group" | "create-channel" | "group-settings" | null;
   groupSlug?: string;
   channelSlug?: string;
   conversationId?: string;
 } => {
   const path = window.location.pathname;
-  
+
   // /settings
   if (path === "/settings") {
     return { type: "settings" };
   }
-  
+
+  // /create-group
+  if (path === "/create-group") {
+    return { type: "create-group" };
+  }
+
+  // /create-channel
+  if (path === "/create-channel") {
+    return { type: "create-channel" };
+  }
+
   // /g/<group-slug>/settings
   const groupSettingsMatch = path.match(/^\/g\/([^/]+)\/settings$/);
   if (groupSettingsMatch) {

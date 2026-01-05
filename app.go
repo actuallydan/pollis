@@ -595,9 +595,10 @@ func (a *App) GetServiceUserData() (map[string]interface{}, error) {
 	}
 
 	result := map[string]interface{}{
-		"username": "",
-		"email":    "",
-		"phone":    "",
+		"username":   "",
+		"email":      "",
+		"phone":      "",
+		"avatar_url": "",
 	}
 
 	if serviceUser.Username != nil && *serviceUser.Username != "" {
@@ -608,6 +609,9 @@ func (a *App) GetServiceUserData() (map[string]interface{}, error) {
 	}
 	if serviceUser.Phone != nil && *serviceUser.Phone != "" {
 		result["phone"] = *serviceUser.Phone
+	}
+	if serviceUser.AvatarUrl != nil && *serviceUser.AvatarUrl != "" {
+		result["avatar_url"] = *serviceUser.AvatarUrl
 	}
 
 	return result, nil
@@ -626,7 +630,8 @@ func (a *App) UpdateServiceUserData(username string, email, phone, avatarURL *st
 	}
 
 	clerkID := currentUser.ClerkID
-	if err := a.serviceClient.RegisterUser(currentUser.ID, &clerkID, email, phone); err != nil {
+	usernamePtr := &username
+	if err := a.serviceClient.RegisterUser(currentUser.ID, &clerkID, usernamePtr, email, phone, avatarURL); err != nil {
 		return fmt.Errorf("failed to update user in service: %w", err)
 	}
 
@@ -1450,6 +1455,8 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 			// Extract primary email and phone from Clerk user
 			var emailPtr *string
 			var phonePtr *string
+			var usernamePtr *string
+			var avatarURLPtr *string
 
 			// Get primary email
 			if clerkUser.PrimaryEmailAddressID != nil && len(clerkUser.EmailAddresses) > 0 {
@@ -1471,7 +1478,17 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 				}
 			}
 
-			if err := a.serviceClient.RegisterUser(user.ID, clerkIDPtr, emailPtr, phonePtr); err != nil {
+			// Get username
+			if clerkUser.Username != nil && *clerkUser.Username != "" {
+				usernamePtr = clerkUser.Username
+			}
+
+			// Get avatar URL
+			if clerkUser.ImageURL != nil && *clerkUser.ImageURL != "" {
+				avatarURLPtr = clerkUser.ImageURL
+			}
+
+			if err := a.serviceClient.RegisterUser(user.ID, clerkIDPtr, usernamePtr, emailPtr, phonePtr, avatarURLPtr); err != nil {
 				// Log error but don't fail - user is already created locally
 				fmt.Printf("ERROR: Failed to register user with service: %v\n", err)
 				fmt.Printf("ERROR: User will NOT appear in Turso DB until this is fixed.\n")
@@ -1951,4 +1968,25 @@ func (a *App) GetPresignedFileDownloadURL(objectKey string) (string, error) {
 	}
 
 	return downloadURL, nil
+}
+
+// DeleteFile deletes a file from R2 storage
+func (a *App) DeleteFile(objectKey string) error {
+	if a.r2Service == nil {
+		return fmt.Errorf("R2 service not initialized")
+	}
+
+	if objectKey == "" {
+		return fmt.Errorf("object_key is required")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := a.r2Service.DeleteObject(ctx, objectKey)
+	if err != nil {
+		return fmt.Errorf("failed to delete file: %w", err)
+	}
+
+	return nil
 }

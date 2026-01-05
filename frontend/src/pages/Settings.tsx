@@ -7,7 +7,7 @@ import { updateURL } from "../utils/urlRouting";
 import * as api from "../services/api";
 
 export const Settings: React.FC = () => {
-  const { currentUser, setCurrentUser } = useAppStore();
+  const { currentUser, setCurrentUser, setUsername: setStoreUsername, setUserAvatarUrl: setStoreAvatarUrl } = useAppStore();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [currentAvatarUrl, setCurrentAvatarUrl] = useState<string | null>(null);
@@ -101,6 +101,56 @@ export const Settings: React.FC = () => {
     }
   };
 
+  // Resize and optimize image before upload
+  const resizeImage = async (file: File): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        const maxSize = 1024;
+
+        // Resize if larger than 1024x1024
+        if (width > maxSize || height > maxSize) {
+          if (width > height) {
+            height = (height / width) * maxSize;
+            width = maxSize;
+          } else {
+            width = (width / height) * maxSize;
+            height = maxSize;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        ctx?.drawImage(img, 0, 0, width, height);
+
+        // Convert to blob with quality optimization
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error('Failed to compress image'));
+              return;
+            }
+            const optimizedFile = new File([blob], file.name, {
+              type: 'image/jpeg',
+              lastModified: Date.now(),
+            });
+            resolve(optimizedFile);
+          },
+          'image/jpeg',
+          0.85 // 85% quality for good balance
+        );
+      };
+
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
   const handleAvatarUpload = async () => {
     if (!selectedFile || !currentUser) return;
 
@@ -108,10 +158,17 @@ export const Settings: React.FC = () => {
     setUploadError(null);
 
     try {
+      // Get current avatar URL to delete old one
+      const userData = await api.getServiceUserData();
+      const oldAvatarKey = userData.avatar_url;
+
+      // Resize and optimize image
+      const optimizedFile = await resizeImage(selectedFile);
+
       const response = await uploadAvatar(
         currentUser.id,
         "", // No alias/group ID for user avatar
-        selectedFile
+        optimizedFile
       );
 
       // Get presigned download URL for the uploaded avatar
@@ -120,8 +177,22 @@ export const Settings: React.FC = () => {
       // Update avatar URL in Turso DB via service
       await api.updateServiceUserAvatar(response.object_key);
 
+      // Delete old avatar from R2 if it exists
+      if (oldAvatarKey) {
+        try {
+          const { DeleteFile } = await import("../../wailsjs/go/main/App");
+          await DeleteFile(oldAvatarKey);
+        } catch (error) {
+          console.error("Failed to delete old avatar:", error);
+          // Non-critical error, continue
+        }
+      }
+
       // Update current avatar URL to show the new avatar
       setCurrentAvatarUrl(downloadUrl);
+
+      // Update store so Sidebar re-renders automatically
+      setStoreAvatarUrl(downloadUrl);
 
       // Reset file picker and preview
       setSelectedFile(null);
@@ -154,6 +225,9 @@ export const Settings: React.FC = () => {
         email.trim() || null,
         phone.trim() || null
       );
+
+      // Update store so Sidebar re-renders automatically
+      setStoreUsername(username.trim());
 
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -218,8 +292,7 @@ export const Settings: React.FC = () => {
                       onChange={setUsername}
                       placeholder="username"
                       type="text"
-                      description="Your username (required)"
-                      required
+                      description="Your username"
                     />
 
                     <TextInput
@@ -229,7 +302,7 @@ export const Settings: React.FC = () => {
                       onChange={setEmail}
                       placeholder="your@email.com"
                       type="email"
-                      description="Your email address (optional)"
+                      description="Your email address"
                     />
 
                     <TextInput
@@ -239,7 +312,7 @@ export const Settings: React.FC = () => {
                       onChange={setPhone}
                       placeholder="+1234567890"
                       type="text"
-                      description="Your phone number (optional)"
+                      description="Your phone number"
                     />
                   </>
                 )}

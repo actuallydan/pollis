@@ -179,3 +179,15 @@ func (r *R2Service) GenerateFileKey(channelID, conversationID, messageID, filena
 func (r *R2Service) GetPublicURL(objectKey string) string {
 	return fmt.Sprintf("%s/%s/%s", r.endpoint, r.bucket, objectKey)
 }
+
+// DeleteObject deletes an object from R2
+func (r *R2Service) DeleteObject(ctx context.Context, objectKey string) error {
+	_, err := r.s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(r.bucket),
+		Key:    aws.String(objectKey),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete object: %w", err)
+	}
+	return nil
+}

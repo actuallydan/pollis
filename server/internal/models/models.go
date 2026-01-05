@@ -1,12 +1,16 @@
 package models
 
-// User represents a user in the service (minimal metadata only)
-// Per AUTH_AND_DB_MIGRATION.md: username, email, phone, avatar_url removed
+// User represents a user in the service
+// Includes username, email, phone, and avatar_url stored in Turso
 type User struct {
-	ID        string `json:"id"`       // ULID
-	ClerkID   string `json:"clerk_id"` // Required, links to Clerk account
-	CreatedAt int64  `json:"created_at"`
-	Disabled  int    `json:"disabled"` // 0 = enabled, 1 = disabled
+	ID        string  `json:"id"`         // ULID
+	ClerkID   string  `json:"clerk_id"`   // Required, links to Clerk account
+	Username  *string `json:"username"`   // Optional username
+	Email     *string `json:"email"`      // Optional email
+	Phone     *string `json:"phone"`      // Optional phone
+	AvatarURL *string `json:"avatar_url"` // Optional avatar URL
+	CreatedAt int64   `json:"created_at"`
+	Disabled  int     `json:"disabled"` // 0 = enabled, 1 = disabled
 }
 
 // Group represents a group/organization

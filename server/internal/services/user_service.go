@@ -20,8 +20,8 @@ func NewUserService(db *database.DB) *UserService {
 }
 
 // RegisterUser creates or updates a user in the service
-// Now includes email and phone fields
-func (s *UserService) RegisterUser(userID, clerkID string, email, phone *string) error {
+// Now includes username, email, phone, and avatar_url fields
+func (s *UserService) RegisterUser(userID, clerkID string, username *string, email, phone, avatarURL *string) error {
 	// Validate inputs
 	if err := utils.ValidateUserID(userID); err != nil {
 		return err
@@ -43,31 +43,31 @@ func (s *UserService) RegisterUser(userID, clerkID string, email, phone *string)
 	}
 
 	if exists {
-		// User already exists - only set email/phone if not already set (don't overwrite)
-		if email != nil || phone != nil {
-			// First check what's already in the database
-			var existingEmail, existingPhone sql.NullString
-			err = s.db.GetConn().QueryRow(
-				"SELECT email, phone FROM users WHERE id = ?",
-				userID,
-			).Scan(&existingEmail, &existingPhone)
-			if err != nil {
-				return fmt.Errorf("failed to check existing user data: %w", err)
-			}
-
+		// User already exists - update all fields (allow overwriting)
+		if username != nil || email != nil || phone != nil || avatarURL != nil {
 			query := "UPDATE users SET"
 			args := []interface{}{}
 			updates := []string{}
 
-			// Only update email if not already set
-			if email != nil && !existingEmail.Valid {
+			// Always update username if provided
+			if username != nil {
+				updates = append(updates, " username = ?")
+				args = append(args, *username)
+			}
+			// Always update email if provided
+			if email != nil {
 				updates = append(updates, " email = ?")
 				args = append(args, *email)
 			}
-			// Only update phone if not already set
-			if phone != nil && !existingPhone.Valid {
+			// Always update phone if provided
+			if phone != nil {
 				updates = append(updates, " phone = ?")
 				args = append(args, *phone)
+			}
+			// Always update avatar_url if provided
+			if avatarURL != nil {
+				updates = append(updates, " avatar_url = ?")
+				args = append(args, *avatarURL)
 			}
 
 			if len(updates) > 0 {
@@ -81,11 +81,11 @@ func (s *UserService) RegisterUser(userID, clerkID string, email, phone *string)
 		}
 		return nil
 	} else {
-		// Insert new user with email and phone
+		// Insert new user with username, email, phone, and avatar_url
 		_, err = s.db.GetConn().Exec(`
-			INSERT INTO users (id, clerk_id, email, phone, created_at, disabled)
-			VALUES (?, ?, ?, ?, ?, 0)
-		`, userID, clerkID, email, phone, now)
+			INSERT INTO users (id, clerk_id, username, email, phone, avatar_url, created_at, disabled)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+		`, userID, clerkID, username, email, phone, avatarURL, now)
 		if err != nil {
 			return fmt.Errorf("failed to insert user: %w", err)
 		}
@@ -102,12 +102,16 @@ func (s *UserService) GetUserByID(userID string) (*models.User, error) {
 
 	user := &models.User{}
 	err := s.db.GetConn().QueryRow(`
-		SELECT id, clerk_id, created_at, disabled
+		SELECT id, clerk_id, username, email, phone, avatar_url, created_at, disabled
 		FROM users
 		WHERE id = ?
 	`, userID).Scan(
 		&user.ID,
 		&user.ClerkID,
+		&user.Username,
+		&user.Email,
+		&user.Phone,
+		&user.AvatarURL,
 		&user.CreatedAt,
 		&user.Disabled,
 	)
@@ -129,12 +133,16 @@ func (s *UserService) GetUserByClerkID(clerkID string) (*models.User, error) {
 
 	user := &models.User{}
 	err := s.db.GetConn().QueryRow(`
-		SELECT id, clerk_id, created_at, disabled
+		SELECT id, clerk_id, username, email, phone, avatar_url, created_at, disabled
 		FROM users
 		WHERE clerk_id = ?
 	`, clerkID).Scan(
 		&user.ID,
 		&user.ClerkID,
+		&user.Username,
+		&user.Email,
+		&user.Phone,
+		&user.AvatarURL,
 		&user.CreatedAt,
 		&user.Disabled,
 	)

@@ -47,7 +47,7 @@ func (c *ServiceClient) Close() error {
 }
 
 // RegisterUser registers a user with the service
-func (c *ServiceClient) RegisterUser(userID string, clerkID *string, email *string, phone *string) error {
+func (c *ServiceClient) RegisterUser(userID string, clerkID *string, username *string, email *string, phone *string, avatarURL *string) error {
 	req := &pollispb.RegisterUserRequest{
 		UserId: userID,
 	}
@@ -56,12 +56,20 @@ func (c *ServiceClient) RegisterUser(userID string, clerkID *string, email *stri
 		req.ClerkId = *clerkID
 	}
 
+	if username != nil {
+		req.Username = *username
+	}
+
 	if email != nil {
 		req.Email = email
 	}
 
 	if phone != nil {
 		req.Phone = phone
+	}
+
+	if avatarURL != nil {
+		req.AvatarUrl = avatarURL
 	}
 
 	_, err := c.client.RegisterUser(c.ctx, req)

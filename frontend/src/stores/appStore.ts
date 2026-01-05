@@ -2,8 +2,14 @@ import { create } from 'zustand';
 import type { AppState, User, Group, Channel, Message, DMConversation, MessageQueueItem, NetworkStatus } from '../types';
 
 interface AppStore extends AppState {
+  // User profile data from Turso
+  username: string | null;
+  userAvatarUrl: string | null;
+
   // Actions
   setCurrentUser: (user: User | null) => void;
+  setUsername: (username: string | null) => void;
+  setUserAvatarUrl: (url: string | null) => void;
   setSelectedGroupId: (groupId: string | null) => void;
   setSelectedChannelId: (channelId: string | null) => void;
   setSelectedConversationId: (conversationId: string | null) => void;
@@ -33,6 +39,8 @@ interface AppStore extends AppState {
 export const useAppStore = create<AppStore>((set) => ({
   // Initial state
   currentUser: null,
+  username: null,
+  userAvatarUrl: null,
   selectedGroupId: null,
   selectedChannelId: null,
   selectedConversationId: null,
@@ -50,6 +58,8 @@ export const useAppStore = create<AppStore>((set) => ({
 
   // Actions
   setCurrentUser: (user) => set({ currentUser: user }),
+  setUsername: (username) => set({ username }),
+  setUserAvatarUrl: (url) => set({ userAvatarUrl: url }),
   
   setSelectedGroupId: (groupId) => set({ selectedGroupId: groupId, selectedChannelId: null }),
   setSelectedChannelId: (channelId) => set({ selectedChannelId: channelId, selectedConversationId: null }),
@@ -129,6 +139,8 @@ export const useAppStore = create<AppStore>((set) => ({
   
   logout: () => set({
     currentUser: null,
+    username: null,
+    userAvatarUrl: null,
     selectedGroupId: null,
     selectedChannelId: null,
     selectedConversationId: null,

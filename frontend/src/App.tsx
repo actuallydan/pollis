@@ -11,19 +11,18 @@ import { MainContent } from "./components/Layout/MainContent";
 import { TitleBar } from "./components/Layout/TitleBar";
 import { Settings } from "./pages/Settings";
 import { GroupSettings } from "./pages/GroupSettings";
-import { LoadingSpinner, DotMatrix, Card, pulsingWaveAlgorithm } from "monopollis";
+import { CreateGroup } from "./pages/CreateGroup";
+import { CreateChannel } from "./pages/CreateChannel";
+import { LoadingSpinner, DotMatrix, Card, pulsingWaveAlgorithm, gameOfLifeAlgorithm, mouseRippleAlgorithm, flowingWaveAlgorithm } from "monopollis";
 import {
-  CreateGroupModal,
-  CreateChannelModal,
   SearchGroupModal,
   StartDMModal,
   AvatarSettingsModal,
-  GroupIconModal,
 } from "./components/Modals";
 import * as api from "./services/api";
 import { useWailsReady } from "./hooks/useWailsReady";
 import { useAblyRealtime } from "./hooks/useAblyRealtime";
-import { parseURL, deriveSlug } from "./utils/urlRouting";
+import { parseURL, deriveSlug, updateURL } from "./utils/urlRouting";
 
 // Storage keys for state persistence
 const STORAGE_KEYS = {
@@ -95,6 +94,8 @@ function MainApp({
   const {
     currentUser,
     setCurrentUser,
+    setUsername,
+    setUserAvatarUrl,
     setGroups,
     setChannels,
     setDMConversations,
@@ -113,14 +114,22 @@ function MainApp({
 
   const [appState, setAppState] = useState<AppState>("initializing");
   const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [showCreateGroup, setShowCreateGroup] = useState(false);
-  const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showSearchGroup, setShowSearchGroup] = useState(false);
   const [showStartDM, setShowStartDM] = useState(false);
-  const [showGroupIcon, setShowGroupIcon] = useState(false);
-  const [selectedGroupForIcon, setSelectedGroupForIcon] = useState<
-    string | null
-  >(null);
+
+  // Random DotMatrix algorithm (selected once on mount)
+  const dotMatrixAlgorithms = useMemo(() => [
+    pulsingWaveAlgorithm,
+    gameOfLifeAlgorithm,
+    mouseRippleAlgorithm,
+    flowingWaveAlgorithm,
+  ], []);
+
+  const [dotMatrixAlgorithm, setDotMatrixAlgorithm] = useState(() => {
+    // Select random algorithm on initial mount
+    const randomIndex = Math.floor(Math.random() * dotMatrixAlgorithms.length);
+    return dotMatrixAlgorithms[randomIndex];
+  });
 
   // Ably real-time subscriptions (manages subscriptions based on selected channel)
   useAblyRealtime();
@@ -171,6 +180,31 @@ function MainApp({
       }
       setCurrentUser(user);
 
+      // Load user data from Turso (async, don't block startup)
+      api.getServiceUserData()
+        .then((userData) => {
+          setUsername(userData.username || null);
+
+          // Load avatar URL if available
+          const avatarUrl = userData.avatar_url;
+          if (avatarUrl) {
+            import("./services/r2-upload")
+              .then(({ getFileDownloadUrl }) => getFileDownloadUrl(avatarUrl))
+              .then((downloadUrl) => setUserAvatarUrl(downloadUrl))
+              .catch((error) => {
+                console.error("Failed to get avatar download URL:", error);
+                setUserAvatarUrl(null);
+              });
+          } else {
+            setUserAvatarUrl(null);
+          }
+        })
+        .catch((error) => {
+          console.error("Failed to load user data from Turso:", error);
+          setUsername(null);
+          setUserAvatarUrl(null);
+        });
+
       // Load user groups
       const groupsData = await api.listUserGroups(user.id);
       setGroups(groupsData);
@@ -200,6 +234,24 @@ function MainApp({
         setSelectedGroupId(null);
         setSelectedChannelId(null);
         setSelectedConversationId(null);
+        setAppState("ready");
+        return;
+      }
+
+      // Handle create group route
+      if (urlData.type === "create-group") {
+        setSelectedGroupId(null);
+        setSelectedChannelId(null);
+        setSelectedConversationId(null);
+        setAppState("ready");
+        return;
+      }
+
+      // Handle create channel route
+      if (urlData.type === "create-channel") {
+        setSelectedChannelId(null);
+        setSelectedConversationId(null);
+        // Keep selectedGroupId if it's set
         setAppState("ready");
         return;
       }
@@ -291,6 +343,8 @@ function MainApp({
   }, [
     checkIdentityFn,
     setCurrentUser,
+    setUsername,
+    setUserAvatarUrl,
     setGroups,
     setChannels,
     setDMConversations,
@@ -441,6 +495,22 @@ function MainApp({
         setSelectedGroupId(null);
         setSelectedChannelId(null);
         setSelectedConversationId(null);
+      } else if (urlData.type === "create-group") {
+        setSelectedGroupId(null);
+        setSelectedChannelId(null);
+        setSelectedConversationId(null);
+      } else if (urlData.type === "create-channel") {
+        setSelectedChannelId(null);
+        setSelectedConversationId(null);
+        // Keep selectedGroupId if it's set
+      } else if (urlData.type === "group-settings" && urlData.groupSlug) {
+        // Find and select group for settings
+        const group = groups.find((g) => g.slug === urlData.groupSlug);
+        if (group) {
+          setSelectedGroupId(group.id);
+          setSelectedChannelId(null);
+          setSelectedConversationId(null);
+        }
       } else if (
         urlData.type === "channel" &&
         urlData.groupSlug &&
@@ -617,7 +687,7 @@ function MainApp({
         <div className={`flex-1 flex flex-col overflow-hidden ${isMac && isDesktop ? 'pt-8' : ''}`}>
         {appState === "loading" && (
           <div className="relative flex flex-col items-center justify-center min-h-full bg-black">
-            <DotMatrix algorithm={pulsingWaveAlgorithm} />
+            <DotMatrix algorithm={dotMatrixAlgorithm} />
             <Card
               className="relative z-10 text-center max-w-md bg-black/90"
               variant="bordered"
@@ -642,26 +712,26 @@ function MainApp({
 
         {appState === "clerk-auth" && (
           <div className="relative flex flex-col items-center justify-center h-full bg-black">
-            <DotMatrix algorithm={pulsingWaveAlgorithm} />
+            <DotMatrix algorithm={dotMatrixAlgorithm} />
             <Card
               className="relative z-10 text-center max-w-md bg-black/90"
               // variant="bordered"
             >
-              <h1 className="text-2xl font-bold text-orange-300 mb-4">
+              <h1 className="text-2xl font-bold text-orange-300 mb-4 font-mono">
                 Welcome to Pollis
               </h1>
-              <p className="text-orange-300/70 mb-6">
+              <p className="text-orange-300/70 mb-6 font-mono">
                 Sign in or create an account to continue
               </p>
               {isDesktop ? (
                 <button
                   onClick={handleStartAuth}
-                  className="px-6 py-3 bg-orange-300 text-black font-semibold rounded hover:bg-orange-200 transition-colors"
+                  className="px-6 py-3 bg-orange-300 text-black font-semibold rounded hover:bg-orange-200 transition-colors font-mono"
                 >
                   Continue
                 </button>
               ) : (
-                <p className="text-orange-300/50 text-sm">
+                <p className="text-orange-300/50 text-sm font-mono">
                   This app is desktop-only. Please use the desktop application.
                 </p>
               )}
@@ -677,17 +747,59 @@ function MainApp({
                 return (
                   <div className="flex-1 flex overflow-hidden min-h-0">
                     <Sidebar
-                      onCreateGroup={() => setShowCreateGroup(true)}
-                      onCreateChannel={() => setShowCreateChannel(true)}
+                      onCreateGroup={() => {
+                        updateURL("/create-group");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onCreateChannel={() => {
+                        updateURL("/create-channel");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
                       onSearchGroup={() => setShowSearchGroup(true)}
                       onStartDM={() => setShowStartDM(true)}
                       onLogout={handleLogout}
-                      onOpenGroupIcon={(groupId) => {
-                        setSelectedGroupForIcon(groupId);
-                        setShowGroupIcon(true);
-                      }}
                     />
                     <Settings />
+                  </div>
+                );
+              }
+              if (urlData.type === "create-group") {
+                return (
+                  <div className="flex-1 flex overflow-hidden min-h-0">
+                    <Sidebar
+                      onCreateGroup={() => {
+                        updateURL("/create-group");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onCreateChannel={() => {
+                        updateURL("/create-channel");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onSearchGroup={() => setShowSearchGroup(true)}
+                      onStartDM={() => setShowStartDM(true)}
+                      onLogout={handleLogout}
+                    />
+                    <CreateGroup />
+                  </div>
+                );
+              }
+              if (urlData.type === "create-channel") {
+                return (
+                  <div className="flex-1 flex overflow-hidden min-h-0">
+                    <Sidebar
+                      onCreateGroup={() => {
+                        updateURL("/create-group");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onCreateChannel={() => {
+                        updateURL("/create-channel");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onSearchGroup={() => setShowSearchGroup(true)}
+                      onStartDM={() => setShowStartDM(true)}
+                      onLogout={handleLogout}
+                    />
+                    <CreateChannel />
                   </div>
                 );
               }
@@ -695,15 +807,17 @@ function MainApp({
                 return (
                   <div className="flex-1 flex overflow-hidden min-h-0">
                     <Sidebar
-                      onCreateGroup={() => setShowCreateGroup(true)}
-                      onCreateChannel={() => setShowCreateChannel(true)}
+                      onCreateGroup={() => {
+                        updateURL("/create-group");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onCreateChannel={() => {
+                        updateURL("/create-channel");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
                       onSearchGroup={() => setShowSearchGroup(true)}
                       onStartDM={() => setShowStartDM(true)}
                       onLogout={handleLogout}
-                      onOpenGroupIcon={(groupId) => {
-                        setSelectedGroupForIcon(groupId);
-                        setShowGroupIcon(true);
-                      }}
                     />
                     <GroupSettings />
                   </div>
@@ -712,29 +826,22 @@ function MainApp({
               return (
                 <div className="flex-1 flex overflow-hidden min-h-0">
                   <Sidebar
-                    onCreateGroup={() => setShowCreateGroup(true)}
-                    onCreateChannel={() => setShowCreateChannel(true)}
+                    onCreateGroup={() => {
+                      updateURL("/create-group");
+                      window.dispatchEvent(new PopStateEvent("popstate"));
+                    }}
+                    onCreateChannel={() => {
+                      updateURL("/create-channel");
+                      window.dispatchEvent(new PopStateEvent("popstate"));
+                    }}
                     onSearchGroup={() => setShowSearchGroup(true)}
                     onStartDM={() => setShowStartDM(true)}
                     onLogout={handleLogout}
-                    onOpenGroupIcon={(groupId) => {
-                      setSelectedGroupForIcon(groupId);
-                      setShowGroupIcon(true);
-                    }}
                   />
                   <MainContent />
                 </div>
               );
             })()}
-
-            <CreateGroupModal
-              isOpen={showCreateGroup}
-              onClose={() => setShowCreateGroup(false)}
-            />
-            <CreateChannelModal
-              isOpen={showCreateChannel}
-              onClose={() => setShowCreateChannel(false)}
-            />
             <SearchGroupModal
               isOpen={showSearchGroup}
               onClose={() => setShowSearchGroup(false)}
@@ -742,18 +849,6 @@ function MainApp({
             <StartDMModal
               isOpen={showStartDM}
               onClose={() => setShowStartDM(false)}
-            />
-            <GroupIconModal
-              isOpen={showGroupIcon}
-              onClose={() => {
-                setShowGroupIcon(false);
-                setSelectedGroupForIcon(null);
-              }}
-              group={groups.find((g) => g.id === selectedGroupForIcon) || null}
-              onIconUpdated={(iconUrl) => {
-                // TODO: Update group in store with new icon URL
-                console.log("Group icon updated:", iconUrl);
-              }}
             />
           </>
         )}
