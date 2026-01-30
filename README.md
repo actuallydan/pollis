@@ -1,100 +1,91 @@
-# Pollis - E2E Encrypted Messaging App
+# Pollis
 
-An end-to-end encrypted desktop messaging application built with Wails (Go + React/TypeScript), designed to function like Slack but with full Signal protocol encryption.
+A desktop messaging app with end-to-end encryption. Think Slack, but nobody (including me) can read your messages. Built with Wails so it's a native app on macOS/Linux/Windows with a Go backend and React frontend.
 
 ![Pollis App](readme/app.png)
 
-## Architecture
+## How it works
 
-- **Desktop App**: Wails v2 application (Go backend + React frontend)
-  - Local database: libSQL (SQLite) for user snapshots
-  - Cross-platform: macOS, Linux, Windows
-- **Server**: gRPC server for coordination and signaling
-  - Database: Turso (libSQL remote)
+The desktop app runs locally with a Wails frontend (React/TypeScript) talking to a Go backend. Messages are encrypted using the Signal protocol before they leave your machine. There's a gRPC server for coordinating connections and signaling, but it never sees unencrypted content.
 
-## Development Setup
+**Stack:**
+- Desktop: Wails v2 (Go + React)
+- Local storage: libSQL/SQLite
+- Server: gRPC for signaling
+- Remote DB: Turso (libSQL)
 
-### Prerequisites
+## Getting Started
 
-**All Platforms:**
+### What you need
+
+**Everyone needs:**
 - Go 1.24+
 - Node.js 18+
 - pnpm 10.25+
-- Protocol Buffers compiler (`protoc`)
-- Go protoc plugins:
+- `protoc` (Protocol Buffers compiler)
+- protoc plugins:
   ```bash
   go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
   go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
   ```
 
 **macOS:**
-- Wails CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
-- Or via Homebrew: `brew install protobuf`
-
-**Linux:**
-- Wails CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
-- Install system dependencies for Wails: https://wails.io/docs/gettingstarted/installation#linux
-
-### Installation
-
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   pnpm install
-   ```
-
-3. Generate gRPC code:
-   ```bash
-   pnpm proto
-   ```
-
-4. Set up Turso database (required for server):
-   ```bash
-   # Copy example env file
-   cp .env.example .env.local
-
-   # Edit .env.local and add your Turso credentials
-   # Get free database at https://turso.tech
-   ```
-
-### Development
-
 ```bash
-# Run desktop app (recommended for development)
-pnpm dev
-
-# Run only frontend in browser (no desktop app)
-pnpm dev:frontend
-
-# Run standalone server (optional, for testing)
-pnpm dev:server
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+# or if you prefer homebrew for protoc:
+brew install protobuf
 ```
 
-**Note:** The desktop app includes an embedded gRPC server. The standalone server is only needed for testing or running server-only deployments.
+**Linux:**
+```bash
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+# you'll also need some system deps, check: https://wails.io/docs/gettingstarted/installation#linux
+```
+
+### Setup
+
+```bash
+# install deps
+pnpm install
+
+# generate protobuf code
+pnpm proto
+
+# set up your database (you need this)
+cp .env.example .env.local
+# edit .env.local and add your Turso credentials (free at https://turso.tech)
+```
+
+### Running it
+
+```bash
+# run everything (server + desktop app)
+pnpm dev
+
+# just the frontend in a browser
+pnpm dev:frontend
+
+# just the server
+pnpm dev:server
+```
 
 ### Building
 
 ```bash
-# Build for your current platform
+# build for whatever platform you're on
 pnpm build:app
 
-# Platform-specific builds
-make build-macos    # macOS universal binary (Intel + Apple Silicon)
-make build-linux    # Linux amd64
-make build-windows  # Windows amd64
+# or use make for specific platforms
+make build-macos    # universal binary (Intel + Apple Silicon)
+make build-linux    # amd64
+make build-windows  # amd64
 ```
 
-## Project Structure
+## Project layout
 
 ```
-pollis/
-├── frontend/          # React frontend
-├── service/           # gRPC service
-├── internal/          # Desktop app Go code
-├── pkg/proto/         # Shared gRPC proto definitions
-└── app.go, main.go    # Wails app entry points
+frontend/    # React app
+server/      # gRPC server
+internal/    # Desktop app Go code
+pkg/proto/   # Shared protobuf definitions
 ```
-
-## See Also
-
-- [SPEC.md](SPEC.md) - Full specification document
