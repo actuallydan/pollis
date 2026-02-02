@@ -13,16 +13,15 @@ import { Settings } from "./pages/Settings";
 import { GroupSettings } from "./pages/GroupSettings";
 import { CreateGroup } from "./pages/CreateGroup";
 import { CreateChannel } from "./pages/CreateChannel";
+import { SearchGroup } from "./pages/SearchGroup";
+import { StartDM } from "./pages/StartDM";
 import { LoadingSpinner, DotMatrix, Card, pulsingWaveAlgorithm, gameOfLifeAlgorithm, mouseRippleAlgorithm, flowingWaveAlgorithm } from "monopollis";
-import {
-  SearchGroupModal,
-  StartDMModal,
-  AvatarSettingsModal,
-} from "./components/Modals";
 import * as api from "./services/api";
 import { useWailsReady } from "./hooks/useWailsReady";
 import { useAblyRealtime } from "./hooks/useAblyRealtime";
+import { useNetworkStatus } from "./hooks/useNetworkStatus";
 import { parseURL, deriveSlug, updateURL } from "./utils/urlRouting";
+import DesktopRequiredView from "./features/DesktopRequiredView";
 
 // Storage keys for state persistence
 const STORAGE_KEYS = {
@@ -62,35 +61,9 @@ function setStoredSelection(
 
 type AppState = "initializing" | "loading" | "clerk-auth" | "ready";
 
-function App() {
-  const { isDesktop, isReady: isWailsReady } = useWailsReady();
-
-  // Desktop app only - browser auth is handled by desktop backend
-  // The backend serves the OAuth callback pages on localhost:44665
-  if (!isDesktop) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-black">
-        <div className="text-center">
-          <div className="text-red-400 mb-2">Desktop Only</div>
-          <div className="text-orange-300/70 text-sm">
-            This app requires the desktop application.
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return <MainApp isDesktop={isDesktop} isWailsReady={isWailsReady} />;
-}
 
 // Main app component (desktop only)
-function MainApp({
-  isDesktop,
-  isWailsReady,
-}: {
-  isDesktop: boolean;
-  isWailsReady: boolean;
-}) {
+function MainApp() {
   const {
     currentUser,
     setCurrentUser,
@@ -99,7 +72,6 @@ function MainApp({
     setGroups,
     setChannels,
     setDMConversations,
-    setNetworkStatus,
     logout,
     setSelectedGroupId,
     setSelectedChannelId,
@@ -114,25 +86,23 @@ function MainApp({
 
   const [appState, setAppState] = useState<AppState>("initializing");
   const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [showSearchGroup, setShowSearchGroup] = useState(false);
-  const [showStartDM, setShowStartDM] = useState(false);
+  const { isDesktop, isReady: isWailsReady } = useWailsReady();
 
-  // Random DotMatrix algorithm (selected once on mount)
-  const dotMatrixAlgorithms = useMemo(() => [
+  const dotMatrixAlgorithms =  [
     pulsingWaveAlgorithm,
     gameOfLifeAlgorithm,
     mouseRippleAlgorithm,
     flowingWaveAlgorithm,
-  ], []);
+  ]
 
-  const [dotMatrixAlgorithm, setDotMatrixAlgorithm] = useState(() => {
-    // Select random algorithm on initial mount
-    const randomIndex = Math.floor(Math.random() * dotMatrixAlgorithms.length);
-    return dotMatrixAlgorithms[randomIndex];
-  });
+  const randomIndex = Math.floor(Math.random() * dotMatrixAlgorithms.length);
+  const dotMatrixAlgorithm = dotMatrixAlgorithms[randomIndex]
 
   // Ably real-time subscriptions (manages subscriptions based on selected channel)
   useAblyRealtime();
+
+  // Network status monitoring (polls backend and listens to browser events)
+  useNetworkStatus(appState === "ready");
 
   // Persist selection changes to localStorage
   useEffect(() => {
@@ -178,7 +148,7 @@ function MainApp({
         setAppState("clerk-auth");
         return;
       }
-      
+
       setCurrentUser(user);
 
       // Note: User profile data (username, avatar) is now loaded via React Query
@@ -231,6 +201,24 @@ function MainApp({
         setSelectedChannelId(null);
         setSelectedConversationId(null);
         // Keep selectedGroupId if it's set
+        setAppState("ready");
+        return;
+      }
+
+      // Handle search group route
+      if (urlData.type === "search-group") {
+        setSelectedGroupId(null);
+        setSelectedChannelId(null);
+        setSelectedConversationId(null);
+        setAppState("ready");
+        return;
+      }
+
+      // Handle start DM route
+      if (urlData.type === "start-dm") {
+        setSelectedGroupId(null);
+        setSelectedChannelId(null);
+        setSelectedConversationId(null);
         setAppState("ready");
         return;
       }
@@ -450,10 +438,10 @@ function MainApp({
 
     // Only check once - never re-run even if Wails re-initializes
     if (hasInitializedRef.current) return;
-    
+
     // Prevent concurrent session checks
     if (isCheckingSessionRef.current) return;
-    
+
     hasInitializedRef.current = true;
     isCheckingSessionRef.current = true;
 
@@ -482,6 +470,14 @@ function MainApp({
         setSelectedChannelId(null);
         setSelectedConversationId(null);
         // Keep selectedGroupId if it's set
+      } else if (urlData.type === "search-group") {
+        setSelectedGroupId(null);
+        setSelectedChannelId(null);
+        setSelectedConversationId(null);
+      } else if (urlData.type === "start-dm") {
+        setSelectedGroupId(null);
+        setSelectedChannelId(null);
+        setSelectedConversationId(null);
       } else if (urlData.type === "group-settings" && urlData.groupSlug) {
         // Find and select group for settings
         const group = groups.find((g) => g.slug === urlData.groupSlug);
@@ -579,7 +575,7 @@ function MainApp({
   }, [setCurrentUser, loadProfileData, isDesktop]);
 
   // Cancel auth handler
-  const handleCancelAuth = useCallback(async () => {
+  const handleCancelAuth = async () => {
     try {
       await api.cancelAuth();
     } catch (error) {
@@ -587,13 +583,13 @@ function MainApp({
     }
     setIsAuthenticating(false);
     setAppState("clerk-auth");
-  }, []);
+  }
 
   // Logout handler with confirmation dialog
-  const handleLogout = useCallback(async () => {
+  const handleLogout = async () => {
     const deleteData = window.confirm(
       "Do you want to delete all local data?\n\n" +
-        "Click OK to delete all data, or Cancel to keep data and just log out."
+      "Click OK to delete all data, or Cancel to keep data and just log out."
     );
 
     try {
@@ -608,34 +604,8 @@ function MainApp({
     setStoredSelection("SELECTED_CONVERSATION", null);
 
     setAppState("clerk-auth");
-  }, []);
+  }
 
-  // Poll network status every 5 seconds (only when ready)
-  useEffect(() => {
-    if (appState !== "ready") return;
-
-    let mounted = true;
-    const pollNetworkStatus = async () => {
-      if (!mounted) return;
-      try {
-        const status = await api.getNetworkStatus();
-        if (mounted) {
-          setNetworkStatus(status);
-        }
-      } catch (error) {
-        // Ignore errors during polling - don't log to avoid spam
-        // Network status errors shouldn't cause app reload
-      }
-    };
-
-    pollNetworkStatus();
-    const interval = setInterval(pollNetworkStatus, 5000);
-
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
-  }, [appState, setNetworkStatus]);
 
   // Show loading while initializing (wait for Wails on desktop, immediate on web)
   if (appState === "initializing" || (isDesktop && !isWailsReady)) {
@@ -646,24 +616,31 @@ function MainApp({
     );
   }
 
-  const renderApp = () => {
-    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
-
+  // Desktop app only - browser auth is handled by desktop backend
+  // The backend serves the OAuth callback pages on localhost:44665
+  if (!isDesktop) {
     return (
-      <div className="h-full w-full flex flex-col bg-black overflow-hidden">
-        {isMac && isDesktop && (
-          <div
-            className="h-8 w-full absolute top-0 left-0 z-50 titlebar-drag"
-            onDoubleClick={() => {
-              const runtime = (window as any).runtime;
-              if (runtime?.WindowToggleMaximise) {
-                runtime.WindowToggleMaximise();
-              }
-            }}
-          />
-        )}
-        {isDesktop && <TitleBar />}
-        <div className={`flex-1 flex flex-col overflow-hidden ${isMac && isDesktop ? 'pt-8' : ''}`}>
+      <DesktopRequiredView />
+    );
+  }
+
+  const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+
+  return (
+    <div className="h-full w-full flex flex-col bg-black overflow-hidden">
+      {isMac && (
+        <div
+          className="h-8 w-full absolute top-0 left-0 z-50 titlebar-drag"
+          onDoubleClick={() => {
+            const runtime = (window as any).runtime;
+            if (runtime?.WindowToggleMaximise) {
+              runtime.WindowToggleMaximise();
+            }
+          }}
+        />
+      )}
+      {isDesktop && <TitleBar />}
+      <div className={`flex-1 flex flex-col overflow-hidden ${isMac && isDesktop ? 'pt-8' : ''}`}>
         {appState === "loading" && (
           <div className="relative flex flex-col items-center justify-center min-h-full bg-black">
             <DotMatrix algorithm={dotMatrixAlgorithm} />
@@ -694,7 +671,7 @@ function MainApp({
             <DotMatrix algorithm={dotMatrixAlgorithm} />
             <Card
               className="relative z-10 text-center max-w-md bg-black/90"
-              // variant="bordered"
+            // variant="bordered"
             >
               <h1 className="text-2xl font-bold text-orange-300 mb-4 font-mono">
                 Welcome to Pollis
@@ -734,8 +711,14 @@ function MainApp({
                         updateURL("/create-channel");
                         window.dispatchEvent(new PopStateEvent("popstate"));
                       }}
-                      onSearchGroup={() => setShowSearchGroup(true)}
-                      onStartDM={() => setShowStartDM(true)}
+                      onSearchGroup={() => {
+                        updateURL("/search-group");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onStartDM={() => {
+                        updateURL("/start-dm");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
                       onLogout={handleLogout}
                     />
                     <Settings />
@@ -754,8 +737,14 @@ function MainApp({
                         updateURL("/create-channel");
                         window.dispatchEvent(new PopStateEvent("popstate"));
                       }}
-                      onSearchGroup={() => setShowSearchGroup(true)}
-                      onStartDM={() => setShowStartDM(true)}
+                      onSearchGroup={() => {
+                        updateURL("/search-group");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onStartDM={() => {
+                        updateURL("/start-dm");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
                       onLogout={handleLogout}
                     />
                     <CreateGroup />
@@ -774,8 +763,14 @@ function MainApp({
                         updateURL("/create-channel");
                         window.dispatchEvent(new PopStateEvent("popstate"));
                       }}
-                      onSearchGroup={() => setShowSearchGroup(true)}
-                      onStartDM={() => setShowStartDM(true)}
+                      onSearchGroup={() => {
+                        updateURL("/search-group");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onStartDM={() => {
+                        updateURL("/start-dm");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
                       onLogout={handleLogout}
                     />
                     <CreateChannel />
@@ -794,11 +789,69 @@ function MainApp({
                         updateURL("/create-channel");
                         window.dispatchEvent(new PopStateEvent("popstate"));
                       }}
-                      onSearchGroup={() => setShowSearchGroup(true)}
-                      onStartDM={() => setShowStartDM(true)}
+                      onSearchGroup={() => {
+                        updateURL("/search-group");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onStartDM={() => {
+                        updateURL("/start-dm");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
                       onLogout={handleLogout}
                     />
                     <GroupSettings />
+                  </div>
+                );
+              }
+              if (urlData.type === "search-group") {
+                return (
+                  <div className="flex-1 flex overflow-hidden min-h-0">
+                    <Sidebar
+                      onCreateGroup={() => {
+                        updateURL("/create-group");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onCreateChannel={() => {
+                        updateURL("/create-channel");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onSearchGroup={() => {
+                        updateURL("/search-group");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onStartDM={() => {
+                        updateURL("/start-dm");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onLogout={handleLogout}
+                    />
+                    <SearchGroup />
+                  </div>
+                );
+              }
+              if (urlData.type === "start-dm") {
+                return (
+                  <div className="flex-1 flex overflow-hidden min-h-0">
+                    <Sidebar
+                      onCreateGroup={() => {
+                        updateURL("/create-group");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onCreateChannel={() => {
+                        updateURL("/create-channel");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onSearchGroup={() => {
+                        updateURL("/search-group");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onStartDM={() => {
+                        updateURL("/start-dm");
+                        window.dispatchEvent(new PopStateEvent("popstate"));
+                      }}
+                      onLogout={handleLogout}
+                    />
+                    <StartDM />
                   </div>
                 );
               }
@@ -813,30 +866,25 @@ function MainApp({
                       updateURL("/create-channel");
                       window.dispatchEvent(new PopStateEvent("popstate"));
                     }}
-                    onSearchGroup={() => setShowSearchGroup(true)}
-                    onStartDM={() => setShowStartDM(true)}
+                    onSearchGroup={() => {
+                      updateURL("/search-group");
+                      window.dispatchEvent(new PopStateEvent("popstate"));
+                    }}
+                    onStartDM={() => {
+                      updateURL("/start-dm");
+                      window.dispatchEvent(new PopStateEvent("popstate"));
+                    }}
                     onLogout={handleLogout}
                   />
                   <MainContent />
                 </div>
               );
             })()}
-            <SearchGroupModal
-              isOpen={showSearchGroup}
-              onClose={() => setShowSearchGroup(false)}
-            />
-            <StartDMModal
-              isOpen={showStartDM}
-              onClose={() => setShowStartDM(false)}
-            />
           </>
         )}
       </div>
     </div>
-    );
-  };
-
-  return renderApp();
+  );
 }
 
-export default App;
+export default MainApp;

@@ -7,6 +7,8 @@
 // /create-group - Create group page
 // /create-channel - Create channel page
 // /g/<group-slug>/settings - Group settings page
+// /search-group - Search group page
+// /start-dm - Start DM page
 
 export const deriveSlug = (name: string): string => {
   return name
@@ -22,7 +24,7 @@ export const updateURL = (path: string) => {
 };
 
 export const parseURL = (): {
-  type: "group" | "channel" | "dm" | "settings" | "create-group" | "create-channel" | "group-settings" | null;
+  type: "group" | "channel" | "dm" | "settings" | "create-group" | "create-channel" | "group-settings" | "search-group" | "start-dm" | null;
   groupSlug?: string;
   channelSlug?: string;
   conversationId?: string;
@@ -42,6 +44,16 @@ export const parseURL = (): {
   // /create-channel
   if (path === "/create-channel") {
     return { type: "create-channel" };
+  }
+
+  // /search-group
+  if (path === "/search-group") {
+    return { type: "search-group" };
+  }
+
+  // /start-dm
+  if (path === "/start-dm") {
+    return { type: "start-dm" };
   }
 
   // /g/<group-slug>/settings
