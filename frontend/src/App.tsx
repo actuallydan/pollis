@@ -6,58 +6,17 @@ import React, {
   useRef,
 } from "react";
 import { useAppStore } from "./stores/appStore";
-import { Sidebar } from "./components/Layout/Sidebar";
-import { MainContent } from "./components/Layout/MainContent";
 import { TitleBar } from "./components/Layout/TitleBar";
-import { Settings } from "./pages/Settings";
-import { GroupSettings } from "./pages/GroupSettings";
-import { CreateGroup } from "./pages/CreateGroup";
-import { CreateChannel } from "./pages/CreateChannel";
-import { SearchGroup } from "./pages/SearchGroup";
-import { StartDM } from "./pages/StartDM";
 import { LoadingSpinner, DotMatrix, Card, pulsingWaveAlgorithm, gameOfLifeAlgorithm, mouseRippleAlgorithm, flowingWaveAlgorithm } from "monopollis";
 import * as api from "./services/api";
 import { useWailsReady } from "./hooks/useWailsReady";
 import { useAblyRealtime } from "./hooks/useAblyRealtime";
 import { useNetworkStatus } from "./hooks/useNetworkStatus";
-import { parseURL, deriveSlug, updateURL } from "./utils/urlRouting";
 import DesktopRequiredView from "./features/DesktopRequiredView";
+import { RouterProvider } from "@tanstack/react-router";
+import { router } from "./routes";
 
-// Storage keys for state persistence
-const STORAGE_KEYS = {
-  SELECTED_GROUP: "pollis_selected_group",
-  SELECTED_CHANNEL: "pollis_selected_channel",
-  SELECTED_CONVERSATION: "pollis_selected_conversation",
-} as const;
-
-// Helper to safely get from localStorage
-function getStoredSelection() {
-  try {
-    return {
-      groupId: localStorage.getItem(STORAGE_KEYS.SELECTED_GROUP),
-      channelId: localStorage.getItem(STORAGE_KEYS.SELECTED_CHANNEL),
-      conversationId: localStorage.getItem(STORAGE_KEYS.SELECTED_CONVERSATION),
-    };
-  } catch {
-    return { groupId: null, channelId: null, conversationId: null };
-  }
-}
-
-// Helper to safely set localStorage
-function setStoredSelection(
-  key: keyof typeof STORAGE_KEYS,
-  value: string | null
-) {
-  try {
-    if (value) {
-      localStorage.setItem(STORAGE_KEYS[key], value);
-    } else {
-      localStorage.removeItem(STORAGE_KEYS[key]);
-    }
-  } catch {
-    // Ignore storage errors
-  }
-}
+// Router handles URL-based state persistence
 
 type AppState = "initializing" | "loading" | "clerk-auth" | "ready";
 
@@ -104,18 +63,7 @@ function MainApp() {
   // Network status monitoring (polls backend and listens to browser events)
   useNetworkStatus(appState === "ready");
 
-  // Persist selection changes to localStorage
-  useEffect(() => {
-    setStoredSelection("SELECTED_GROUP", selectedGroupId);
-  }, [selectedGroupId]);
-
-  useEffect(() => {
-    setStoredSelection("SELECTED_CHANNEL", selectedChannelId);
-  }, [selectedChannelId]);
-
-  useEffect(() => {
-    setStoredSelection("SELECTED_CONVERSATION", selectedConversationId);
-  }, [selectedConversationId]);
+  // Router handles URL-based state persistence
 
   // Check identity helper - memoized to avoid recreating
   const checkIdentityFn = useCallback(async (): Promise<boolean> => {
@@ -175,130 +123,8 @@ function MainApp() {
       const conversationsData = await api.listDMConversations(user.id);
       setDMConversations(conversationsData);
 
-      // Parse URL first (takes priority over localStorage)
-      const urlData = parseURL();
-
-      // Handle settings routes
-      if (urlData.type === "settings") {
-        setSelectedGroupId(null);
-        setSelectedChannelId(null);
-        setSelectedConversationId(null);
-        setAppState("ready");
-        return;
-      }
-
-      // Handle create group route
-      if (urlData.type === "create-group") {
-        setSelectedGroupId(null);
-        setSelectedChannelId(null);
-        setSelectedConversationId(null);
-        setAppState("ready");
-        return;
-      }
-
-      // Handle create channel route
-      if (urlData.type === "create-channel") {
-        setSelectedChannelId(null);
-        setSelectedConversationId(null);
-        // Keep selectedGroupId if it's set
-        setAppState("ready");
-        return;
-      }
-
-      // Handle search group route
-      if (urlData.type === "search-group") {
-        setSelectedGroupId(null);
-        setSelectedChannelId(null);
-        setSelectedConversationId(null);
-        setAppState("ready");
-        return;
-      }
-
-      // Handle start DM route
-      if (urlData.type === "start-dm") {
-        setSelectedGroupId(null);
-        setSelectedChannelId(null);
-        setSelectedConversationId(null);
-        setAppState("ready");
-        return;
-      }
-
-      // Handle group settings route
-      if (urlData.type === "group-settings" && urlData.groupSlug) {
-        const group = groupsData.find((g: any) => g.slug === urlData.groupSlug);
-        if (group) {
-          setSelectedGroupId(group.id);
-          setSelectedChannelId(null);
-          setSelectedConversationId(null);
-          setAppState("ready");
-          return;
-        }
-      }
-
-      // Restore selection from URL if available, otherwise use localStorage
-      if (
-        urlData.type === "channel" &&
-        urlData.groupSlug &&
-        urlData.channelSlug
-      ) {
-        // Find group by slug
-        const group = groupsData.find((g: any) => g.slug === urlData.groupSlug);
-        if (group) {
-          setSelectedGroupId(group.id);
-
-          // Find channel by slug using the channels we just loaded
-          const groupChannels = channelsByGroupId[group.id] || [];
-          const channel = groupChannels.find(
-            (c: any) => deriveSlug(c.name) === urlData.channelSlug
-          );
-          if (channel) {
-            setSelectedChannelId(channel.id);
-          }
-        }
-      } else if (urlData.type === "group" && urlData.groupSlug) {
-        // Just group, no channel
-        const group = groupsData.find((g: any) => g.slug === urlData.groupSlug);
-        if (group) {
-          setSelectedGroupId(group.id);
-        }
-      } else if (urlData.type === "dm" && urlData.conversationId) {
-        const conversation = conversationsData.find(
-          (c: any) => c.id === urlData.conversationId
-        );
-        if (conversation) {
-          setSelectedConversationId(conversation.id);
-        }
-      } else {
-        // No URL data, restore from localStorage
-        const stored = getStoredSelection();
-        if (stored.groupId) {
-          const groupExists = groupsData.some(
-            (g: any) => g.id === stored.groupId
-          );
-          if (groupExists) {
-            setSelectedGroupId(stored.groupId);
-            // Restore channel if it exists
-            if (stored.channelId) {
-              // We'll verify channel exists after channels are loaded
-              setSelectedChannelId(stored.channelId);
-            }
-          } else {
-            // Group was deleted, clear stored selection
-            setStoredSelection("SELECTED_GROUP", null);
-            setStoredSelection("SELECTED_CHANNEL", null);
-          }
-        } else if (stored.conversationId) {
-          const convExists = conversationsData.some(
-            (c: any) => c.id === stored.conversationId
-          );
-          if (convExists) {
-            setSelectedConversationId(stored.conversationId);
-          } else {
-            setStoredSelection("SELECTED_CONVERSATION", null);
-          }
-        }
-      }
-
+      // Router will handle URL-based navigation and route params
+      // Just set app to ready state
       setAppState("ready");
     } catch (error) {
       console.error("Failed to load profile data:", error);
@@ -451,89 +277,7 @@ function MainApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWailsReady]); // checkStoredSession intentionally omitted to prevent loops
 
-  // Listen for URL changes (popstate events)
-  useEffect(() => {
-    if (appState !== "ready") return;
-
-    const handlePopState = () => {
-      // URL changed, re-parse and update view
-      const urlData = parseURL();
-      if (urlData.type === "settings") {
-        setSelectedGroupId(null);
-        setSelectedChannelId(null);
-        setSelectedConversationId(null);
-      } else if (urlData.type === "create-group") {
-        setSelectedGroupId(null);
-        setSelectedChannelId(null);
-        setSelectedConversationId(null);
-      } else if (urlData.type === "create-channel") {
-        setSelectedChannelId(null);
-        setSelectedConversationId(null);
-        // Keep selectedGroupId if it's set
-      } else if (urlData.type === "search-group") {
-        setSelectedGroupId(null);
-        setSelectedChannelId(null);
-        setSelectedConversationId(null);
-      } else if (urlData.type === "start-dm") {
-        setSelectedGroupId(null);
-        setSelectedChannelId(null);
-        setSelectedConversationId(null);
-      } else if (urlData.type === "group-settings" && urlData.groupSlug) {
-        // Find and select group for settings
-        const group = groups.find((g) => g.slug === urlData.groupSlug);
-        if (group) {
-          setSelectedGroupId(group.id);
-          setSelectedChannelId(null);
-          setSelectedConversationId(null);
-        }
-      } else if (
-        urlData.type === "channel" &&
-        urlData.groupSlug &&
-        urlData.channelSlug
-      ) {
-        // Find and select group/channel
-        const group = groups.find((g) => g.slug === urlData.groupSlug);
-        if (group) {
-          setSelectedGroupId(group.id);
-          const groupChannels = channels[group.id] || [];
-          const channel = groupChannels.find(
-            (c) => deriveSlug(c.name) === urlData.channelSlug
-          );
-          if (channel) {
-            setSelectedChannelId(channel.id);
-          }
-        }
-      } else if (urlData.type === "group" && urlData.groupSlug) {
-        const group = groups.find((g) => g.slug === urlData.groupSlug);
-        if (group) {
-          setSelectedGroupId(group.id);
-        }
-      } else if (urlData.type === "dm" && urlData.conversationId) {
-        const conversation = dmConversations.find(
-          (c) => c.id === urlData.conversationId
-        );
-        if (conversation) {
-          setSelectedConversationId(conversation.id);
-        }
-      } else if (urlData.type === null) {
-        // Root path, clear selections
-        setSelectedGroupId(null);
-        setSelectedChannelId(null);
-        setSelectedConversationId(null);
-      }
-    };
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [
-    appState,
-    groups,
-    channels,
-    dmConversations,
-    setSelectedGroupId,
-    setSelectedChannelId,
-    setSelectedConversationId,
-  ]);
+  // Router handles URL changes automatically via RouterProvider
 
   // Start authentication flow - opens browser for Clerk login
   // This should ONLY be called from the desktop app, never from browser
@@ -598,11 +342,7 @@ function MainApp() {
       console.error("Failed to logout:", error);
     }
 
-    // Clear stored selection
-    setStoredSelection("SELECTED_GROUP", null);
-    setStoredSelection("SELECTED_CHANNEL", null);
-    setStoredSelection("SELECTED_CONVERSATION", null);
-
+    // Router will handle navigation state
     setAppState("clerk-auth");
   }
 
@@ -696,191 +436,10 @@ function MainApp() {
         )}
 
         {appState === "ready" && currentUser && (
-          <>
-            {(() => {
-              const urlData = parseURL();
-              if (urlData.type === "settings") {
-                return (
-                  <div className="flex-1 flex overflow-hidden min-h-0">
-                    <Sidebar
-                      onCreateGroup={() => {
-                        updateURL("/create-group");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onCreateChannel={() => {
-                        updateURL("/create-channel");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onSearchGroup={() => {
-                        updateURL("/search-group");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onStartDM={() => {
-                        updateURL("/start-dm");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onLogout={handleLogout}
-                    />
-                    <Settings />
-                  </div>
-                );
-              }
-              if (urlData.type === "create-group") {
-                return (
-                  <div className="flex-1 flex overflow-hidden min-h-0">
-                    <Sidebar
-                      onCreateGroup={() => {
-                        updateURL("/create-group");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onCreateChannel={() => {
-                        updateURL("/create-channel");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onSearchGroup={() => {
-                        updateURL("/search-group");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onStartDM={() => {
-                        updateURL("/start-dm");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onLogout={handleLogout}
-                    />
-                    <CreateGroup />
-                  </div>
-                );
-              }
-              if (urlData.type === "create-channel") {
-                return (
-                  <div className="flex-1 flex overflow-hidden min-h-0">
-                    <Sidebar
-                      onCreateGroup={() => {
-                        updateURL("/create-group");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onCreateChannel={() => {
-                        updateURL("/create-channel");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onSearchGroup={() => {
-                        updateURL("/search-group");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onStartDM={() => {
-                        updateURL("/start-dm");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onLogout={handleLogout}
-                    />
-                    <CreateChannel />
-                  </div>
-                );
-              }
-              if (urlData.type === "group-settings") {
-                return (
-                  <div className="flex-1 flex overflow-hidden min-h-0">
-                    <Sidebar
-                      onCreateGroup={() => {
-                        updateURL("/create-group");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onCreateChannel={() => {
-                        updateURL("/create-channel");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onSearchGroup={() => {
-                        updateURL("/search-group");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onStartDM={() => {
-                        updateURL("/start-dm");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onLogout={handleLogout}
-                    />
-                    <GroupSettings />
-                  </div>
-                );
-              }
-              if (urlData.type === "search-group") {
-                return (
-                  <div className="flex-1 flex overflow-hidden min-h-0">
-                    <Sidebar
-                      onCreateGroup={() => {
-                        updateURL("/create-group");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onCreateChannel={() => {
-                        updateURL("/create-channel");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onSearchGroup={() => {
-                        updateURL("/search-group");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onStartDM={() => {
-                        updateURL("/start-dm");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onLogout={handleLogout}
-                    />
-                    <SearchGroup />
-                  </div>
-                );
-              }
-              if (urlData.type === "start-dm") {
-                return (
-                  <div className="flex-1 flex overflow-hidden min-h-0">
-                    <Sidebar
-                      onCreateGroup={() => {
-                        updateURL("/create-group");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onCreateChannel={() => {
-                        updateURL("/create-channel");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onSearchGroup={() => {
-                        updateURL("/search-group");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onStartDM={() => {
-                        updateURL("/start-dm");
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
-                      onLogout={handleLogout}
-                    />
-                    <StartDM />
-                  </div>
-                );
-              }
-              return (
-                <div className="flex-1 flex overflow-hidden min-h-0">
-                  <Sidebar
-                    onCreateGroup={() => {
-                      updateURL("/create-group");
-                      window.dispatchEvent(new PopStateEvent("popstate"));
-                    }}
-                    onCreateChannel={() => {
-                      updateURL("/create-channel");
-                      window.dispatchEvent(new PopStateEvent("popstate"));
-                    }}
-                    onSearchGroup={() => {
-                      updateURL("/search-group");
-                      window.dispatchEvent(new PopStateEvent("popstate"));
-                    }}
-                    onStartDM={() => {
-                      updateURL("/start-dm");
-                      window.dispatchEvent(new PopStateEvent("popstate"));
-                    }}
-                    onLogout={handleLogout}
-                  />
-                  <MainContent />
-                </div>
-              );
-            })()}
-          </>
+          <RouterProvider
+            router={router}
+            context={{ handleLogout }}
+          />
         )}
       </div>
     </div>
