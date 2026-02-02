@@ -178,32 +178,11 @@ function MainApp({
         setAppState("clerk-auth");
         return;
       }
+      
       setCurrentUser(user);
 
-      // Load user data from Turso (async, don't block startup)
-      api.getServiceUserData()
-        .then((userData) => {
-          setUsername(userData.username || null);
-
-          // Load avatar URL if available
-          const avatarUrl = userData.avatar_url;
-          if (avatarUrl) {
-            import("./services/r2-upload")
-              .then(({ getFileDownloadUrl }) => getFileDownloadUrl(avatarUrl))
-              .then((downloadUrl) => setUserAvatarUrl(downloadUrl))
-              .catch((error) => {
-                console.error("Failed to get avatar download URL:", error);
-                setUserAvatarUrl(null);
-              });
-          } else {
-            setUserAvatarUrl(null);
-          }
-        })
-        .catch((error) => {
-          console.error("Failed to load user data from Turso:", error);
-          setUsername(null);
-          setUserAvatarUrl(null);
-        });
+      // Note: User profile data (username, avatar) is now loaded via React Query
+      // in the Sidebar component for network-first approach with automatic refetching
 
       // Load user groups
       const groupsData = await api.listUserGroups(user.id);

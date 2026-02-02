@@ -1,26 +1,32 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { ArrowLeft, Upload, Loader2, User } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
 import { Button, Header, Paragraph, TextInput, FilePicker, type FileWithPreview } from "monopollis";
-import { uploadAvatar, getFileDownloadUrl } from "../services/r2-upload";
+import { uploadAvatar } from "../services/r2-upload";
 import { updateURL } from "../utils/urlRouting";
-import * as api from "../services/api";
+import { resizeImage } from "../utils/imageProcessing";
+import { useUserProfile, useUpdateProfile, useUpdateAvatar, useUserAvatar } from "../hooks/queries";
+import { DeleteFile } from "../../wailsjs/go/main/App";
 
 export const Settings: React.FC = () => {
-  const { currentUser, setCurrentUser, setUsername: setStoreUsername, setUserAvatarUrl: setStoreAvatarUrl } = useAppStore();
+  const { currentUser } = useAppStore();
+
+  // React Query hooks - handle data fetching and mutations
+  const { data: userData, isLoading, error: loadError } = useUserProfile();
+  const { data: avatarDownloadUrl } = useUserAvatar();
+  const updateProfileMutation = useUpdateProfile();
+  const updateAvatarMutation = useUpdateAvatar();
+
+  // Local form state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [currentAvatarUrl, setCurrentAvatarUrl] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [filePickerKey, setFilePickerKey] = useState(0);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [filePickerKey, setFilePickerKey] = useState(0); // Key to reset FilePicker
 
   // Clean up preview URL when component unmounts or file changes
   useEffect(() => {
@@ -31,47 +37,19 @@ export const Settings: React.FC = () => {
     };
   }, [preview]);
 
-  // Load user data from service DB
+  // Initialize form fields when user data loads
   useEffect(() => {
-    const loadUserData = async () => {
-      if (!currentUser) {
-        setIsLoading(false);
-        return;
-      }
+    if (userData) {
+      setUsername(userData.username || "");
+      setEmail(userData.email || "");
+      setPhone(userData.phone || "");
+    }
+  }, [userData]);
 
-      try {
-        setIsLoading(true);
-        const userData = await api.getServiceUserData();
-        setUsername(userData.username || "");
-        setEmail(userData.email || "");
-        setPhone(userData.phone || "");
-
-        // Load avatar from service (Turso DB)
-        if (userData.avatar_url) {
-          try {
-            const downloadUrl = await getFileDownloadUrl(userData.avatar_url);
-            setCurrentAvatarUrl(downloadUrl);
-          } catch (error) {
-            console.error("Failed to get avatar download URL:", error);
-            setCurrentAvatarUrl(null);
-          }
-        } else {
-          setCurrentAvatarUrl(null);
-        }
-      } catch (error) {
-        console.error("Failed to load user data:", error);
-        // Initialize empty on error
-        setUsername("");
-        setEmail("");
-        setPhone("");
-        setCurrentAvatarUrl(null);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadUserData();
-  }, [currentUser]);
+  // Update current avatar URL when it loads from React Query
+  useEffect(() => {
+    setCurrentAvatarUrl(avatarDownloadUrl || null);
+  }, [avatarDownloadUrl]);
 
   const handleFilesChange = (files: FileWithPreview[]) => {
     if (files.length === 0) {
@@ -101,98 +79,36 @@ export const Settings: React.FC = () => {
     }
   };
 
-  // Resize and optimize image before upload
-  const resizeImage = async (file: File): Promise<File> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
 
-      img.onload = () => {
-        let width = img.width;
-        let height = img.height;
-        const maxSize = 1024;
-
-        // Resize if larger than 1024x1024
-        if (width > maxSize || height > maxSize) {
-          if (width > height) {
-            height = (height / width) * maxSize;
-            width = maxSize;
-          } else {
-            width = (width / height) * maxSize;
-            height = maxSize;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        ctx?.drawImage(img, 0, 0, width, height);
-
-        // Convert to blob with quality optimization
-        canvas.toBlob(
-          (blob) => {
-            if (!blob) {
-              reject(new Error('Failed to compress image'));
-              return;
-            }
-            const optimizedFile = new File([blob], file.name, {
-              type: 'image/jpeg',
-              lastModified: Date.now(),
-            });
-            resolve(optimizedFile);
-          },
-          'image/jpeg',
-          0.85 // 85% quality for good balance
-        );
-      };
-
-      img.onerror = () => reject(new Error('Failed to load image'));
-      img.src = URL.createObjectURL(file);
-    });
-  };
-
-  const handleAvatarUpload = async () => {
+  const handleAvatarUpload = useCallback(async () => {
     if (!selectedFile || !currentUser) return;
 
-    setIsUploading(true);
     setUploadError(null);
 
     try {
-      // Get current avatar URL to delete old one
-      const userData = await api.getServiceUserData();
-      const oldAvatarKey = userData.avatar_url;
+      const oldAvatarKey = userData?.avatar_url;
 
       // Resize and optimize image
       const optimizedFile = await resizeImage(selectedFile);
 
+      // Upload to R2
       const response = await uploadAvatar(
         currentUser.id,
         "", // No alias/group ID for user avatar
         optimizedFile
       );
 
-      // Get presigned download URL for the uploaded avatar
-      const downloadUrl = await getFileDownloadUrl(response.object_key);
+      // Update avatar URL in Turso - React Query will handle cache invalidation
+      // and automatically refetch the avatar download URL
+      await updateAvatarMutation.mutateAsync(response.object_key);
 
-      // Update avatar URL in Turso DB via service
-      await api.updateServiceUserAvatar(response.object_key);
-
-      // Delete old avatar from R2 if it exists
+      // Delete old avatar from R2 if it exists (non-blocking)
       if (oldAvatarKey) {
-        try {
-          const { DeleteFile } = await import("../../wailsjs/go/main/App");
-          await DeleteFile(oldAvatarKey);
-        } catch (error) {
+        DeleteFile(oldAvatarKey).catch((error) => {
           console.error("Failed to delete old avatar:", error);
           // Non-critical error, continue
-        }
+        });
       }
-
-      // Update current avatar URL to show the new avatar
-      setCurrentAvatarUrl(downloadUrl);
-
-      // Update store so Sidebar re-renders automatically
-      setStoreAvatarUrl(downloadUrl);
 
       // Reset file picker and preview
       setSelectedFile(null);
@@ -200,44 +116,39 @@ export const Settings: React.FC = () => {
         URL.revokeObjectURL(preview);
       }
       setPreview(null);
-      setFilePickerKey((prev) => prev + 1); // Reset FilePicker component
+      setFilePickerKey((prev) => prev + 1);
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
       console.error("Failed to upload avatar:", error);
       setUploadError(
         error instanceof Error ? error.message : "Failed to upload avatar"
       );
-    } finally {
-      setIsUploading(false);
     }
-  };
+  }, [selectedFile, currentUser, userData?.avatar_url, preview, updateAvatarMutation]);
+
+  // Auto-hide success message after 3 seconds
+  useEffect(() => {
+    if (saveSuccess) {
+      const timer = setTimeout(() => setSaveSuccess(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [saveSuccess]);
 
   const handleSave = async () => {
     if (!currentUser) return;
 
-    setIsSaving(true);
-    setSaveError(null);
-
     try {
-      await api.updateServiceUserData(
-        username.trim(),
-        email.trim() || null,
-        phone.trim() || null
-      );
-
-      // Update store so Sidebar re-renders automatically
-      setStoreUsername(username.trim());
+      await updateProfileMutation.mutateAsync({
+        username: username.trim(),
+        email: email.trim() || null,
+        phone: phone.trim() || null,
+      });
 
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
       console.error("Failed to save settings:", error);
-      setSaveError(
-        error instanceof Error ? error.message : "Failed to save settings"
-      );
-    } finally {
-      setIsSaving(false);
+      // Error is already handled by the mutation
     }
   };
 
@@ -317,10 +228,12 @@ export const Settings: React.FC = () => {
                   </>
                 )}
 
-                {saveError && (
+                {updateProfileMutation.error && (
                   <div className="p-3 bg-red-900/20 border border-red-500/30 rounded">
                     <Paragraph size="sm" className="text-red-400">
-                      {saveError}
+                      {updateProfileMutation.error instanceof Error
+                        ? updateProfileMutation.error.message
+                        : "Failed to save settings"}
                     </Paragraph>
                   </div>
                 )}
@@ -335,10 +248,10 @@ export const Settings: React.FC = () => {
 
                 <Button
                   onClick={handleSave}
-                  disabled={isSaving}
+                  disabled={updateProfileMutation.isPending}
                   className="w-full"
                 >
-                  {isSaving ? (
+                  {updateProfileMutation.isPending ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                       Saving...
@@ -395,15 +308,15 @@ export const Settings: React.FC = () => {
                     showSubmitButton={false}
                     description="Supported formats: PNG, JPG, GIF. Max size: 5MB."
                     error={uploadError || undefined}
-                    disabled={isUploading}
+                    disabled={updateAvatarMutation.isPending}
                   />
                   {selectedFile && (
                     <Button
                       onClick={handleAvatarUpload}
-                      disabled={isUploading}
+                      disabled={updateAvatarMutation.isPending}
                       className="w-full mt-4"
                     >
-                      {isUploading ? (
+                      {updateAvatarMutation.isPending ? (
                         <>
                           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                           Uploading...

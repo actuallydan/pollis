@@ -237,6 +237,28 @@ func min(a, b int) int {
 	return b
 }
 
+// NewRemoteDB creates a connection to remote Turso database
+// Does NOT run migrations (migrations are managed by the server)
+func NewRemoteDB(dbURL string) (*DB, error) {
+	// Remote Turso connection
+	if !strings.HasPrefix(dbURL, "libsql://") && !strings.HasPrefix(dbURL, "http://") && !strings.HasPrefix(dbURL, "https://") {
+		return nil, fmt.Errorf("invalid remote database URL: must start with libsql://, http://, or https://")
+	}
+
+	conn, err := sql.Open("libsql", dbURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open remote database: %w", err)
+	}
+
+	// Test connection
+	if err := conn.Ping(); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to ping remote database: %w", err)
+	}
+
+	return &DB{conn: conn}, nil
+}
+
 // NewEncryptedDB creates a new encrypted database connection for local profile databases
 // Uses sqlite3 driver for local files (libsql is only for remote Turso databases)
 // Note: True encryption would require SQLCipher. For now, the encryptionKey is stored

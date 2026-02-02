@@ -1,14 +1,25 @@
 // Type definitions for Pollis app
+//
+// ARCHITECTURE NOTE:
+// - Remote DB (Turso): Users, groups, channels, membership, profiles
+// - Local DB: ONLY encrypted messages, encryption keys, crypto state
+// - Everything else fetched from remote via React Query (network-first)
+//
+// This is Signal (e2e encryption) + Slack (group features)
 
 export interface User {
   id: string; // ULID
   clerk_id: string; // Required, links to Clerk account
+  // Note: username, email, phone, avatar_url stored in remote DB only
+  // Fetched via useUserProfile() React Query hook
   // Note: identity keys are not exposed to frontend for security
   created_at: number;
   updated_at: number;
 }
 
 export interface Group {
+  // Stored in: Remote DB (Turso)
+  // Fetched via: useUserGroups() React Query hook
   id: string; // ULID
   slug: string;
   name: string;
@@ -39,13 +50,16 @@ export interface Channel {
 }
 
 export interface Message {
+  // Stored in: Local DB (encrypted)
+  // Fetched via: useChannelMessages() or useConversationMessages() React Query hooks
+  // CRITICAL: Encrypted content NEVER leaves device in plaintext
   id: string; // ULID
   channel_id?: string; // NULL for direct messages
   conversation_id?: string; // ULID (required - channel or DM conversation)
-  sender_id: string; // user_id (renamed from author_id per migration)
-  ciphertext: Uint8Array; // encrypted content (renamed from content_encrypted)
+  sender_id: string; // user_id
+  ciphertext: Uint8Array; // encrypted content (Signal protocol)
   nonce: Uint8Array; // nonce for encryption
-  content_decrypted?: string; // Decrypted content (client-side only)
+  content_decrypted?: string; // Decrypted content (client-side only, never persisted)
   reply_to_message_id?: string; // ULID of message being replied to
   thread_id?: string; // ULID of thread root (NULL if not in thread)
   is_pinned: boolean;
@@ -108,12 +122,11 @@ export interface MessageAttachment {
 
 export interface UserAlias {
   id: string;
-  user_id: string;
-  group_id?: string; // If set, this alias is specific to a group
-  name: string;
-  avatar_url?: string;
+  user_id: string; // User who owns this alias
+  group_id: string; // Per-user, per-group display name (required)
+  name: string; // Display name in this group
+  avatar_hash?: string; // R2 object key for group-specific avatar
   created_at: number;
-  updated_at: number;
 }
 
 export interface AppState {

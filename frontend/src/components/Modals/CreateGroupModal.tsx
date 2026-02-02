@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { X } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
 import { Card, Button, TextInput, Textarea, Header, Paragraph } from "monopollis";
-import { CreateGroup } from "../../../wailsjs/go/main/App";
+import { useCreateGroup } from "../../hooks/queries";
 import { deriveSlug, updateURL } from "../../utils/urlRouting";
 
 interface CreateGroupModalProps {
@@ -14,13 +14,16 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { currentUser, addGroup, setSelectedGroupId } = useAppStore();
+  const currentUser = useAppStore((state) => state.currentUser);
+  const setSelectedGroupId = useAppStore((state) => state.setSelectedGroupId);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugEdited, setSlugEdited] = useState(false);
   const [description, setDescription] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Use React Query mutation for creating group
+  const createGroupMutation = useCreateGroup();
 
   if (!isOpen) return null;
 
@@ -43,31 +46,17 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
       return;
     }
 
-    setIsLoading(true);
     setError(null);
 
     try {
-      const group = await CreateGroup(
-        finalSlug,
-        name.trim(),
-        description.trim() || "",
-        currentUser.id
-      );
+      const group = await createGroupMutation.mutateAsync({
+        slug: finalSlug,
+        name: name.trim(),
+        description: description.trim() || "",
+      });
 
-      // Convert to our Group type
-      const groupData: any = {
-        id: group.id,
-        slug: group.slug,
-        name: group.name,
-        description: group.description,
-        created_by: group.created_by,
-        created_at: group.created_at,
-        updated_at: group.updated_at,
-      };
-
-      addGroup(groupData);
-      setSelectedGroupId(groupData.id);
-      updateURL(`/g/${groupData.slug}`);
+      setSelectedGroupId(group.id);
+      updateURL(`/g/${group.slug}`);
       onClose();
 
       // Reset form
@@ -77,8 +66,6 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
       setDescription("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create group");
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -113,7 +100,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
             }}
             placeholder="My Group"
             required
-            disabled={isLoading}
+            disabled={createGroupMutation.isPending}
             description="Enter the display name for the group"
           />
 
@@ -127,7 +114,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
             }}
             placeholder="my-group"
             required
-            disabled={isLoading}
+            disabled={createGroupMutation.isPending}
             description="Lowercase, letters/numbers/hyphens. Defaults from name."
           />
 
@@ -137,13 +124,16 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
             value={description}
             onChange={setDescription}
             placeholder="Group description..."
-            disabled={isLoading}
+            disabled={createGroupMutation.isPending}
           />
 
-          {error && (
+          {(error || createGroupMutation.error) && (
             <div className="p-3 bg-red-900/20 border border-red-300/30 rounded">
               <Paragraph size="sm" className="text-red-300">
-                {error}
+                {error ||
+                  (createGroupMutation.error instanceof Error
+                    ? createGroupMutation.error.message
+                    : "Failed to create group")}
               </Paragraph>
             </div>
           )}
@@ -153,14 +143,14 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
               type="button"
               variant="secondary"
               onClick={onClose}
-              disabled={isLoading}
+              disabled={createGroupMutation.isPending}
               className="flex-1"
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              isLoading={isLoading}
+              isLoading={createGroupMutation.isPending}
               loadingText="Creating..."
               className="flex-1"
             >

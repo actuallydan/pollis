@@ -5,92 +5,27 @@ package pollis;
 option go_package = "pollis/pkg/proto";
 
 service PollisService {
-  // User Management
-  rpc RegisterUser(RegisterUserRequest) returns (RegisterUserResponse);
-  rpc GetUserByClerkID(GetUserByClerkIDRequest) returns (GetUserByClerkIDResponse);
-  rpc GetUser(GetUserRequest) returns (GetUserResponse);
-  rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
-  
-  // Pre-Key / Identity
+  // Pre-Key / Identity - Server coordinates atomic pre-key consumption
   rpc RegisterPreKeys(RegisterPreKeysRequest) returns (RegisterPreKeysResponse);
   rpc GetPreKeyBundle(GetPreKeyBundleRequest) returns (GetPreKeyBundleResponse);
   rpc RotateSignedPreKey(RotateSignedPreKeyRequest) returns (RotateSignedPreKeyResponse);
-  
-  // Group Management
-  rpc CreateGroup(CreateGroupRequest) returns (CreateGroupResponse);
-  rpc GetGroup(GetGroupRequest) returns (GetGroupResponse);
-  rpc SearchGroup(SearchGroupRequest) returns (SearchGroupResponse);
-  rpc InviteToGroup(InviteToGroupRequest) returns (InviteToGroupResponse);
-  rpc ListUserGroups(ListUserGroupsRequest) returns (ListUserGroupsResponse);
-  
-  // Channel Management
-  rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse);
-  rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse);
+
+  // Sender Key Distribution - Server coordinates group channel encryption
   rpc GetSenderKey(GetSenderKeyRequest) returns (GetSenderKeyResponse);
   rpc DistributeSenderKey(DistributeSenderKeyRequest) returns (DistributeSenderKeyResponse);
-  
-  // Key Exchange
+
+  // Key Exchange - Server relays encrypted key exchange messages between users
   rpc SendKeyExchange(SendKeyExchangeRequest) returns (SendKeyExchangeResponse);
   rpc GetKeyExchangeMessages(GetKeyExchangeMessagesRequest) returns (GetKeyExchangeMessagesResponse);
   rpc MarkKeyExchangeRead(MarkKeyExchangeReadRequest) returns (MarkKeyExchangeReadResponse);
-  
-  // WebRTC Signaling (for future voice channels)
+
+  // WebRTC Signaling - Server relays signaling for voice/video
   rpc SendWebRTCSignal(SendWebRTCSignalRequest) returns (SendWebRTCSignalResponse);
   rpc GetWebRTCSignals(GetWebRTCSignalsRequest) returns (GetWebRTCSignalsResponse);
-  
-  // Key Backup (for recovery with Clerk)
+
+  // Key Backup - Server stores encrypted key backups for recovery
   rpc StoreKeyBackup(StoreKeyBackupRequest) returns (StoreKeyBackupResponse);
   rpc GetKeyBackup(GetKeyBackupRequest) returns (GetKeyBackupResponse);
-}
-
-// User Messages
-message RegisterUserRequest {
-  string user_id = 1;
-  string clerk_id = 2;                     // Required, links to Clerk account
-  string username = 3;
-  optional string email = 4;
-  optional string phone = 5;
-  optional string avatar_url = 6;           // R2 object key or public URL
-  bytes public_key = 7;
-}
-
-message GetUserByClerkIDRequest {
-  string clerk_id = 1;
-}
-
-message GetUserByClerkIDResponse {
-  string user_id = 1;              // Empty if user not found
-  optional string username = 2;
-  optional string email = 3;
-  optional string phone = 4;
-  optional string avatar_url = 5;   // R2 object key or public URL
-  bytes public_key = 6;             // Empty if user not found
-}
-
-message RegisterUserResponse {
-  bool success = 1;
-  string message = 2;
-}
-
-message GetUserRequest {
-  string user_identifier = 1;  // username, email, or phone
-}
-
-message GetUserResponse {
-  string user_id = 1;
-  string username = 2;
-  optional string email = 3;
-  optional string phone = 4;
-  bytes public_key = 5;
-}
-
-message SearchUsersRequest {
-  string query = 1;
-  int32 limit = 2;
-}
-
-message SearchUsersResponse {
-  repeated GetUserResponse users = 1;
 }
 
 // Pre-Key / Identity Messages
@@ -128,96 +63,6 @@ message RotateSignedPreKeyRequest {
 message RotateSignedPreKeyResponse {
   bool success = 1;
   string message = 2;
-}
-
-// Group Messages
-message CreateGroupRequest {
-  string group_id = 1;
-  string slug = 2;
-  string name = 3;
-  optional string description = 4;
-  string created_by = 5;
-}
-
-message CreateGroupResponse {
-  bool success = 1;
-  string group_id = 2;
-  string message = 3;
-}
-
-message GetGroupRequest {
-  string group_id = 1;
-}
-
-message GetGroupResponse {
-  string group_id = 1;
-  string slug = 2;
-  string name = 3;
-  optional string description = 4;
-  string created_by = 5;
-  repeated string member_identifiers = 6;
-}
-
-message SearchGroupRequest {
-  string slug = 1;
-  string user_identifier = 2;  // Only returns group if user is a member
-}
-
-message SearchGroupResponse {
-  optional GetGroupResponse group = 1;
-  bool is_member = 2;
-}
-
-message InviteToGroupRequest {
-  string group_id = 1;
-  string user_identifier = 2;  // username, email, or phone
-  string invited_by = 3;
-}
-
-message InviteToGroupResponse {
-  bool success = 1;
-  string message = 2;
-}
-
-message ListUserGroupsRequest {
-  string user_identifier = 1;
-}
-
-message ListUserGroupsResponse {
-  repeated GetGroupResponse groups = 1;
-}
-
-// Channel Messages
-message CreateChannelRequest {
-  string channel_id = 1;
-  string group_id = 2;
-  string slug = 3;
-  string name = 4;
-  optional string description = 5;
-  string created_by = 6;
-}
-
-message CreateChannelResponse {
-  bool success = 1;
-  string channel_id = 2;
-  string message = 3;
-}
-
-message ListChannelsRequest {
-  string group_id = 1;
-}
-
-message ListChannelsResponse {
-  repeated ChannelInfo channels = 1;
-}
-
-message ChannelInfo {
-  string channel_id = 1;
-  string slug = 2;
-  string name = 3;
-  optional string description = 4;
-  string created_by = 5;
-  string channel_type = 6;
 }
 
 // Sender Key Messages

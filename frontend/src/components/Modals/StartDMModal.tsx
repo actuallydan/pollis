@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { X } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
 import { Card, Button, TextInput, Header, Paragraph } from "monopollis";
-import { CreateOrGetDMConversation } from "../../../wailsjs/go/main/App";
+import { useCreateOrGetDMConversation } from "../../hooks/queries";
 
 interface StartDMModalProps {
   isOpen: boolean;
@@ -13,11 +13,15 @@ export const StartDMModal: React.FC<StartDMModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { currentUser, addDMConversation, setSelectedConversationId } =
-    useAppStore();
+  const currentUser = useAppStore((state) => state.currentUser);
+  const setSelectedConversationId = useAppStore(
+    (state) => state.setSelectedConversationId
+  );
   const [identifier, setIdentifier] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Use React Query mutation for creating/getting DM conversation
+  const createDMMutation = useCreateOrGetDMConversation();
 
   if (!isOpen) return null;
 
@@ -34,26 +38,12 @@ export const StartDMModal: React.FC<StartDMModalProps> = ({
       return;
     }
 
-    setIsLoading(true);
     setError(null);
 
     try {
-      const conversation = await CreateOrGetDMConversation(
-        currentUser.id,
-        identifier.trim()
-      );
+      const conversation = await createDMMutation.mutateAsync(identifier.trim());
 
-      // Convert to our DMConversation type
-      const conversationData: any = {
-        id: conversation.id,
-        user1_id: conversation.user1_id,
-        user2_identifier: conversation.user2_identifier,
-        created_at: conversation.created_at,
-        updated_at: conversation.updated_at,
-      };
-
-      addDMConversation(conversationData);
-      setSelectedConversationId(conversationData.id);
+      setSelectedConversationId(conversation.id);
       onClose();
 
       // Reset form
@@ -62,8 +52,6 @@ export const StartDMModal: React.FC<StartDMModalProps> = ({
       setError(
         err instanceof Error ? err.message : "Failed to start conversation"
       );
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -93,14 +81,17 @@ export const StartDMModal: React.FC<StartDMModalProps> = ({
             onChange={setIdentifier}
             placeholder="username, email, or phone"
             required
-            disabled={isLoading}
+            disabled={createDMMutation.isPending}
             description="Username, email address, or phone number"
           />
 
-          {error && (
+          {(error || createDMMutation.error) && (
             <div className="p-3 bg-red-900/20 border border-red-300/30 rounded">
               <Paragraph size="sm" className="text-red-300">
-                {error}
+                {error ||
+                  (createDMMutation.error instanceof Error
+                    ? createDMMutation.error.message
+                    : "Failed to start conversation")}
               </Paragraph>
             </div>
           )}
@@ -110,14 +101,14 @@ export const StartDMModal: React.FC<StartDMModalProps> = ({
               type="button"
               variant="secondary"
               onClick={onClose}
-              disabled={isLoading}
+              disabled={createDMMutation.isPending}
               className="flex-1"
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              isLoading={isLoading}
+              isLoading={createDMMutation.isPending}
               loadingText="Starting..."
               className="flex-1"
             >

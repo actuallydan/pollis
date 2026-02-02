@@ -32,17 +32,22 @@ func (s *UserService) RegisterUser(userID, clerkID string, username *string, ema
 
 	now := utils.GetCurrentTimestamp()
 
-	// Check if user already exists
-	var exists bool
+	// Check if user already exists by clerk_id (more reliable than user_id)
+	// This handles cases where local DB has different user_id than remote
+	var existingUserID string
 	err := s.db.GetConn().QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)",
-		userID,
-	).Scan(&exists)
-	if err != nil {
+		"SELECT id FROM users WHERE clerk_id = ?",
+		clerkID,
+	).Scan(&existingUserID)
+
+	exists := err == nil && existingUserID != ""
+	if err != nil && err != sql.ErrNoRows {
 		return fmt.Errorf("failed to check user existence: %w", err)
 	}
 
 	if exists {
+		// User exists with this clerk_id - use that user_id for updates
+		userID = existingUserID
 		// User already exists - update all fields (allow overwriting)
 		if username != nil || email != nil || phone != nil || avatarURL != nil {
 			query := "UPDATE users SET"

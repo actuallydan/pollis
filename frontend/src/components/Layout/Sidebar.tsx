@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
+import { useUserProfile, useUserAvatar } from "../../hooks/queries";
 import { SidebarHeader } from "./SidebarHeader";
 import { SidebarActions } from "./SidebarActions";
 import { GroupsList } from "./GroupsList";
@@ -25,9 +26,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     groups,
     channels,
     currentUser,
-    username,
+    username: storeUsername,
     userAvatarUrl,
     setUserAvatarUrl,
+    setUsername: setStoreUsername,
     selectedGroupId,
     selectedChannelId,
     selectedConversationId,
@@ -36,6 +38,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setSelectedConversationId,
     dmConversations,
   } = useAppStore();
+
+  // Fetch user profile from network (network-first with automatic refetching)
+  const { data: userProfile } = useUserProfile();
+  const { data: avatarDownloadUrl } = useUserAvatar();
+
+  // Use network data if available, fallback to store
+  const username = userProfile?.username || storeUsername;
+
+  // Update store when network data changes
+  useEffect(() => {
+    if (userProfile?.username && userProfile.username !== storeUsername) {
+      setStoreUsername(userProfile.username);
+    }
+  }, [userProfile?.username, storeUsername, setStoreUsername]);
+
+  // Update store when avatar URL loads from React Query
+  useEffect(() => {
+    if (avatarDownloadUrl && avatarDownloadUrl !== userAvatarUrl) {
+      setUserAvatarUrl(avatarDownloadUrl);
+    }
+  }, [avatarDownloadUrl, userAvatarUrl, setUserAvatarUrl]);
+
   const [sidebarWidth, setSidebarWidth] = useState(256);
   const isResizingRef = useRef(false);
   const startXRef = useRef(0);

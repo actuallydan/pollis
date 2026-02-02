@@ -173,16 +173,17 @@ export async function getServiceUserData(): Promise<{ username: string; email: s
 }
 
 /**
- * Update user data (username, email, phone) in service DB
+ * Update user data (username, email, phone, avatar_url) in service DB
  */
 export async function updateServiceUserData(
   username: string,
   email: string | null,
-  phone: string | null
+  phone: string | null,
+  avatarURL?: string | null
 ): Promise<void> {
   if (isDesktop()) {
     const { UpdateServiceUserData } = await import('../../wailsjs/go/main/App');
-    await UpdateServiceUserData(username, email, phone, null);
+    await UpdateServiceUserData(username, email, phone, avatarURL || null);
     return;
   }
 

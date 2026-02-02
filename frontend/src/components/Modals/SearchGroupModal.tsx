@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { X, Search } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
-import { Card, Button, TextInput, Header, Paragraph, LoadingSpinner } from "monopollis";
-import { GetGroupBySlug, AddGroupMember } from "../../../wailsjs/go/main/App";
+import { Card, Button, TextInput, Header, Paragraph } from "monopollis";
+import { useJoinGroup } from "../../hooks/queries";
 
 interface SearchGroupModalProps {
   isOpen: boolean;
@@ -13,29 +13,34 @@ export const SearchGroupModal: React.FC<SearchGroupModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { currentUser, addGroup } = useAppStore();
+  const currentUser = useAppStore((state) => state.currentUser);
   const [slug, setSlug] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [foundGroup, setFoundGroup] = useState<any>(null);
+
+  // Use React Query mutation for joining group
+  const joinGroupMutation = useJoinGroup();
 
   if (!isOpen) return null;
 
   const handleSearch = async () => {
     if (!slug.trim()) {
-      setError("Please enter a group slug");
+      setSearchError("Please enter a group slug");
       return;
     }
 
     setIsSearching(true);
-    setError(null);
+    setSearchError(null);
     setFoundGroup(null);
 
     try {
+      // Dynamically import Wails function
+      const { GetGroupBySlug } = await import("../../../wailsjs/go/main/App");
       const group = await GetGroupBySlug(slug.trim());
       setFoundGroup(group);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Group not found");
+      setSearchError(err instanceof Error ? err.message : "Group not found");
     } finally {
       setIsSearching(false);
     }
@@ -46,33 +51,17 @@ export const SearchGroupModal: React.FC<SearchGroupModalProps> = ({
       return;
     }
 
-    setIsSearching(true);
-    setError(null);
-
     try {
-      await AddGroupMember(foundGroup.id, currentUser.id);
+      await joinGroupMutation.mutateAsync(foundGroup.slug);
 
-      // Convert to our Group type
-      const groupData: any = {
-        id: foundGroup.id,
-        slug: foundGroup.slug,
-        name: foundGroup.name,
-        description: foundGroup.description,
-        created_by: foundGroup.created_by,
-        created_at: foundGroup.created_at,
-        updated_at: foundGroup.updated_at,
-      };
-
-      addGroup(groupData);
       onClose();
 
       // Reset form
       setSlug("");
       setFoundGroup(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to join group");
-    } finally {
-      setIsSearching(false);
+      // Error is handled by the mutation
+      console.error("Failed to join group:", err);
     }
   };
 
@@ -131,7 +120,7 @@ export const SearchGroupModal: React.FC<SearchGroupModalProps> = ({
               )}
               <Button
                 onClick={handleJoin}
-                isLoading={isSearching}
+                isLoading={joinGroupMutation.isPending}
                 className="w-full"
               >
                 Join Group
@@ -139,10 +128,13 @@ export const SearchGroupModal: React.FC<SearchGroupModalProps> = ({
             </div>
           )}
 
-          {error && (
+          {(searchError || joinGroupMutation.error) && (
             <div className="p-3 bg-red-900/20 border border-red-300/30 rounded">
               <Paragraph size="sm" className="text-red-300">
-                {error}
+                {searchError ||
+                  (joinGroupMutation.error instanceof Error
+                    ? joinGroupMutation.error.message
+                    : "Failed to join group")}
               </Paragraph>
             </div>
           )}

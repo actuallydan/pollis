@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	_ "embed"
 	"encoding/base64"
 	"fmt"
@@ -37,8 +38,9 @@ type App struct {
 	// Auth flow
 	authServer *http.Server
 	authCancel chan struct{}
-	// Database
-	db *database.DB
+	// Databases
+	db       *database.DB // Local encrypted DB (messages, keys)
+	remoteDB *database.DB // Remote Turso DB (users, groups, channels)
 	// Core services
 	userService    *services.UserService
 	groupService   *services.GroupService
@@ -57,7 +59,7 @@ type App struct {
 	groupKeyService      *services.GroupKeyService
 	// Network and external services
 	networkService      *services.NetworkService
-	serviceClient       *services.ServiceClient
+	serviceClient       *services.ServiceClient // Only for WebRTC signaling, message relay
 	queueProcessor      *services.QueueProcessor
 	serviceURL          string
 	ablyRealtimeService *services.AblyRealtimeService
@@ -122,6 +124,30 @@ func (a *App) startup(ctx context.Context) {
 	} else {
 		a.r2Service = r2Service
 		fmt.Println("R2 service initialized")
+	}
+
+	// Initialize direct Turso connection for remote data (users, groups, channels)
+	tursoURL := os.Getenv("TURSO_URL")
+	tursoToken := os.Getenv("TURSO_TOKEN")
+	if tursoURL != "" && tursoToken != "" {
+		// Build Turso connection string
+		if !strings.Contains(tursoURL, "authToken=") {
+			sep := "?"
+			if strings.Contains(tursoURL, "?") {
+				sep = "&"
+			}
+			tursoURL = fmt.Sprintf("%s%sauthToken=%s", tursoURL, sep, tursoToken)
+		}
+
+		remoteDB, err := database.NewRemoteDB(tursoURL)
+		if err != nil {
+			fmt.Printf("Warning: Failed to connect to Turso: %v\n", err)
+		} else {
+			a.remoteDB = remoteDB
+			fmt.Println("✓ Connected to Turso directly (no gRPC middleman)")
+		}
+	} else {
+		fmt.Println("Warning: TURSO_URL or TURSO_TOKEN not set, remote DB features disabled")
 	}
 
 	// Initialize network service (needed before service client)
@@ -566,32 +592,37 @@ func (a *App) UpdateUser(user *models.User) error {
 	return nil
 }
 
-// GetServiceUserData gets user data (username, email, phone) from the service DB
+// GetServiceUserData gets user data (username, email, phone, avatar_url) from Turso DB directly
 func (a *App) GetServiceUserData() (map[string]interface{}, error) {
 	currentUser, err := a.GetCurrentUser()
 	if err != nil || currentUser == nil {
 		return nil, fmt.Errorf("no current user found")
 	}
 
-	// Query service DB for user data
-	if a.serviceClient == nil || a.networkService == nil || !a.networkService.IsOnline() {
-		// If offline or service not available, return empty data
-		return map[string]interface{}{
-			"username": "",
-			"email":    "",
-			"phone":    "",
-		}, nil
+	// Query Turso directly (no gRPC middleman)
+	if a.remoteDB == nil {
+		return nil, fmt.Errorf("remote database not initialized")
 	}
 
-	// Get user from service by clerk_id
-	serviceUser, err := a.serviceClient.GetUserByClerkID(currentUser.ClerkID)
-	if err != nil || serviceUser == nil {
-		// User not found in service, return empty
-		return map[string]interface{}{
-			"username": "",
-			"email":    "",
-			"phone":    "",
-		}, nil
+	// Query user from Turso by clerk_id using direct SQL
+	var username, email, phone, avatarURL sql.NullString
+	err = a.remoteDB.GetConn().QueryRow(`
+		SELECT username, email, phone, avatar_url
+		FROM users
+		WHERE clerk_id = ?
+	`, currentUser.ClerkID).Scan(&username, &email, &phone, &avatarURL)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// User not found, return empty
+			return map[string]interface{}{
+				"username":   "",
+				"email":      "",
+				"phone":      "",
+				"avatar_url": "",
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to query user from Turso: %w", err)
 	}
 
 	result := map[string]interface{}{
@@ -601,54 +632,118 @@ func (a *App) GetServiceUserData() (map[string]interface{}, error) {
 		"avatar_url": "",
 	}
 
-	if serviceUser.Username != nil && *serviceUser.Username != "" {
-		result["username"] = *serviceUser.Username
+	if username.Valid && username.String != "" {
+		result["username"] = username.String
 	}
-	if serviceUser.Email != nil && *serviceUser.Email != "" {
-		result["email"] = *serviceUser.Email
+	if email.Valid && email.String != "" {
+		result["email"] = email.String
 	}
-	if serviceUser.Phone != nil && *serviceUser.Phone != "" {
-		result["phone"] = *serviceUser.Phone
+	if phone.Valid && phone.String != "" {
+		result["phone"] = phone.String
 	}
-	if serviceUser.AvatarUrl != nil && *serviceUser.AvatarUrl != "" {
-		result["avatar_url"] = *serviceUser.AvatarUrl
+	if avatarURL.Valid && avatarURL.String != "" {
+		result["avatar_url"] = avatarURL.String
 	}
 
 	return result, nil
 }
 
-// UpdateServiceUserData updates user data in the service DB
-// Now includes email and phone when registering/updating user in Turso
+// UpdateServiceUserData updates user data in Turso DB directly
 func (a *App) UpdateServiceUserData(username string, email, phone, avatarURL *string) error {
 	currentUser, err := a.GetCurrentUser()
 	if err != nil || currentUser == nil {
 		return fmt.Errorf("no current user found")
 	}
 
-	if a.serviceClient == nil || a.networkService == nil || !a.networkService.IsOnline() {
-		return fmt.Errorf("service not available or offline")
+	if a.remoteDB == nil {
+		return fmt.Errorf("remote database not initialized")
 	}
 
 	clerkID := currentUser.ClerkID
-	usernamePtr := &username
-	if err := a.serviceClient.RegisterUser(currentUser.ID, &clerkID, usernamePtr, email, phone, avatarURL); err != nil {
-		return fmt.Errorf("failed to update user in service: %w", err)
+	now := time.Now().Unix()
+
+	// Check if user exists in Turso by clerk_id
+	var existingUserID string
+	err = a.remoteDB.GetConn().QueryRow("SELECT id FROM users WHERE clerk_id = ?", clerkID).Scan(&existingUserID)
+
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to check user existence: %w", err)
+	}
+
+	if err == sql.ErrNoRows {
+		// User doesn't exist - insert new user
+		_, err = a.remoteDB.GetConn().Exec(`
+			INSERT INTO users (id, clerk_id, username, email, phone, avatar_url, created_at, disabled)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+		`, currentUser.ID, clerkID, username, email, phone, avatarURL, now)
+		if err != nil {
+			return fmt.Errorf("failed to insert user in Turso: %w", err)
+		}
+		fmt.Printf("✓ Created user in Turso (direct connection)\n")
+	} else {
+		// User exists - update with provided fields
+		query := "UPDATE users SET username = ?, email = ?, phone = ?"
+		args := []interface{}{username, email, phone}
+
+		if avatarURL != nil {
+			query += ", avatar_url = ?"
+			args = append(args, *avatarURL)
+		}
+
+		query += " WHERE clerk_id = ?"
+		args = append(args, clerkID)
+
+		_, err = a.remoteDB.GetConn().Exec(query, args...)
+		if err != nil {
+			return fmt.Errorf("failed to update user in Turso: %w", err)
+		}
+		fmt.Printf("✓ Updated user data in Turso (direct connection)\n")
 	}
 
 	return nil
 }
 
-// UpdateServiceUserAvatar updates user avatar URL
-// Per AUTH_AND_DB_MIGRATION.md: avatar URLs no longer stored in service DB
-// Avatar is stored locally only (avatarURL parameter kept for backward compatibility)
+// UpdateServiceUserAvatar updates user avatar URL in Turso DB directly
 func (a *App) UpdateServiceUserAvatar(avatarURL string) error {
 	currentUser, err := a.GetCurrentUser()
 	if err != nil || currentUser == nil {
 		return fmt.Errorf("no current user found")
 	}
 
-	// Avatar is now stored locally only - no service update needed
-	fmt.Printf("[R2] Avatar URL stored locally: %s\n", avatarURL)
+	if a.remoteDB == nil {
+		return fmt.Errorf("remote database not initialized")
+	}
+
+	clerkID := currentUser.ClerkID
+	now := time.Now().Unix()
+
+	// Check if user exists in Turso by clerk_id
+	var existingUserID string
+	err = a.remoteDB.GetConn().QueryRow("SELECT id FROM users WHERE clerk_id = ?", clerkID).Scan(&existingUserID)
+
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to check user existence: %w", err)
+	}
+
+	if err == sql.ErrNoRows {
+		// User doesn't exist - insert new user with avatar
+		_, err = a.remoteDB.GetConn().Exec(`
+			INSERT INTO users (id, clerk_id, username, email, phone, avatar_url, created_at, disabled)
+			VALUES (?, ?, NULL, NULL, NULL, ?, ?, 0)
+		`, currentUser.ID, clerkID, avatarURL, now)
+		if err != nil {
+			return fmt.Errorf("failed to insert user in Turso: %w", err)
+		}
+		fmt.Printf("✓ Created user with avatar in Turso: %s (direct connection)\n", avatarURL)
+	} else {
+		// User exists - update avatar_url only
+		_, err = a.remoteDB.GetConn().Exec("UPDATE users SET avatar_url = ? WHERE clerk_id = ?", avatarURL, clerkID)
+		if err != nil {
+			return fmt.Errorf("failed to update avatar in Turso: %w", err)
+		}
+		fmt.Printf("✓ Avatar URL updated in Turso: %s (direct connection)\n", avatarURL)
+	}
+
 	return nil
 }
 
@@ -684,8 +779,8 @@ func (a *App) UpdateGroup(groupID, name, description string) (*models.Group, err
 		return nil, fmt.Errorf("name is required")
 	}
 
-	// Get existing group
-	group, err := a.groupService.GetGroupByID(groupID)
+	// Get existing group from Turso
+	group, err := a.GetGroup(groupID)
 	if err != nil {
 		return nil, fmt.Errorf("group not found: %w", err)
 	}
@@ -695,7 +790,7 @@ func (a *App) UpdateGroup(groupID, name, description string) (*models.Group, err
 
 	// Check if slug changed and if new slug conflicts with existing group
 	if newSlug != group.Slug {
-		existing, err := a.groupService.GetGroupBySlug(newSlug)
+		existing, err := a.GetGroupBySlug(newSlug)
 		if err == nil && existing != nil && existing.ID != groupID {
 			return nil, fmt.Errorf("group with slug '%s' already exists", newSlug)
 		}
@@ -709,17 +804,21 @@ func (a *App) UpdateGroup(groupID, name, description string) (*models.Group, err
 	} else {
 		group.Description = ""
 	}
+	group.UpdatedAt = time.Now().Unix()
 
-	// Update in local database
-	if err := a.groupService.UpdateGroup(group); err != nil {
-		return nil, fmt.Errorf("failed to update group: %w", err)
-	}
-
-	// Update on service if online
-	if a.serviceClient != nil && a.networkService != nil && a.networkService.IsOnline() {
-		// Note: Service doesn't have UpdateGroup yet, so we'll need to add it
-		// For now, log that sync is needed
-		fmt.Printf("Info: Group updated locally. Service sync for group updates not yet implemented.\n")
+	// Update in Turso
+	if a.remoteDB != nil {
+		_, err := a.remoteDB.GetConn().Exec(`
+			UPDATE groups
+			SET slug = ?, name = ?, description = ?, updated_at = ?
+			WHERE id = ?
+		`, group.Slug, group.Name, group.Description, group.UpdatedAt, group.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to update group in Turso: %w", err)
+		}
+		fmt.Printf("✓ Group updated in Turso: %s\n", group.Slug)
+	} else {
+		return nil, fmt.Errorf("remote database not initialized")
 	}
 
 	return group, nil
@@ -727,62 +826,121 @@ func (a *App) UpdateGroup(groupID, name, description string) (*models.Group, err
 
 // CreateGroup creates a new group
 func (a *App) CreateGroup(slug, name, description, createdBy string) (*models.Group, error) {
+	fmt.Printf("[CreateGroup] Starting: slug=%s, name=%s, createdBy=%s\n", slug, name, createdBy)
+
 	// Validate input
 	if slug == "" {
+		fmt.Printf("[CreateGroup] ERROR: slug is empty\n")
 		return nil, fmt.Errorf("slug is required")
 	}
 	if name == "" {
+		fmt.Printf("[CreateGroup] ERROR: name is empty\n")
 		return nil, fmt.Errorf("name is required")
 	}
 	if createdBy == "" {
+		fmt.Printf("[CreateGroup] ERROR: createdBy is empty\n")
 		return nil, fmt.Errorf("created_by is required")
 	}
 
-	// Check if group with slug already exists
-	existing, err := a.groupService.GetGroupBySlug(slug)
+	// Check if group with slug already exists in Turso
+	fmt.Printf("[CreateGroup] Checking if group '%s' already exists...\n", slug)
+	existing, err := a.GetGroupBySlug(slug)
+	if err != nil {
+		// Error is expected if group doesn't exist
+		fmt.Printf("[CreateGroup] GetGroupBySlug returned error (expected if doesn't exist): %v\n", err)
+	}
 	if err == nil && existing != nil {
+		fmt.Printf("[CreateGroup] ERROR: Group with slug '%s' already exists\n", slug)
 		return nil, fmt.Errorf("group with slug '%s' already exists", slug)
 	}
 
+	if a.remoteDB == nil {
+		fmt.Printf("[CreateGroup] ERROR: remoteDB is nil\n")
+		return nil, fmt.Errorf("remote database not initialized")
+	}
+
+	// Ensure the creator user exists in Turso (required for foreign key constraint)
+	// We need to check by clerk_id because the user ID in Turso might differ from local
+	fmt.Printf("[CreateGroup] Checking if creator user exists in Turso...\n")
+
+	// Get local user info to get clerk_id
+	localUser, err := a.GetCurrentUser()
+	if err != nil || localUser == nil || localUser.ID != createdBy {
+		fmt.Printf("[CreateGroup] ERROR: Could not get local user info: %v\n", err)
+		return nil, fmt.Errorf("creator user not found in local database")
+	}
+
+	// Check if user exists in Turso by clerk_id and get their Turso ID
+	var tursoUserID string
+	err = a.remoteDB.GetConn().QueryRow(`SELECT id FROM users WHERE clerk_id = ?`, localUser.ClerkID).Scan(&tursoUserID)
+
+	if err == sql.ErrNoRows {
+		// User doesn't exist in Turso, create them with the local ID
+		fmt.Printf("[CreateGroup] User does not exist in Turso, creating user record...\n")
+		now := time.Now().Unix()
+		_, err = a.remoteDB.GetConn().Exec(`
+			INSERT INTO users (id, clerk_id, username, email, phone, created_at, disabled)
+			VALUES (?, ?, NULL, NULL, NULL, ?, 0)
+		`, localUser.ID, localUser.ClerkID, now)
+		if err != nil {
+			fmt.Printf("[CreateGroup] ERROR: Failed to create user in Turso: %v\n", err)
+			return nil, fmt.Errorf("failed to create user in Turso: %w", err)
+		}
+		fmt.Printf("✓ User created in Turso: %s (clerk_id: %s)\n", localUser.ID, localUser.ClerkID)
+		tursoUserID = localUser.ID // Use the local ID we just inserted
+	} else if err != nil {
+		fmt.Printf("[CreateGroup] ERROR: Failed to check if user exists: %v\n", err)
+		return nil, fmt.Errorf("failed to verify user exists in Turso: %w", err)
+	} else {
+		fmt.Printf("[CreateGroup] User exists in Turso with ID: %s\n", tursoUserID)
+		if tursoUserID != localUser.ID {
+			fmt.Printf("[CreateGroup] WARNING: Turso user ID (%s) differs from local ID (%s)\n", tursoUserID, localUser.ID)
+		}
+	}
+
+	// Use the Turso user ID for the foreign key (not the local user ID)
+	createdBy = tursoUserID
+
+	// Generate group ID
+	groupID := utils.NewULID()
+	now := time.Now().Unix()
+	fmt.Printf("[CreateGroup] Generated ID: %s\n", groupID)
+
+	// Create group directly in Turso
+	fmt.Printf("[CreateGroup] Inserting group into Turso...\n")
+	_, err = a.remoteDB.GetConn().Exec(`
+		INSERT INTO groups (id, slug, name, description, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, groupID, slug, name, description, createdBy, now, now)
+	if err != nil {
+		fmt.Printf("[CreateGroup] ERROR: Failed to insert group: %v\n", err)
+		return nil, fmt.Errorf("failed to create group in Turso: %w", err)
+	}
+	fmt.Printf("✓ Group created in Turso: %s (id: %s)\n", slug, groupID)
+
+	// Add creator as member in Turso
+	fmt.Printf("[CreateGroup] Adding creator as member...\n")
+	_, err = a.remoteDB.GetConn().Exec(`
+		INSERT INTO group_member (group_id, user_id, role, joined_at)
+		VALUES (?, ?, ?, ?)
+	`, groupID, createdBy, "owner", now)
+	if err != nil {
+		fmt.Printf("[CreateGroup] ERROR: Failed to add creator as member: %v\n", err)
+		return nil, fmt.Errorf("failed to add creator as member in Turso: %w", err)
+	}
+	fmt.Printf("✓ Creator added as owner in Turso\n")
+
 	group := &models.Group{
+		ID:          groupID,
 		Slug:        slug,
 		Name:        name,
 		Description: description,
 		CreatedBy:   createdBy,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
-	if err := a.groupService.CreateGroup(group); err != nil {
-		return nil, fmt.Errorf("failed to create group: %w", err)
-	}
-
-	// Add creator as member
-	if err := a.groupService.AddGroupMember(group.ID, createdBy); err != nil {
-		// Group exists, but member addition failed - this is a critical error
-		return nil, fmt.Errorf("failed to add creator as member: %w", err)
-	}
-
-	// Create on service if online
-	if a.serviceClient != nil && a.networkService != nil && a.networkService.IsOnline() {
-		var descPtr *string
-		if description != "" {
-			descPtr = &description
-		}
-		if err := a.serviceClient.CreateGroup(group.ID, slug, name, descPtr, createdBy); err != nil {
-			// Log error but don't fail - group is created locally
-			fmt.Printf("Warning: failed to create group on service: %v\n", err)
-		} else {
-			fmt.Printf("Group created on service: %s (id: %s)\n", slug, group.ID)
-		}
-	} else {
-		if a.serviceClient == nil {
-			fmt.Printf("Warning: service client not initialized, group not synced to service\n")
-		} else if a.networkService == nil {
-			fmt.Printf("Warning: network service not initialized, group not synced to service\n")
-		} else {
-			fmt.Printf("Warning: network is offline, group not synced to service (will sync when online)\n")
-		}
-	}
-
+	fmt.Printf("[CreateGroup] SUCCESS: Group created successfully\n")
 	return group, nil
 }
 
@@ -791,10 +949,34 @@ func (a *App) GetGroup(groupID string) (*models.Group, error) {
 	if groupID == "" {
 		return nil, fmt.Errorf("group_id is required")
 	}
-	group, err := a.groupService.GetGroupByID(groupID)
-	if err != nil {
-		return nil, fmt.Errorf("group not found: %w", err)
+
+	if a.remoteDB == nil {
+		return nil, fmt.Errorf("remote database not initialized")
 	}
+
+	// Query Turso directly
+	group := &models.Group{}
+	var description sql.NullString
+	err := a.remoteDB.GetConn().QueryRow(`
+		SELECT id, slug, name, description, created_by, created_at, updated_at
+		FROM groups
+		WHERE id = ?
+	`, groupID).Scan(&group.ID, &group.Slug, &group.Name, &description, &group.CreatedBy, &group.CreatedAt, &group.UpdatedAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("group not found")
+		}
+		return nil, fmt.Errorf("failed to query group from Turso: %w", err)
+	}
+
+	// Handle NULL description
+	if description.Valid {
+		group.Description = description.String
+	} else {
+		group.Description = ""
+	}
+
 	return group, nil
 }
 
@@ -803,23 +985,105 @@ func (a *App) GetGroupBySlug(slug string) (*models.Group, error) {
 	if slug == "" {
 		return nil, fmt.Errorf("slug is required")
 	}
-	group, err := a.groupService.GetGroupBySlug(slug)
-	if err != nil {
-		return nil, fmt.Errorf("group not found: %w", err)
+
+	if a.remoteDB == nil {
+		return nil, fmt.Errorf("remote database not initialized")
 	}
+
+	// Query Turso directly
+	group := &models.Group{}
+	var description sql.NullString
+	err := a.remoteDB.GetConn().QueryRow(`
+		SELECT id, slug, name, description, created_by, created_at, updated_at
+		FROM groups
+		WHERE slug = ?
+	`, slug).Scan(&group.ID, &group.Slug, &group.Name, &description, &group.CreatedBy, &group.CreatedAt, &group.UpdatedAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("group not found")
+		}
+		return nil, fmt.Errorf("failed to query group from Turso: %w", err)
+	}
+
+	// Handle NULL description
+	if description.Valid {
+		group.Description = description.String
+	} else {
+		group.Description = ""
+	}
+
 	return group, nil
 }
 
 // ListUserGroups lists all groups for a user
 func (a *App) ListUserGroups(userIdentifier string) ([]*models.Group, error) {
+	fmt.Printf("[ListUserGroups] Called with userIdentifier: %s\n", userIdentifier)
+
 	if userIdentifier == "" {
 		return nil, fmt.Errorf("user_identifier is required")
 	}
-	groups, err := a.groupService.ListUserGroups(userIdentifier)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list user groups: %w", err)
+
+	if a.remoteDB == nil {
+		return nil, fmt.Errorf("remote database not initialized")
 	}
-	return groups, nil
+
+	// Get local user to find their clerk_id
+	localUser, err := a.GetCurrentUser()
+	if err != nil || localUser == nil {
+		fmt.Printf("[ListUserGroups] ERROR: Failed to get current user: %v\n", err)
+		return nil, fmt.Errorf("failed to get current user: %w", err)
+	}
+	fmt.Printf("[ListUserGroups] Local user: ID=%s, ClerkID=%s\n", localUser.ID, localUser.ClerkID)
+
+	// Resolve the Turso user ID by clerk_id (might differ from local ID)
+	var tursoUserID string
+	err = a.remoteDB.GetConn().QueryRow(`SELECT id FROM users WHERE clerk_id = ?`, localUser.ClerkID).Scan(&tursoUserID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// User doesn't exist in Turso yet, return empty list
+			fmt.Printf("[ListUserGroups] User not found in Turso by clerk_id: %s\n", localUser.ClerkID)
+			return []*models.Group{}, nil
+		}
+		fmt.Printf("[ListUserGroups] ERROR: Failed to get Turso user ID: %v\n", err)
+		return nil, fmt.Errorf("failed to get Turso user ID: %w", err)
+	}
+	fmt.Printf("[ListUserGroups] Turso user ID: %s (local was: %s)\n", tursoUserID, localUser.ID)
+
+	// Query Turso directly for groups where user is a member (using Turso user ID)
+	rows, err := a.remoteDB.GetConn().Query(`
+		SELECT g.id, g.slug, g.name, g.description, g.created_by, g.created_at, g.updated_at
+		FROM groups g
+		INNER JOIN group_member gm ON g.id = gm.group_id
+		WHERE gm.user_id = ?
+		ORDER BY g.created_at DESC
+	`, tursoUserID)
+	if err != nil {
+		fmt.Printf("[ListUserGroups] ERROR: Query failed: %v\n", err)
+		return nil, fmt.Errorf("failed to query groups from Turso: %w", err)
+	}
+	defer rows.Close()
+
+	var groups []*models.Group
+	for rows.Next() {
+		group := &models.Group{}
+		var description sql.NullString
+		err := rows.Scan(&group.ID, &group.Slug, &group.Name, &description, &group.CreatedBy, &group.CreatedAt, &group.UpdatedAt)
+		if err != nil {
+			fmt.Printf("[ListUserGroups] ERROR: Scan failed: %v\n", err)
+			return nil, fmt.Errorf("failed to scan group: %w", err)
+		}
+		// Handle NULL description
+		if description.Valid {
+			group.Description = description.String
+		} else {
+			group.Description = ""
+		}
+		groups = append(groups, group)
+	}
+
+	fmt.Printf("[ListUserGroups] Found %d groups\n", len(groups))
+	return groups, rows.Err()
 }
 
 // AddGroupMember adds a member to a group
@@ -831,39 +1095,40 @@ func (a *App) AddGroupMember(groupID, userIdentifier string) error {
 		return fmt.Errorf("user_identifier is required")
 	}
 
-	// Check if group exists
-	_, err := a.groupService.GetGroupByID(groupID)
+	// Check if group exists in Turso
+	_, err := a.GetGroup(groupID)
 	if err != nil {
 		return fmt.Errorf("group not found: %w", err)
 	}
 
-	// Check if already a member
-	isMember, err := a.groupService.IsGroupMember(groupID, userIdentifier)
-	if err != nil {
-		return fmt.Errorf("failed to check membership: %w", err)
+	if a.remoteDB == nil {
+		return fmt.Errorf("remote database not initialized")
 	}
-	if isMember {
+
+	// Check if already a member in Turso
+	var count int
+	err = a.remoteDB.GetConn().QueryRow(`
+		SELECT COUNT(*)
+		FROM group_member
+		WHERE group_id = ? AND user_id = ?
+	`, groupID, userIdentifier).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check membership in Turso: %w", err)
+	}
+	if count > 0 {
 		return fmt.Errorf("user is already a member of this group")
 	}
 
-	if err := a.groupService.AddGroupMember(groupID, userIdentifier); err != nil {
-		return fmt.Errorf("failed to add group member: %w", err)
+	// Add member directly to Turso
+	now := time.Now().Unix()
+	_, err = a.remoteDB.GetConn().Exec(`
+		INSERT INTO group_member (group_id, user_id, role, joined_at)
+		VALUES (?, ?, ?, ?)
+	`, groupID, userIdentifier, "member", now)
+	if err != nil {
+		return fmt.Errorf("failed to add group member to Turso: %w", err)
 	}
-
-	// Invite on service if online
-	if a.serviceClient != nil && a.networkService.IsOnline() {
-		// Get current user for invited_by
-		user, err := a.GetCurrentUser()
-		if err != nil {
-			// Log but don't fail - member is added locally
-			fmt.Printf("Warning: failed to get current user for service invite: %v\n", err)
-		} else {
-			if err := a.serviceClient.InviteToGroup(groupID, userIdentifier, user.ID); err != nil {
-				// Log but don't fail - member is added locally
-				fmt.Printf("Warning: failed to invite on service: %v\n", err)
-			}
-		}
-	}
+	fmt.Printf("✓ Group member added to Turso\n")
 
 	return nil
 }
@@ -873,11 +1138,37 @@ func (a *App) ListGroupMembers(groupID string) ([]*models.GroupMember, error) {
 	if groupID == "" {
 		return nil, fmt.Errorf("group_id is required")
 	}
-	members, err := a.groupService.ListGroupMembers(groupID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list group members: %w", err)
+
+	if a.remoteDB == nil {
+		return nil, fmt.Errorf("remote database not initialized")
 	}
-	return members, nil
+
+	// Query Turso directly (using group_member table - singular)
+	rows, err := a.remoteDB.GetConn().Query(`
+		SELECT group_id, user_id, joined_at
+		FROM group_member
+		WHERE group_id = ?
+		ORDER BY joined_at DESC
+	`, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query group members from Turso: %w", err)
+	}
+	defer rows.Close()
+
+	var members []*models.GroupMember
+	for rows.Next() {
+		member := &models.GroupMember{}
+		var userID string
+		err := rows.Scan(&member.GroupID, &userID, &member.JoinedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan group member: %w", err)
+		}
+		// Map user_id to UserIdentifier for backward compatibility with GroupMember model
+		member.UserIdentifier = userID
+		members = append(members, member)
+	}
+
+	return members, rows.Err()
 }
 
 // ========== Channel Service Methods ==========
@@ -898,14 +1189,14 @@ func (a *App) CreateChannel(groupID, slug, name, description, createdBy string) 
 		return nil, fmt.Errorf("created_by is required")
 	}
 
-	// Verify group exists
-	_, err := a.groupService.GetGroupByID(groupID)
+	// Verify group exists in Turso
+	_, err := a.GetGroup(groupID)
 	if err != nil {
 		return nil, fmt.Errorf("group not found: %w", err)
 	}
 
 	// Check if channel with this slug already exists in the group
-	exists, err := a.channelService.ChannelExistsBySlug(groupID, slug)
+	exists, err := a.ChannelExistsBySlug(groupID, slug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check channel existence: %w", err)
 	}
@@ -913,29 +1204,61 @@ func (a *App) CreateChannel(groupID, slug, name, description, createdBy string) 
 		return nil, fmt.Errorf("channel with slug '%s' already exists in this group", slug)
 	}
 
+	if a.remoteDB == nil {
+		return nil, fmt.Errorf("remote database not initialized")
+	}
+
+	// Resolve the Turso user ID (might differ from local ID) for foreign key
+	localUser, err := a.GetCurrentUser()
+	if err != nil || localUser == nil || localUser.ID != createdBy {
+		return nil, fmt.Errorf("creator user not found in local database")
+	}
+
+	// Get Turso user ID by clerk_id
+	var tursoUserID string
+	err = a.remoteDB.GetConn().QueryRow(`SELECT id FROM users WHERE clerk_id = ?`, localUser.ClerkID).Scan(&tursoUserID)
+	if err == sql.ErrNoRows {
+		// User doesn't exist in Turso, create them
+		now := time.Now().Unix()
+		_, err = a.remoteDB.GetConn().Exec(`
+			INSERT INTO users (id, clerk_id, username, email, phone, created_at, disabled)
+			VALUES (?, ?, NULL, NULL, NULL, ?, 0)
+		`, localUser.ID, localUser.ClerkID, now)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create user in Turso: %w", err)
+		}
+		tursoUserID = localUser.ID
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get Turso user ID: %w", err)
+	}
+
+	// Use Turso user ID for the foreign key
+	createdBy = tursoUserID
+
+	// Generate channel ID
+	channelID := utils.NewULID()
+	now := time.Now().Unix()
+
+	// Create channel directly in Turso (note: table is 'channel' singular)
+	_, err = a.remoteDB.GetConn().Exec(`
+		INSERT INTO channel (id, group_id, slug, name, description, channel_type, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, channelID, groupID, slug, name, description, "text", createdBy, now, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create channel in Turso: %w", err)
+	}
+	fmt.Printf("✓ Channel created in Turso: %s (id: %s)\n", slug, channelID)
+
 	channel := &models.Channel{
+		ID:          channelID,
 		GroupID:     groupID,
 		Slug:        slug,
 		Name:        name,
 		Description: description,
 		CreatedBy:   createdBy,
 		ChannelType: "text",
-	}
-
-	if err := a.channelService.CreateChannel(channel); err != nil {
-		return nil, fmt.Errorf("failed to create channel: %w", err)
-	}
-
-	// Create on service if online
-	if a.serviceClient != nil && a.networkService.IsOnline() {
-		var descPtr *string
-		if description != "" {
-			descPtr = &description
-		}
-		if err := a.serviceClient.CreateChannel(channel.ID, groupID, slug, name, descPtr, createdBy); err != nil {
-			// Log error but don't fail - channel is created locally
-			fmt.Printf("Warning: failed to create channel on service: %v\n", err)
-		}
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	return channel, nil
@@ -946,10 +1269,34 @@ func (a *App) GetChannel(channelID string) (*models.Channel, error) {
 	if channelID == "" {
 		return nil, fmt.Errorf("channel_id is required")
 	}
-	channel, err := a.channelService.GetChannelByID(channelID)
-	if err != nil {
-		return nil, fmt.Errorf("channel not found: %w", err)
+
+	if a.remoteDB == nil {
+		return nil, fmt.Errorf("remote database not initialized")
 	}
+
+	// Query Turso directly
+	channel := &models.Channel{}
+	var description sql.NullString
+	err := a.remoteDB.GetConn().QueryRow(`
+		SELECT id, group_id, slug, name, description, channel_type, created_by, created_at, updated_at
+		FROM channel
+		WHERE id = ?
+	`, channelID).Scan(&channel.ID, &channel.GroupID, &channel.Slug, &channel.Name, &description, &channel.ChannelType, &channel.CreatedBy, &channel.CreatedAt, &channel.UpdatedAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("channel not found")
+		}
+		return nil, fmt.Errorf("failed to query channel from Turso: %w", err)
+	}
+
+	// Handle NULL description
+	if description.Valid {
+		channel.Description = description.String
+	} else {
+		channel.Description = ""
+	}
+
 	return channel, nil
 }
 
@@ -958,11 +1305,43 @@ func (a *App) ListChannels(groupID string) ([]*models.Channel, error) {
 	if groupID == "" {
 		return nil, fmt.Errorf("group_id is required")
 	}
-	channels, err := a.channelService.ListChannelsByGroup(groupID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list channels: %w", err)
+
+	if a.remoteDB == nil {
+		return nil, fmt.Errorf("remote database not initialized")
 	}
-	return channels, nil
+
+	// Query Turso directly
+	rows, err := a.remoteDB.GetConn().Query(`
+		SELECT id, group_id, slug, name, description, channel_type, created_by, created_at, updated_at
+		FROM channel
+		WHERE group_id = ?
+		ORDER BY created_at ASC
+	`, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query channels from Turso: %w", err)
+	}
+	defer rows.Close()
+
+	var channels []*models.Channel
+	for rows.Next() {
+		channel := &models.Channel{}
+		var description sql.NullString
+		err := rows.Scan(&channel.ID, &channel.GroupID, &channel.Slug, &channel.Name, &description, &channel.ChannelType, &channel.CreatedBy, &channel.CreatedAt, &channel.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan channel: %w", err)
+		}
+
+		// Handle NULL description
+		if description.Valid {
+			channel.Description = description.String
+		} else {
+			channel.Description = ""
+		}
+
+		channels = append(channels, channel)
+	}
+
+	return channels, rows.Err()
 }
 
 // ChannelExistsBySlug checks if a channel with the given slug exists in a group
@@ -970,7 +1349,24 @@ func (a *App) ChannelExistsBySlug(groupID, slug string) (bool, error) {
 	if groupID == "" || slug == "" {
 		return false, fmt.Errorf("group_id and slug are required")
 	}
-	return a.channelService.ChannelExistsBySlug(groupID, slug)
+
+	if a.remoteDB == nil {
+		return false, fmt.Errorf("remote database not initialized")
+	}
+
+	// Query Turso directly
+	var count int
+	err := a.remoteDB.GetConn().QueryRow(`
+		SELECT COUNT(*)
+		FROM channel
+		WHERE group_id = ? AND slug = ?
+	`, groupID, slug).Scan(&count)
+
+	if err != nil {
+		return false, fmt.Errorf("failed to check channel existence in Turso: %w", err)
+	}
+
+	return count > 0, nil
 }
 
 // GroupExistsBySlug checks if a group with the given slug exists
@@ -978,7 +1374,24 @@ func (a *App) GroupExistsBySlug(slug string) (bool, error) {
 	if slug == "" {
 		return false, fmt.Errorf("slug is required")
 	}
-	return a.groupService.GroupExistsBySlug(slug)
+
+	if a.remoteDB == nil {
+		return false, fmt.Errorf("remote database not initialized")
+	}
+
+	// Query Turso directly
+	var count int
+	err := a.remoteDB.GetConn().QueryRow(`
+		SELECT COUNT(*)
+		FROM groups
+		WHERE slug = ?
+	`, slug).Scan(&count)
+
+	if err != nil {
+		return false, fmt.Errorf("failed to check group existence in Turso: %w", err)
+	}
+
+	return count > 0, nil
 }
 
 // SearchGroup searches for a group by ID, slug, or case-insensitive name
@@ -986,7 +1399,36 @@ func (a *App) SearchGroup(queryString string) (*models.Group, error) {
 	if queryString == "" {
 		return nil, fmt.Errorf("search query cannot be empty")
 	}
-	return a.groupService.SearchGroup(queryString)
+
+	if a.remoteDB == nil {
+		return nil, fmt.Errorf("remote database not initialized")
+	}
+
+	// Query Turso directly - search by ID, slug, or name (case-insensitive)
+	group := &models.Group{}
+	var description sql.NullString
+	err := a.remoteDB.GetConn().QueryRow(`
+		SELECT id, slug, name, description, created_by, created_at, updated_at
+		FROM groups
+		WHERE id = ? OR slug = ? OR LOWER(name) = LOWER(?)
+		LIMIT 1
+	`, queryString, queryString, queryString).Scan(&group.ID, &group.Slug, &group.Name, &description, &group.CreatedBy, &group.CreatedAt, &group.UpdatedAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("group not found")
+		}
+		return nil, fmt.Errorf("failed to search group in Turso: %w", err)
+	}
+
+	// Handle NULL description
+	if description.Valid {
+		group.Description = description.String
+	} else {
+		group.Description = ""
+	}
+
+	return group, nil
 }
 
 // ========== Message Service Methods ==========
@@ -1012,7 +1454,7 @@ func (a *App) SendMessage(channelID, conversationID, authorID, content string, r
 
 	if channelID != "" {
 		// Group message: use sender key
-		channel, err := a.channelService.GetChannelByID(channelID)
+		channel, err := a.GetChannel(channelID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get channel: %w", err)
 		}
@@ -1145,7 +1587,7 @@ func (a *App) GetMessages(channelID, conversationID string, limit, offset int) (
 			return nil, fmt.Errorf("failed to get channel messages: %w", err)
 		}
 		// Decrypt messages for channel using sender key
-		channel, err := a.channelService.GetChannelByID(channelID)
+		channel, err := a.GetChannel(channelID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get channel: %w", err)
 		}
@@ -1346,13 +1788,14 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 		}
 	}
 
-	// If not found locally, query service for existing User by clerk_id
-	if userID == "" && a.serviceClient != nil && a.networkService != nil && a.networkService.IsOnline() {
-		serviceUser, err := a.serviceClient.GetUserByClerkID(clerkUser.ID)
-		if err == nil && serviceUser != nil && serviceUser.UserId != "" {
-			// User exists in service, use existing User ID
-			userID = serviceUser.UserId
-			fmt.Printf("Found existing user in service: %s (clerk_id: %s)\n", userID, clerkUser.ID)
+	// If not found locally, query Turso for existing User by clerk_id
+	if userID == "" && a.remoteDB != nil {
+		var remoteUserID string
+		err := a.remoteDB.GetConn().QueryRow("SELECT id FROM users WHERE clerk_id = ?", clerkUser.ID).Scan(&remoteUserID)
+		if err == nil && remoteUserID != "" {
+			// User exists in Turso, use existing User ID
+			userID = remoteUserID
+			fmt.Printf("Found existing user in Turso: %s (clerk_id: %s)\n", userID, clerkUser.ID)
 		}
 	}
 
@@ -1440,29 +1883,18 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 			fmt.Printf("Stored identity keys for user: %s\n", user.ID)
 		}
 
-		// Register User with service if online
-		if a.serviceClient == nil {
-			fmt.Printf("ERROR: service client not initialized! User NOT registered with service.\n")
-			fmt.Printf("ERROR: This means the user will NOT appear in Turso DB.\n")
-			fmt.Printf("ERROR: Check that VITE_SERVICE_URL is set and service is running.\n")
-		} else if a.networkService == nil {
-			fmt.Printf("ERROR: network service not initialized! User NOT registered with service.\n")
-		} else if !a.networkService.IsOnline() {
-			fmt.Printf("WARNING: network is offline, user not registered with service (will register when online)\n")
+		// Register User in Turso
+		if a.remoteDB == nil {
+			fmt.Printf("WARNING: Turso not initialized! User NOT registered in Turso DB.\n")
 		} else {
-			clerkIDPtr := &clerkUser.ID
-
 			// Extract primary email and phone from Clerk user
-			var emailPtr *string
-			var phonePtr *string
-			var usernamePtr *string
-			var avatarURLPtr *string
+			var email, phone, username, avatarURL sql.NullString
 
 			// Get primary email
 			if clerkUser.PrimaryEmailAddressID != nil && len(clerkUser.EmailAddresses) > 0 {
 				for _, emailAddr := range clerkUser.EmailAddresses {
 					if emailAddr.ID == *clerkUser.PrimaryEmailAddressID {
-						emailPtr = &emailAddr.EmailAddress
+						email = sql.NullString{String: emailAddr.EmailAddress, Valid: true}
 						break
 					}
 				}
@@ -1472,7 +1904,7 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 			if clerkUser.PrimaryPhoneNumberID != nil && len(clerkUser.PhoneNumbers) > 0 {
 				for _, phoneNum := range clerkUser.PhoneNumbers {
 					if phoneNum.ID == *clerkUser.PrimaryPhoneNumberID {
-						phonePtr = &phoneNum.PhoneNumber
+						phone = sql.NullString{String: phoneNum.PhoneNumber, Valid: true}
 						break
 					}
 				}
@@ -1480,21 +1912,24 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 
 			// Get username
 			if clerkUser.Username != nil && *clerkUser.Username != "" {
-				usernamePtr = clerkUser.Username
+				username = sql.NullString{String: *clerkUser.Username, Valid: true}
 			}
 
 			// Get avatar URL
 			if clerkUser.ImageURL != nil && *clerkUser.ImageURL != "" {
-				avatarURLPtr = clerkUser.ImageURL
+				avatarURL = sql.NullString{String: *clerkUser.ImageURL, Valid: true}
 			}
 
-			if err := a.serviceClient.RegisterUser(user.ID, clerkIDPtr, usernamePtr, emailPtr, phonePtr, avatarURLPtr); err != nil {
+			now := time.Now().Unix()
+			_, err := a.remoteDB.GetConn().Exec(`
+				INSERT INTO users (id, clerk_id, username, email, phone, avatar_url, created_at, disabled)
+				VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+			`, user.ID, clerkUser.ID, username, email, phone, avatarURL, now)
+			if err != nil {
 				// Log error but don't fail - user is already created locally
-				fmt.Printf("ERROR: Failed to register user with service: %v\n", err)
-				fmt.Printf("ERROR: User will NOT appear in Turso DB until this is fixed.\n")
+				fmt.Printf("WARNING: Failed to register user in Turso: %v\n", err)
 			} else {
-				fmt.Printf("SUCCESS: User registered with service: %s (clerk_id: %s)\n", user.ID, clerkUser.ID)
-				fmt.Printf("=== USER SHOULD NOW BE IN TURSO DB ===\n")
+				fmt.Printf("✓ User registered in Turso: %s (clerk_id: %s)\n", user.ID, clerkUser.ID)
 			}
 		}
 	} else {
