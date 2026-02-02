@@ -26,21 +26,6 @@ function MainApp() {
   const {
     currentUser,
     setCurrentUser,
-    setUsername,
-    setUserAvatarUrl,
-    setGroups,
-    setChannels,
-    setDMConversations,
-    logout,
-    setSelectedGroupId,
-    setSelectedChannelId,
-    setSelectedConversationId,
-    selectedGroupId,
-    selectedChannelId,
-    selectedConversationId,
-    groups,
-    channels,
-    dmConversations,
   } = useAppStore();
 
   const [appState, setAppState] = useState<AppState>("initializing");
@@ -65,17 +50,8 @@ function MainApp() {
 
   // Router handles URL-based state persistence
 
-  // Check identity helper - memoized to avoid recreating
-  const checkIdentityFn = useCallback(async (): Promise<boolean> => {
-    try {
-      return await api.checkIdentity();
-    } catch (error) {
-      console.warn("checkIdentity not available:", error);
-      return false;
-    }
-  }, []);
 
-  // Load profile data - memoized with dependencies
+  // Initialize app and set user - React Query hooks handle data fetching
   const loadProfileData = useCallback(async () => {
     try {
       // Initialize service URL if not already set (for user registration)
@@ -99,54 +75,17 @@ function MainApp() {
 
       setCurrentUser(user);
 
-      // Note: User profile data (username, avatar) is now loaded via React Query
-      // in the Sidebar component for network-first approach with automatic refetching
-
-      // Load user groups
-      const groupsData = await api.listUserGroups(user.id);
-      setGroups(groupsData);
-
-      // Load channels for each group and store in a map for URL parsing
-      const channelsByGroupId: Record<string, any[]> = {};
-      for (const group of groupsData) {
-        try {
-          const channelsData = await api.listChannels(group.id);
-          channelsByGroupId[group.id] = channelsData;
-          setChannels(group.id, channelsData);
-        } catch (err) {
-          console.error(`Failed to load channels for group ${group.id}:`, err);
-          channelsByGroupId[group.id] = [];
-        }
-      }
-
-      // Load DM conversations
-      const conversationsData = await api.listDMConversations(user.id);
-      setDMConversations(conversationsData);
-
-      // Router will handle URL-based navigation and route params
-      // Just set app to ready state
+      // All data fetching (groups, channels, DMs, user profile) is now handled by
+      // React Query hooks (useUserGroups, useGroupChannels, etc.) when components mount
+      // These hooks automatically handle caching, refetching, and store updates
       setAppState("ready");
     } catch (error) {
       console.error("Failed to load profile data:", error);
-      // Only change to auth state if we're not already ready
       if (appState !== "ready" && appState !== "loading") {
         setAppState("clerk-auth");
       }
     }
-  }, [
-    checkIdentityFn,
-    setCurrentUser,
-    setUsername,
-    setUserAvatarUrl,
-    setGroups,
-    setChannels,
-    setDMConversations,
-    setSelectedGroupId,
-    setSelectedChannelId,
-    setSelectedConversationId,
-    channels,
-    appState,
-  ]);
+  }, [setCurrentUser, appState]);
 
   // Check for stored session on app start
   const checkStoredSession = useCallback(async () => {
@@ -260,13 +199,19 @@ function MainApp() {
   // Initialize app when ready
   useEffect(() => {
     // Wait for Wails to be ready
-    if (!isWailsReady) return;
+    if (!isWailsReady) {
+      return
+    };
 
     // Only check once - never re-run even if Wails re-initializes
-    if (hasInitializedRef.current) return;
+    if (hasInitializedRef.current) {
+      return
+    };
 
     // Prevent concurrent session checks
-    if (isCheckingSessionRef.current) return;
+    if (isCheckingSessionRef.current) {
+      return
+    };
 
     hasInitializedRef.current = true;
     isCheckingSessionRef.current = true;

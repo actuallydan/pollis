@@ -128,7 +128,7 @@ export async function checkIdentity(): Promise<boolean> {
   
   // Web: Check IndexedDB for identity
   const identity = await webStorage.get(webStorage.STORES.IDENTITY, 'current');
-  return !!identity;
+  return Boolean(identity);
 }
 
 /**

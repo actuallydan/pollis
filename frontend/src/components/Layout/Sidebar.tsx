@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useUserProfile, useUserAvatar } from "../../hooks/queries";
-import { SidebarHeader } from "./SidebarHeader";
 import { SidebarActions } from "./SidebarActions";
 import { GroupsList } from "./GroupsList";
 import { DirectMessagesList } from "./DirectMessagesList";
@@ -129,12 +128,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       className="h-full bg-black border-r border-orange-300/20 flex flex-col relative"
       style={{ width: `${newWidth}px` }}
     >
-      <SidebarHeader isCollapsed={isCollapsed} onHomeClick={handleHomeClick} />
-
       <SidebarActions
         isCollapsed={isCollapsed}
         onCreateGroup={onCreateGroup}
         onSearchGroup={onSearchGroup}
+        onHomeClick={handleHomeClick}
       />
 
       <GroupsList
