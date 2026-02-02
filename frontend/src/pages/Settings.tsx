@@ -310,6 +310,15 @@ export const Settings: React.FC = () => {
                     error={uploadError || undefined}
                     disabled={updateAvatarMutation.isPending}
                   />
+
+                  {saveSuccess && !selectedFile && (
+                    <div className="p-3 bg-green-900/20 border border-green-500/30 rounded mt-4">
+                      <Paragraph size="sm" className="text-green-400">
+                        Avatar uploaded successfully!
+                      </Paragraph>
+                    </div>
+                  )}
+
                   {selectedFile && (
                     <Button
                       onClick={handleAvatarUpload}

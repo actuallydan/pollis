@@ -243,6 +243,7 @@ export async function listUserGroups(userId: string): Promise<Group[]> {
       slug: g.slug || '',
       name: g.name,
       description: g.description || '',
+      icon_url: g.icon_url || '',
       created_by: g.created_by,
       created_at: g.created_at || 0,
       updated_at: g.updated_at || 0,
@@ -256,6 +257,7 @@ export async function listUserGroups(userId: string): Promise<Group[]> {
     slug: g.slug,
     name: g.name,
     description: g.description || '',
+    icon_url: (g as any).icon_url || '',
     created_by: g.created_by,
     created_at: 0,
     updated_at: 0,
@@ -628,6 +630,27 @@ export async function joinGroup(groupId: string): Promise<void> {
   // Web: This would require an invite flow
   // For now, not implemented
   console.warn('Join group not yet implemented for web');
+}
+
+/**
+ * Update group icon URL in database
+ */
+export async function updateGroupIcon(groupId: string, iconUrl: string): Promise<void> {
+  if (isDesktop()) {
+    try {
+      const appModule = await import('../../wailsjs/go/main/App') as any;
+      if (!appModule.UpdateGroupIcon) {
+        throw new Error("UpdateGroupIcon not found - regenerate Wails bindings with 'wails generate'");
+      }
+      await appModule.UpdateGroupIcon(groupId, iconUrl);
+      return;
+    } catch (error) {
+      console.error("Failed to update group icon:", error);
+      throw error;
+    }
+  }
+
+  throw new Error("Group icon updates only available in desktop app");
 }
 
 /**

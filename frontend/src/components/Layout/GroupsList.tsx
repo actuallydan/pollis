@@ -3,6 +3,7 @@ import { Hash, Plus, Settings } from "lucide-react";
 import { Header, Paragraph } from "monopollis";
 import { updateURL, deriveSlug } from "../../utils/urlRouting";
 import { Channel } from "../../types";
+import { Link } from "@tanstack/react-router";
 
 interface Group {
   id: string;
@@ -36,6 +37,7 @@ export const GroupsList: React.FC<GroupsListProps> = ({
 }) => {
   const groupChannels = selectedGroupId ? channels[selectedGroupId] || [] : [];
 
+  console.log(groups)
   return (
     <div className="flex-1 overflow-y-auto">
       {groups.length === 0 ? (
@@ -103,17 +105,15 @@ export const GroupsList: React.FC<GroupsListProps> = ({
                     >
                       {group.name}
                     </Header>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        updateURL(`/g/${group.slug}/settings`);
-                        window.dispatchEvent(new PopStateEvent("popstate"));
-                      }}
+                    <Link
+                      to="/g/$groupSlug/settings"
+                      params={{ groupSlug: group.slug }}
+                      onClick={(e) => e.stopPropagation()}
                       className="opacity-0 group-hover:opacity-100 p-1 text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-all"
                       aria-label={`Settings for ${group.name}`}
                     >
                       <Settings className="w-4 h-4" />
-                    </button>
+                    </Link>
                   </div>
                 )}
               </button>

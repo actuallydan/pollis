@@ -87,6 +87,7 @@ type Group struct {
 	Slug        string `json:"slug"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	IconURL     string `json:"icon_url,omitempty"`
 	CreatedBy   string `json:"created_by"` // user_id
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`

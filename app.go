@@ -824,6 +824,33 @@ func (a *App) UpdateGroup(groupID, name, description string) (*models.Group, err
 	return group, nil
 }
 
+// UpdateGroupIcon updates a group's icon URL in the database
+func (a *App) UpdateGroupIcon(groupID, iconURL string) error {
+	if groupID == "" {
+		return fmt.Errorf("group_id is required")
+	}
+	if iconURL == "" {
+		return fmt.Errorf("icon_url is required")
+	}
+
+	// Update in Turso
+	if a.remoteDB != nil {
+		_, err := a.remoteDB.GetConn().Exec(`
+			UPDATE groups
+			SET icon_url = ?, updated_at = ?
+			WHERE id = ?
+		`, iconURL, time.Now().Unix(), groupID)
+		if err != nil {
+			return fmt.Errorf("failed to update group icon in Turso: %w", err)
+		}
+		fmt.Printf("✓ Group icon updated in Turso: %s\n", groupID)
+	} else {
+		return fmt.Errorf("remote database not initialized")
+	}
+
+	return nil
+}
+
 // CreateGroup creates a new group
 func (a *App) CreateGroup(slug, name, description, createdBy string) (*models.Group, error) {
 	fmt.Printf("[CreateGroup] Starting: slug=%s, name=%s, createdBy=%s\n", slug, name, createdBy)
@@ -1052,7 +1079,7 @@ func (a *App) ListUserGroups(userIdentifier string) ([]*models.Group, error) {
 
 	// Query Turso directly for groups where user is a member (using Turso user ID)
 	rows, err := a.remoteDB.GetConn().Query(`
-		SELECT g.id, g.slug, g.name, g.description, g.created_by, g.created_at, g.updated_at
+		SELECT g.id, g.slug, g.name, g.description, g.icon_url, g.created_by, g.created_at, g.updated_at
 		FROM groups g
 		INNER JOIN group_member gm ON g.id = gm.group_id
 		WHERE gm.user_id = ?
@@ -1068,7 +1095,8 @@ func (a *App) ListUserGroups(userIdentifier string) ([]*models.Group, error) {
 	for rows.Next() {
 		group := &models.Group{}
 		var description sql.NullString
-		err := rows.Scan(&group.ID, &group.Slug, &group.Name, &description, &group.CreatedBy, &group.CreatedAt, &group.UpdatedAt)
+		var iconURL sql.NullString
+		err := rows.Scan(&group.ID, &group.Slug, &group.Name, &description, &iconURL, &group.CreatedBy, &group.CreatedAt, &group.UpdatedAt)
 		if err != nil {
 			fmt.Printf("[ListUserGroups] ERROR: Scan failed: %v\n", err)
 			return nil, fmt.Errorf("failed to scan group: %w", err)
@@ -1078,6 +1106,12 @@ func (a *App) ListUserGroups(userIdentifier string) ([]*models.Group, error) {
 			group.Description = description.String
 		} else {
 			group.Description = ""
+		}
+		// Handle NULL icon_url
+		if iconURL.Valid {
+			group.IconURL = iconURL.String
+		} else {
+			group.IconURL = ""
 		}
 		groups = append(groups, group)
 	}

@@ -70,10 +70,10 @@ const groupRoute = createRoute({
   component: MainContent,
 });
 
-// Group settings route
+// Group settings route (sibling of groupRoute, not child)
 const groupSettingsRoute = createRoute({
-  getParentRoute: () => groupRoute,
-  path: '/settings',
+  getParentRoute: () => rootRoute,
+  path: '/g/$groupSlug/settings',
   component: GroupSettings,
 });
 
@@ -99,8 +99,8 @@ const routeTree = rootRoute.addChildren([
   createChannelRoute,
   searchGroupRoute,
   startDMRoute,
+  groupSettingsRoute,
   groupRoute.addChildren([
-    groupSettingsRoute,
     channelRoute,
   ]),
   dmRoute,

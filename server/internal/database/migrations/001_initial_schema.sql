@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS groups (
   slug TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
   description TEXT,
+  icon_url TEXT,
   created_by TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,

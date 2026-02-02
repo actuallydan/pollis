@@ -74,6 +74,7 @@ export namespace models {
 	    slug: string;
 	    name: string;
 	    description?: string;
+	    icon_url?: string;
 	    created_by: string;
 	    created_at: number;
 	    updated_at: number;
@@ -88,6 +89,7 @@ export namespace models {
 	        this.slug = source["slug"];
 	        this.name = source["name"];
 	        this.description = source["description"];
+	        this.icon_url = source["icon_url"];
 	        this.created_by = source["created_by"];
 	        this.created_at = source["created_at"];
 	        this.updated_at = source["updated_at"];

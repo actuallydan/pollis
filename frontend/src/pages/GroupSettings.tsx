@@ -4,10 +4,12 @@ import { useAppStore } from "../stores/appStore";
 import { Button, Header, Paragraph, TextInput, FilePicker, type FileWithPreview } from "monopollis";
 import { uploadGroupIcon, getFileDownloadUrl } from "../services/r2-upload";
 import { updateURL, deriveSlug, parseURL } from "../utils/urlRouting";
+import { useUpdateGroupIcon } from "../hooks/queries";
 import * as api from "../services/api";
 
 export const GroupSettings: React.FC = () => {
   const { groups, setGroups, selectedGroupId, setSelectedGroupId } = useAppStore();
+  const updateGroupIconMutation = useUpdateGroupIcon();
   const [groupName, setGroupName] = useState("");
   const [slugPreview, setSlugPreview] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -99,19 +101,19 @@ export const GroupSettings: React.FC = () => {
     setUploadError(null);
 
     try {
+      // Upload file to R2
       const response = await uploadGroupIcon(currentGroup.id, selectedFile);
 
       // Get presigned download URL for the uploaded icon
       const downloadUrl = await getFileDownloadUrl(response.object_key);
 
-      // TODO: Update group with new icon URL in service
-      // For now, update locally
-      const updatedGroups = groups.map((g) =>
-        g.id === currentGroup.id ? { ...g, icon_url: downloadUrl } : g
-      );
-      setGroups(updatedGroups);
+      // Persist icon URL to database via React Query mutation
+      await updateGroupIconMutation.mutateAsync({
+        groupId: currentGroup.id,
+        iconUrl: downloadUrl,
+      });
 
-      // Update current icon URL
+      // Update current icon URL for immediate UI feedback
       setCurrentIconUrl(downloadUrl);
 
       // Reset file picker and preview

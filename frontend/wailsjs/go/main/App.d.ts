@@ -95,6 +95,8 @@ export function UnsubscribeFromChannel(arg1:string):Promise<void>;
 
 export function UpdateGroup(arg1:string,arg2:string,arg3:string):Promise<models.Group>;
 
+export function UpdateGroupIcon(arg1:string,arg2:string):Promise<void>;
+
 export function UpdateServiceUserAvatar(arg1:string):Promise<void>;
 
 export function UpdateServiceUserData(arg1:string,arg2:any,arg3:any,arg4:any):Promise<void>;

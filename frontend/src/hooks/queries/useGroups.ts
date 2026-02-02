@@ -128,6 +128,42 @@ export function useJoinGroup() {
 }
 
 /**
+ * Hook to update group icon
+ * Automatically invalidates and refetches group data after update
+ */
+export function useUpdateGroupIcon() {
+  const queryClient = useQueryClient();
+  const currentUser = useAppStore((state) => state.currentUser);
+  const setGroups = useAppStore((state) => state.setGroups);
+
+  return useMutation({
+    mutationFn: async ({ groupId, iconUrl }: { groupId: string; iconUrl: string }) => {
+      await api.updateGroupIcon(groupId, iconUrl);
+      return { groupId, iconUrl };
+    },
+    onSuccess: ({ groupId, iconUrl }) => {
+      // Invalidate user groups query to refetch with updated icon
+      queryClient.invalidateQueries({
+        queryKey: groupQueryKeys.userGroups(currentUser?.id ?? null),
+      });
+
+      // Optimistically update the store
+      queryClient.setQueryData<Group[]>(
+        groupQueryKeys.userGroups(currentUser?.id ?? null),
+        (oldGroups) => {
+          if (!oldGroups) return oldGroups;
+          const updated = oldGroups.map((g) =>
+            g.id === groupId ? { ...g, icon_url: iconUrl } : g
+          );
+          setGroups(updated);
+          return updated;
+        }
+      );
+    },
+  });
+}
+
+/**
  * Hook to create a channel in a group
  */
 export function useCreateChannel() {
