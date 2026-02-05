@@ -82,10 +82,7 @@ func main() {
 	defer db.Close()
 	log.Println("✓ Database connected successfully")
 
-	// Initialize services
-	userService := services.NewUserService(db)
-	groupService := services.NewGroupService(db)
-	channelService := services.NewChannelService(db)
+	// Initialize services (signaling only - CRUD handled by desktop app directly)
 	keyExchangeService := services.NewKeyExchangeService(db)
 	webrtcService := services.NewWebRTCService(db)
 	preKeyService := services.NewPreKeyService(db)
@@ -101,9 +98,6 @@ func main() {
 
 	// Register handlers
 	pollisHandler := handlers.NewPollisHandler(
-		userService,
-		groupService,
-		channelService,
 		keyExchangeService,
 		webrtcService,
 		preKeyService,
