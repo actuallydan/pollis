@@ -26,7 +26,14 @@ COPY server ./server
 
 # Build the server binary
 WORKDIR /app/server
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -ldflags="-w -s" -o /server ./cmd/server
+RUN echo "=== Directory structure ===" && \
+    ls -la /app/ && \
+    ls -la /app/pkg/proto/ && \
+    ls -la /app/server/ && \
+    echo "=== go.mod ===" && \
+    cat go.mod && \
+    echo "=== Building ===" && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v -a -installsuffix cgo -ldflags="-w -s" -o /server ./cmd/server
 
 # Runtime stage
 FROM alpine:latest
