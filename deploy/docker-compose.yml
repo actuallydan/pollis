@@ -1,0 +1,52 @@
+# Production deployment for Pollis server
+# Usage: docker compose -f deploy/docker-compose.yml up -d
+
+services:
+  server:
+    image: ghcr.io/actuallydan/pollis-server:latest
+    # Or build locally:
+    # build:
+    #   context: ..
+    #   dockerfile: server/Dockerfile
+    container_name: pollis-server
+    restart: unless-stopped
+    environment:
+      # Or use separate Turso vars:
+      - TURSO_URL=${TURSO_URL}
+      - TURSO_TOKEN=${TURSO_TOKEN}
+    expose:
+      - "50051"
+      - "8081"
+    networks:
+      - pollis-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: pollis-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - pollis-network
+    depends_on:
+      - server
+
+networks:
+  pollis-network:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

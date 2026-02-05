@@ -38,3 +38,24 @@ dev:
 	@echo "Use 'pnpm dev' to run development servers"
 	@PATH="$$HOME/go/bin:$$PATH" wails dev || echo "Wails not found in PATH. Install with: go install github.com/wailsapp/wails/v2/cmd/wails@latest"
 
+# Build Docker image for server
+build-docker:
+	@echo "Building Docker image for server..."
+	docker build -f server/Dockerfile -t pollis-server:latest .
+
+# Production builds (with prod API URL baked in)
+build-prod-macos:
+	@echo "Building production macOS app..."
+	@VITE_SERVICE_URL=https://api.pollis.com PATH="$$HOME/go/bin:$$PATH" wails build -platform darwin/universal
+
+build-prod-linux:
+	@echo "Building production Linux app..."
+	@VITE_SERVICE_URL=https://api.pollis.com PATH="$$HOME/go/bin:$$PATH" wails build -platform linux/amd64
+
+build-prod-windows:
+	@echo "Building production Windows app..."
+	@VITE_SERVICE_URL=https://api.pollis.com PATH="$$HOME/go/bin:$$PATH" wails build -platform windows/amd64
+
+build-prod-all: build-prod-macos build-prod-linux build-prod-windows
+	@echo "All production builds complete!"
+

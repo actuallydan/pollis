@@ -1,0 +1,44 @@
+# Caddyfile for Pollis API server
+# Caddy automatically provisions and renews TLS certificates via Let's Encrypt
+
+api.pollis.com {
+    # gRPC-web and HTTP API (port 8081)
+    reverse_proxy server:8081
+
+    # Enable compression
+    encode gzip zstd
+
+    # CORS headers for web clients
+    header {
+        Access-Control-Allow-Origin "https://pollis.com"
+        Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+        Access-Control-Allow-Headers "*"
+        Access-Control-Expose-Headers "Grpc-Status, Grpc-Message, Grpc-Encoding, Grpc-Accept-Encoding"
+        Access-Control-Allow-Credentials "true"
+    }
+
+    # Handle preflight requests
+    @options method OPTIONS
+    handle @options {
+        header Access-Control-Allow-Origin "https://pollis.com"
+        header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+        header Access-Control-Allow-Headers "*"
+        respond "" 204
+    }
+
+    # Logging
+    log {
+        output stdout
+        format console
+    }
+}
+
+# Optional: gRPC endpoint (native gRPC, not gRPC-web)
+# Uncomment if desktop app needs direct gRPC access
+# grpc.pollis.com {
+#     reverse_proxy server:50051 {
+#         transport http {
+#             versions h2c
+#         }
+#     }
+# }

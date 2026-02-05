@@ -1,0 +1,16 @@
+# Local testing override - no TLS, uses localhost
+# Usage: docker compose -f docker-compose.yml -f docker-compose.local.yml up
+
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    ports:
+      - "8081:8081"
+      - "50051:50051"
+
+  caddy:
+    # Skip Caddy for local testing - connect directly to server
+    profiles:
+      - production-only

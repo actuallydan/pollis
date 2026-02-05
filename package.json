@@ -9,11 +9,21 @@
     "dev:server": "cd server && go run cmd/server/main.go -port=${PORT:-50051}",
     "build": "turbo run build",
     "build:app": "wails build",
+    "build:app:prod": "VITE_SERVICE_URL=https://api.pollis.com wails build",
+    "build:macos": "VITE_SERVICE_URL=https://api.pollis.com wails build -platform darwin/universal",
+    "build:linux": "VITE_SERVICE_URL=https://api.pollis.com wails build -platform linux/amd64",
+    "build:windows": "VITE_SERVICE_URL=https://api.pollis.com wails build -platform windows/amd64",
+    "build:server": "docker build -f server/Dockerfile -t pollis-server:latest .",
     "lint": "turbo run lint",
     "clean": "turbo run clean",
     "proto": "make -C . proto",
     "test": "node scripts/e2e-test.js",
-    "test:e2e": "node scripts/e2e-test.js"
+    "test:e2e": "node scripts/e2e-test.js",
+    "release:server": "git tag server-v$(node -p \"require('./package.json').version\") && git push origin --tags",
+    "release:desktop": "git tag v$(node -p \"require('./package.json').version\") && git push origin --tags",
+    "docker:local": "docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml --env-file .env.local up --build",
+    "docker:local:down": "docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml down",
+    "deploy:server": "./scripts/deploy-server.sh"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

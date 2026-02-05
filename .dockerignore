@@ -1,0 +1,51 @@
+# Dependencies
+node_modules
+**/node_modules
+
+# Build outputs
+build/
+dist/
+**/dist
+**/.next
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment files (secrets)
+.env
+.env.*
+!.env.example
+
+# Frontend (not needed for server build)
+frontend/
+website/
+packages/
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+**/*.test.*
+**/__tests__
+coverage/
+
+# Misc
+.turbo
+.vercel
+.claude
