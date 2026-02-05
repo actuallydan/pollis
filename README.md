@@ -8,6 +8,46 @@ A desktop messaging app with end-to-end encryption. Think Slack, but nobody (inc
 
 The desktop app runs locally with a Wails frontend (React/TypeScript) talking to a Go backend. Messages are encrypted using the Signal protocol before they leave your machine. There's a gRPC server for coordinating connections and signaling, but it never sees unencrypted content.
 
+
+## Product-Service Architecture
+```
+*--------------------------------------------*
+|                                            |
+|           *--------------------*           |
+|           |                    |           |
+|           |      Local DB      |           |
+|           |     (Messages)     |           |
+|           |                    |           |
+|           *--------------------*           |
+|                     | |                    |
+|   *------------------------------------*   |
+|   |                                    |   |
+|   |    Desktop App  *-------------*    |   |
+|   |                 |             |    |   |
+|   |      Go         |   Client    |    |   |
+|   |                 |             |    |   |
+|   |                 *-------------*    |   |
+|   |                                    |   |
+|   *------------------------------------*   |
+|     gRPC |   https|    wss|   https|       |
+|          |        |       |        |       |
+|   *------------------------------------*   |
+|   |                                    |   |
+|   |  *----*  *----*  *-----*  *-----*  |   |
+|   |  |    |  |    |  |     |  |     |  |   |
+|   |  | VPS|  | DB |  |Ably |  |CF R2|  |   |
+|   |  |    |  |turso  sockets  |     |  |   |
+|   |  *----*  *----*  *-----*  *-----*  |   |
+|   |     |               |              |   |
+|   |     |_______________|              |   |
+|   |                                    |   |
+|   |                                    |   |
+|   *------------------------------------*   |
+|                                            |
+*--------------------------------------------*
+
+```
+
 **Stack:**
 - Desktop: Wails v2 (Go + React)
 - Local storage: libSQL/SQLite
