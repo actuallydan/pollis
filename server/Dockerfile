@@ -5,8 +5,12 @@ FROM golang:alpine AS builder
 
 WORKDIR /app
 
-# Install build dependencies
-RUN apk add --no-cache git ca-certificates
+# Install build dependencies including protoc
+RUN apk add --no-cache git ca-certificates protobuf-dev
+
+# Install Go protoc plugins
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 # Allow Go to download the required toolchain version
 ENV GOTOOLCHAIN=auto
@@ -19,21 +23,20 @@ COPY server/go.mod server/go.sum ./server/
 WORKDIR /app/server
 RUN go mod download
 
-# Copy source code
+# Copy proto file and generate Go code
 WORKDIR /app
-COPY pkg/proto ./pkg/proto
+COPY pkg/proto/pollis.proto ./pkg/proto/
+RUN protoc --go_out=pkg/proto --go_opt=paths=source_relative \
+    --go-grpc_out=pkg/proto --go-grpc_opt=paths=source_relative \
+    --proto_path=pkg/proto \
+    pkg/proto/pollis.proto
+
+# Copy server source code
 COPY server ./server
 
 # Build the server binary
 WORKDIR /app/server
-RUN echo "=== Directory structure ===" && \
-    ls -la /app/ && \
-    ls -la /app/pkg/proto/ && \
-    ls -la /app/server/ && \
-    echo "=== go.mod ===" && \
-    cat go.mod && \
-    echo "=== Building ===" && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v -a -installsuffix cgo -ldflags="-w -s" -o /server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -ldflags="-w -s" -o /server ./cmd/server
 
 # Runtime stage
 FROM alpine:latest
