@@ -7,6 +7,7 @@ import type { Message, MessageAttachment } from "../../types";
 
 interface MessageItemProps {
   message: Message;
+  allMessages?: Message[];
   authorUsername?: string;
   onReply?: (messageId: string) => void;
   onPin?: (messageId: string) => void;
@@ -15,19 +16,18 @@ interface MessageItemProps {
 
 export const MessageItem: React.FC<MessageItemProps> = ({
   message,
+  allMessages = [],
   authorUsername = "Unknown",
   onReply,
   onPin,
   onScrollToReply,
 }) => {
-  const { currentUser, messages } = useAppStore();
+  const { currentUser } = useAppStore();
   const isOwnMessage = message.sender_id === currentUser?.id;
 
   // Find reply-to message if exists
   const replyToMessage = message.reply_to_message_id
-    ? Object.values(messages)
-        .flat()
-        .find((m) => m.id === message.reply_to_message_id)
+    ? allMessages.find((m) => m.id === message.reply_to_message_id)
     : null;
 
   const formatTimestamp = (timestamp: number) => {

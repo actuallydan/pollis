@@ -17,8 +17,6 @@
     "lint": "turbo run lint",
     "clean": "turbo run clean",
     "proto": "make -C . proto",
-    "test": "node scripts/e2e-test.js",
-    "test:e2e": "node scripts/e2e-test.js",
     "release:server": "npm version patch && git tag server-v$(node -p \"require('./package.json').version\") && git push origin --tags",
     "release:desktop": "git tag v$(node -p \"require('./package.json').version\") && git push origin --tags",
     "docker:local": "docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml --env-file .env.local up --build",

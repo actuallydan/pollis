@@ -46,6 +46,7 @@ const ListItem: React.FC<ListItemProps> = ({ index, style, data }) => {
     <div ref={itemRef} style={style}>
       <MessageItem
         message={message}
+        allMessages={data.messages}
         authorUsername={authorUsername}
         onReply={data.onReply}
         onPin={data.onPin}

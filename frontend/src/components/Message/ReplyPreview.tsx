@@ -1,36 +1,26 @@
 import React from 'react';
 import { X } from 'lucide-react';
-import { useAppStore } from '../../stores/appStore';
 import { Paragraph } from 'monopollis';
+import type { Message } from '../../types';
 
 interface ReplyPreviewProps {
   messageId: string;
+  allMessages: Message[];
   onDismiss: () => void;
   onScrollToMessage?: (messageId: string) => void;
 }
 
 export const ReplyPreview: React.FC<ReplyPreviewProps> = ({
   messageId,
+  allMessages,
   onDismiss,
   onScrollToMessage,
 }) => {
-  const { messages, currentUser } = useAppStore();
-
   // Find the message being replied to
-  const findMessage = (): { message: any; key: string } | null => {
-    for (const [key, messageList] of Object.entries(messages)) {
-      const message = messageList.find((m) => m.id === messageId);
-      if (message) {
-        return { message, key };
-      }
-    }
+  const message = allMessages.find((m) => m.id === messageId);
+  if (!message) {
     return null;
-  };
-
-  const found = findMessage();
-  if (!found) return null;
-
-  const { message } = found;
+  }
   const content = message.content_decrypted || '[Encrypted message]';
   const snippet = content.length > 100 ? content.substring(0, 100) + '...' : content;
 

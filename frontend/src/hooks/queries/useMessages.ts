@@ -16,49 +16,72 @@ export const messageQueryKeys = {
 };
 
 /**
- * Hook to fetch messages for a channel
+ * Transform raw backend message to frontend Message type
  */
-export function useChannelMessages(channelId: string | null) {
-  return useQuery({
-    queryKey: messageQueryKeys.channel(channelId),
-    queryFn: async (): Promise<Message[]> => {
-      if (!channelId) {
-        throw new Error("No channel ID provided");
-      }
+function transformMessage(m: any): Message {
+  return {
+    id: m.id,
+    channel_id: m.channel_id,
+    conversation_id: m.conversation_id,
+    sender_id: m.sender_id,
+    ciphertext: new Uint8Array(),
+    nonce: new Uint8Array(),
+    content_decrypted: m.content,
+    reply_to_message_id: m.reply_to_message_id,
+    thread_id: m.thread_id,
+    is_pinned: m.is_pinned,
+    created_at: m.created_at,
+    delivered: m.delivered || false,
+    attachments: m.attachments || [],
+  };
+}
 
-      // Dynamically import Wails function
+/**
+ * Unified hook to fetch messages for either a channel or conversation
+ * Only one of channelId or conversationId should be provided
+ */
+export function useMessages(
+  channelId: string | null,
+  conversationId: string | null
+) {
+  const isChannel = !!channelId;
+  const queryKey = isChannel
+    ? messageQueryKeys.channel(channelId)
+    : messageQueryKeys.conversation(conversationId);
+
+  return useQuery({
+    queryKey,
+    queryFn: async (): Promise<Message[]> => {
       const { GetMessages } = await import("../../../wailsjs/go/main/App");
-      const messages = await GetMessages(channelId, "", 50, 0);
-      return messages as any as Message[];
+      const messages = await GetMessages(
+        channelId || "",
+        conversationId || "",
+        50,
+        0
+      );
+      return (messages || []).map(transformMessage);
     },
-    enabled: !!channelId,
-    staleTime: 1000 * 30, // 30 seconds
+    enabled: !!(channelId || conversationId),
+    staleTime: 1000 * 30,
     refetchOnWindowFocus: true,
-    refetchInterval: 1000 * 10, // Poll every 10 seconds for new messages
+    refetchInterval: 1000 * 10,
   });
 }
 
 /**
+ * Hook to fetch messages for a channel
+ * @deprecated Use useMessages(channelId, null) instead
+ */
+export function useChannelMessages(channelId: string | null) {
+  return useMessages(channelId, null);
+}
+
+/**
  * Hook to fetch messages for a conversation (DM)
+ * @deprecated Use useMessages(null, conversationId) instead
  */
 export function useConversationMessages(conversationId: string | null) {
-  return useQuery({
-    queryKey: messageQueryKeys.conversation(conversationId),
-    queryFn: async (): Promise<Message[]> => {
-      if (!conversationId) {
-        throw new Error("No conversation ID provided");
-      }
-
-      // Dynamically import Wails function
-      const { GetMessages } = await import("../../../wailsjs/go/main/App");
-      const messages = await GetMessages("", conversationId, 50, 0);
-      return messages as any as Message[];
-    },
-    enabled: !!conversationId,
-    staleTime: 1000 * 30, // 30 seconds
-    refetchOnWindowFocus: true,
-    refetchInterval: 1000 * 10, // Poll every 10 seconds for new messages
-  });
+  return useMessages(null, conversationId);
 }
 
 /**
@@ -94,7 +117,7 @@ export function useSendMessage() {
         replyToMessageId || ""
       );
     },
-    onSuccess: (newMessage, variables) => {
+    onSuccess: (_newMessage, variables) => {
       // Determine which query to invalidate based on channelId or conversationId
       if (variables.channelId) {
         queryClient.invalidateQueries({

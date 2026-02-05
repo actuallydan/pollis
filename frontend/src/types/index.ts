@@ -132,25 +132,24 @@ export interface UserAlias {
 export interface AppState {
   // Current user
   currentUser: User | null;
-  
+
   // Selected views
   selectedGroupId: string | null;
   selectedChannelId: string | null;
   selectedConversationId: string | null; // For DMs
-  
-  // Data
+
+  // Data (messages managed by React Query, not Zustand)
   groups: Group[];
   channels: Record<string, Channel[]>; // group_id -> channels
-  messages: Record<string, Message[]>; // channel_id or conversation_id -> messages
   dmConversations: DMConversation[];
-  
+
   // Network
   networkStatus: NetworkStatus;
   killSwitchEnabled: boolean;
-  
+
   // Message queue
   messageQueue: MessageQueueItem[];
-  
+
   // UI state
   replyToMessageId: string | null;
   showThreadId: string | null;

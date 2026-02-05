@@ -1,9 +1,9 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { useAppStore } from '../stores/appStore';
 import { useWailsReady } from './useWailsReady';
-import * as api from '../services/api';
-import type { Message } from '../types';
+import { messageQueryKeys } from './queries/useMessages';
 
 // Ably event types (extensible for future events)
 type AblyEventType = 'message' | 'channel_created' | 'group_invitation' | 'user_typing' | 'presence';
@@ -25,36 +25,34 @@ const BATCH_CONFIG = {
 
 /**
  * Hook for managing Ably real-time subscriptions
- * 
+ *
  * Features:
  * - Automatic subscription management based on selected channel/conversation
- * - Message batching for performance
+ * - Debounced cache invalidation for performance
  * - Deduplication to prevent duplicate messages
  * - Extensible for future event types
- * 
+ *
  * Architecture:
- * - React/Zustand manages subscriptions (client-side)
+ * - React Query is single source of truth for messages
  * - Desktop Go backend is a simple pass-through to Ably
- * - Events flow: Ably → Go Backend → Wails IPC → React → Zustand
+ * - Events flow: Ably → Go Backend → Wails IPC → React Query invalidation
  */
 export function useAblyRealtime() {
   const { isDesktop, isReady: isWailsReady } = useWailsReady();
+  const queryClient = useQueryClient();
   const {
     selectedChannelId,
     selectedConversationId,
     currentUser,
-    addMessage,
-    addMessagesBatch,
     networkStatus,
   } = useAppStore();
 
   // Track current subscription
   const currentSubscriptionRef = useRef<string | null>(null);
-  
-  // Message batching state
-  const batchBufferRef = useRef<Message[]>([]);
-  const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  
+
+  // Debounce timer for invalidation
+  const invalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Deduplication: track processed message IDs
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
   const dedupeCleanupTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -63,61 +61,28 @@ export function useAblyRealtime() {
   const activeChannelId = selectedChannelId || selectedConversationId || null;
 
   /**
-   * Flush batched messages to store
-   * Groups messages by channel/conversation for efficient updates
+   * Invalidate React Query cache for messages with debouncing
+   * Groups rapid invalidations into a single refetch
    */
-  const flushMessageBatch = useCallback(() => {
-    if (batchTimerRef.current) {
-      clearTimeout(batchTimerRef.current);
-      batchTimerRef.current = null;
-    }
-
-    const batch = batchBufferRef.current;
-    if (batch.length === 0) return;
-
-    // Group messages by key (channel_id or conversation_id)
-    const messagesByKey = new Map<string, Message[]>();
-    
-    batch.forEach((message) => {
-      const key = message.channel_id || message.conversation_id || '';
-      if (!key) return;
-      
-      if (!messagesByKey.has(key)) {
-        messagesByKey.set(key, []);
-      }
-      messagesByKey.get(key)!.push(message);
-    });
-
-    // Batch update store - single Zustand update per channel
-    messagesByKey.forEach((messages, key) => {
-      // Use batch method for efficient updates
-      addMessagesBatch(key, messages);
-    });
-
-    // Clear batch buffer
-    batchBufferRef.current = [];
-  }, [addMessage, addMessagesBatch]);
-
-  /**
-   * Schedule batch flush with debouncing
-   */
-  const scheduleBatchFlush = useCallback(() => {
+  const invalidateMessages = useCallback((channelId: string | null, conversationId: string | null) => {
     // Clear existing timer
-    if (batchTimerRef.current) {
-      clearTimeout(batchTimerRef.current);
+    if (invalidateTimerRef.current) {
+      clearTimeout(invalidateTimerRef.current);
     }
 
-    // Check if we should flush immediately (batch full)
-    if (batchBufferRef.current.length >= BATCH_CONFIG.MAX_BATCH_SIZE) {
-      flushMessageBatch();
-      return;
-    }
-
-    // Otherwise schedule flush after batch window
-    batchTimerRef.current = setTimeout(() => {
-      flushMessageBatch();
+    // Debounce invalidation by 100ms to batch rapid updates
+    invalidateTimerRef.current = setTimeout(() => {
+      if (channelId) {
+        queryClient.invalidateQueries({
+          queryKey: messageQueryKeys.channel(channelId),
+        });
+      } else if (conversationId) {
+        queryClient.invalidateQueries({
+          queryKey: messageQueryKeys.conversation(conversationId),
+        });
+      }
     }, BATCH_CONFIG.WINDOW_MS);
-  }, [flushMessageBatch]);
+  }, [queryClient]);
 
   /**
    * Clean up old deduplication IDs periodically
@@ -131,6 +96,8 @@ export function useAblyRealtime() {
 
   /**
    * Handle incoming Ably message event
+   * Instead of fetching and storing messages directly, we invalidate React Query cache
+   * to trigger a refetch - keeping React Query as the single source of truth
    */
   const handleAblyMessage = useCallback((eventData: any) => {
     console.log('[Ably] Received message event:', eventData);
@@ -156,9 +123,9 @@ export function useAblyRealtime() {
     }
     processedMessageIdsRef.current.add(normalizedData.message_id);
 
-    // Don't add our own messages (already added optimistically in MainContent)
+    // Don't invalidate for our own messages (already handled by mutation)
     if (normalizedData.author_id === currentUser?.id) {
-      console.log('[Ably] Own message, skipping (already added optimistically):', normalizedData.message_id);
+      console.log('[Ably] Own message, skipping (mutation already invalidated):', normalizedData.message_id);
       return;
     }
     console.log('[Ably] Processing message from:', normalizedData.author_id, '(current user:', currentUser?.id, ')');
@@ -170,94 +137,10 @@ export function useAblyRealtime() {
       return;
     }
 
-    // Fetch the actual message from backend to get decrypted content
-    // This ensures the message is properly decrypted before being added to the store
-    const fetchAndAddMessage = async () => {
-      try {
-        // Import GetMessages directly (same function MainContent uses)
-        const { GetMessages } = await import('../../wailsjs/go/main/App');
-
-        // Fetch recent messages for this channel to get the new one (with decryption)
-        const loadedMessages = await GetMessages(
-          normalizedData.channel_id || '',
-          normalizedData.conversation_id || '',
-          50,
-          0
-        );
-
-        // Convert to Message type (same as MainContent does)
-        const messages = (loadedMessages || []).map((m: any) => ({
-          id: m.id,
-          channel_id: m.channel_id,
-          conversation_id: m.conversation_id,
-          sender_id: m.sender_id,
-          ciphertext: new Uint8Array(),
-          nonce: new Uint8Array(),
-          content_decrypted: m.content,
-          reply_to_message_id: m.reply_to_message_id,
-          thread_id: m.thread_id,
-          is_pinned: m.is_pinned,
-          created_at: m.created_at,
-          delivered: m.delivered || false,
-          attachments: m.attachments || [],
-        }));
-
-        // Find the message we just received
-        const fullMessage = messages.find(m => m.id === normalizedData.message_id);
-
-        if (fullMessage) {
-          // Add the fully decrypted message
-          batchBufferRef.current.push(fullMessage);
-          scheduleBatchFlush();
-          console.log('[Ably] Fetched and added decrypted message:', normalizedData.message_id);
-        } else {
-          // Message not found in recent messages - might be a race condition
-          // Add placeholder and it will be loaded on next refresh
-          console.warn('[Ably] Message not found in recent messages, adding placeholder:', normalizedData.message_id);
-          const placeholder: Message = {
-            id: normalizedData.message_id,
-            channel_id: normalizedData.channel_id || '',
-            conversation_id: normalizedData.conversation_id || '',
-            sender_id: normalizedData.author_id,
-            ciphertext: new Uint8Array(),
-            nonce: new Uint8Array(),
-            content_decrypted: '[Loading...]',
-            reply_to_message_id: '',
-            thread_id: '',
-            is_pinned: false,
-            created_at: normalizedData.timestamp,
-            delivered: false,
-            status: 'sent',
-          };
-          batchBufferRef.current.push(placeholder);
-          scheduleBatchFlush();
-        }
-      } catch (error) {
-        console.error('[Ably] Failed to fetch message:', error);
-        // Fallback: add placeholder
-        const placeholder: Message = {
-          id: normalizedData.message_id,
-          channel_id: normalizedData.channel_id || '',
-          conversation_id: normalizedData.conversation_id || '',
-          sender_id: normalizedData.author_id,
-          ciphertext: new Uint8Array(),
-          nonce: new Uint8Array(),
-          content_decrypted: '[Failed to load]',
-          reply_to_message_id: '',
-          thread_id: '',
-          is_pinned: false,
-          created_at: normalizedData.timestamp,
-          delivered: false,
-          status: 'sent',
-        };
-        batchBufferRef.current.push(placeholder);
-        scheduleBatchFlush();
-      }
-    };
-
-    // Fetch and add the message asynchronously
-    fetchAndAddMessage();
-  }, [currentUser?.id, scheduleBatchFlush]);
+    // Invalidate React Query cache to trigger refetch
+    invalidateMessages(normalizedData.channel_id || null, normalizedData.conversation_id || null);
+    console.log('[Ably] Invalidated cache for:', messageKey);
+  }, [currentUser?.id, invalidateMessages]);
 
   /**
    * Subscribe to Ably channel via Go backend
@@ -468,11 +351,13 @@ export function useAblyRealtime() {
     };
   }, [cleanupDedupeIds]);
 
-  // Effect: Flush any remaining messages on unmount
+  // Effect: Clean up invalidation timer on unmount
   useEffect(() => {
     return () => {
-      flushMessageBatch();
+      if (invalidateTimerRef.current) {
+        clearTimeout(invalidateTimerRef.current);
+      }
     };
-  }, [flushMessageBatch]);
+  }, []);
 }
 

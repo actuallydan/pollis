@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AppState, User, Group, Channel, Message, DMConversation, MessageQueueItem, NetworkStatus } from '../types';
+import type { AppState, User, Group, Channel, DMConversation, MessageQueueItem, NetworkStatus } from '../types';
 
 interface AppStore extends AppState {
   // User profile data from Turso
@@ -17,10 +17,6 @@ interface AppStore extends AppState {
   addGroup: (group: Group) => void;
   setChannels: (groupId: string, channels: Channel[]) => void;
   addChannel: (channel: Channel) => void;
-  setMessages: (key: string, messages: Message[]) => void;
-  addMessage: (key: string, message: Message) => void;
-  addMessagesBatch: (key: string, messages: Message[]) => void;
-  updateMessage: (key: string, messageId: string, updates: Partial<Message>) => void;
   setDMConversations: (conversations: DMConversation[]) => void;
   addDMConversation: (conversation: DMConversation) => void;
   setNetworkStatus: (status: NetworkStatus) => void;
@@ -46,7 +42,6 @@ export const useAppStore = create<AppStore>((set) => ({
   selectedConversationId: null,
   groups: [],
   channels: {},
-  messages: {},
   dmConversations: [],
   networkStatus: 'offline',
   killSwitchEnabled: false,
@@ -77,39 +72,7 @@ export const useAppStore = create<AppStore>((set) => ({
       [channel.group_id]: [...(state.channels[channel.group_id] || []), channel]
     }
   })),
-  
-  setMessages: (key, messages) => set((state) => ({
-    messages: { ...state.messages, [key]: messages }
-  })),
-  addMessage: (key, message) => set((state) => ({
-    messages: {
-      ...state.messages,
-      [key]: [...(state.messages[key] || []), message]
-    }
-  })),
-  addMessagesBatch: (key, messages) => set((state) => {
-    const current = state.messages[key] || [];
-    // Merge and deduplicate by ID, then sort by created_at
-    const messageMap = new Map<string, Message>();
-    current.forEach(msg => messageMap.set(msg.id, msg));
-    messages.forEach(msg => messageMap.set(msg.id, msg));
 
-    const merged = Array.from(messageMap.values())
-      .sort((a, b) => a.created_at - b.created_at);
-
-    return {
-      messages: { ...state.messages, [key]: merged }
-    };
-  }),
-  updateMessage: (key, messageId, updates) => set((state) => ({
-    messages: {
-      ...state.messages,
-      [key]: (state.messages[key] || []).map((msg) =>
-        msg.id === messageId ? { ...msg, ...updates } : msg
-      )
-    }
-  })),
-  
   setDMConversations: (conversations) => set({ dmConversations: conversations }),
   addDMConversation: (conversation) => set((state) => ({
     dmConversations: [...state.dmConversations, conversation]
@@ -146,7 +109,6 @@ export const useAppStore = create<AppStore>((set) => ({
     selectedConversationId: null,
     groups: [],
     channels: {},
-    messages: {},
     dmConversations: [],
     networkStatus: 'offline',
     killSwitchEnabled: false,

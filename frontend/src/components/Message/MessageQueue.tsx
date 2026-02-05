@@ -6,7 +6,6 @@ import { Card, Badge, Button, Paragraph, Header } from 'monopollis';
 export const MessageQueue: React.FC = () => {
   const {
     messageQueue,
-    messages,
     removeFromMessageQueue,
     updateMessageQueueItem,
   } = useAppStore();
@@ -21,14 +20,10 @@ export const MessageQueue: React.FC = () => {
     return null;
   }
 
-  const getMessageContent = (messageId: string): string => {
-    for (const messageList of Object.values(messages)) {
-      const message = messageList.find((m) => m.id === messageId);
-      if (message) {
-        return message.content_decrypted || '[Encrypted message]';
-      }
-    }
-    return '[Message not found]';
+  const getMessageContent = (_messageId: string): string => {
+    // TODO: When implementing the message queue feature, store content in
+    // the queue item itself or use React Query cache lookup
+    return '[Pending message]';
   };
 
   const handleCancel = (queueItemId: string, messageId: string) => {
