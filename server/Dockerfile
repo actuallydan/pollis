@@ -1,12 +1,15 @@
 # Build stage
 # Build from repo root: docker build -f server/Dockerfile -t pollis-server:latest .
 
-FROM golang:1.25-alpine AS builder
+FROM golang:alpine AS builder
 
 WORKDIR /app
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates
+
+# Allow Go to download the required toolchain version
+ENV GOTOOLCHAIN=auto
 
 # Copy go.mod files first for better caching
 COPY pkg/proto/go.mod pkg/proto/go.sum* ./pkg/proto/
