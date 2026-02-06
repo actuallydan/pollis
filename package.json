@@ -1,6 +1,6 @@
 {
   "name": "pollis",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "private": true,
   "scripts": {
     "dev": "concurrently --kill-others --names 'server,wails' -c 'cyan,yellow' 'pnpm dev:server' 'pnpm dev:wails'",
