@@ -79,6 +79,19 @@ jobs:
           target: "~/pollis"
           strip_components: 1
 
+      - name: Write environment file
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cat > ~/pollis/.env << 'ENVEOF'
+            TURSO_URL=${{ secrets.TURSO_URL }}
+            TURSO_TOKEN=${{ secrets.TURSO_TOKEN }}
+            ENVEOF
+            chmod 600 ~/pollis/.env
+
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
