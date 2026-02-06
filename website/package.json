@@ -11,7 +11,7 @@
   "dependencies": {
     "@clerk/nextjs": "^6.36.5",
     "lucide-react": "^0.469.0",
-    "monopollis": "file:./monopollis",
+    "monopollis": "workspace:*",
     "next": "^15.1.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
