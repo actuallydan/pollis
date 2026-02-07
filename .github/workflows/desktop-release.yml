@@ -33,6 +33,15 @@ jobs:
             go.sum
             server/go.sum
 
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3
+
+      - name: Generate protobuf code
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+          make proto
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -90,6 +99,15 @@ jobs:
             go.sum
             server/go.sum
 
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3
+
+      - name: Generate protobuf code
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+          protoc --go_out=pkg/proto --go_opt=paths=source_relative --go-grpc_out=pkg/proto --go-grpc_opt=paths=source_relative --proto_path=pkg/proto pkg/proto/pollis.proto
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -135,6 +153,15 @@ jobs:
             go.sum
             server/go.sum
 
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3
+
+      - name: Generate protobuf code
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+          make proto
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -148,7 +175,7 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
 
       - name: Install dependencies
         run: pnpm install
