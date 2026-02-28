@@ -19,7 +19,6 @@ import (
 	"pollis/pkg/proto"
 
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
-	"github.com/joho/godotenv"
 	"github.com/rs/cors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -34,9 +33,6 @@ var (
 )
 
 func main() {
-	// Load environment variables from the shared root .env.local if present
-	_ = godotenv.Load("../.env.local")
-
 	flag.Parse()
 
 	// If -db flag is not provided, try environment variables

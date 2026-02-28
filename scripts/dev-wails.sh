@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+# Load dev environment variables
+set -a
+source .env.local
+set +a
+
 # Add Go bin to PATH
 export PATH="$HOME/go/bin:$PATH"
 

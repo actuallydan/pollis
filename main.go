@@ -2,11 +2,8 @@ package main
 
 import (
 	"embed"
-	"fmt"
-	"os"
 	"runtime"
 
-	"github.com/joho/godotenv"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -17,14 +14,6 @@ import (
 var assets embed.FS
 
 func main() {
-	// Load environment variables from .env.local in project root if present
-	if err := godotenv.Load(".env.local"); err == nil {
-		fmt.Println("Loaded environment from .env.local")
-	}
-
-	// Optional: allow overriding from OS environment as usual
-	_ = os.Getenv("CLERK_SECRET_KEY")
-
 	// Create an instance of the app structure
 	app := NewApp()
 

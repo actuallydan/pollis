@@ -94,7 +94,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	// Initialize Clerk service (get API key from env or config)
-	clerkAPIKey := os.Getenv("CLERK_SECRET_KEY")
+	clerkAPIKey := getConfig("CLERK_SECRET_KEY")
 	if clerkAPIKey != "" {
 		a.clerkService = services.NewClerkService(clerkAPIKey)
 	} else {
@@ -104,7 +104,7 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize Ably EARLY - before profile loading, so it's always available
 	// For MVP: Use static key from environment
 	// For production: Can upgrade to token-based auth later
-	ablyKey := os.Getenv("ABLY_API_KEY")
+	ablyKey := getConfig("ABLY_API_KEY")
 	if ablyKey != "" {
 		ablyService, err := services.NewAblyRealtimeService(ablyKey)
 		if err != nil {
@@ -118,7 +118,12 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	// Initialize R2 service (optional - only if credentials are available)
-	r2Service, err := services.NewR2Service()
+	r2Service, err := services.NewR2Service(services.R2Config{
+		AccessKeyID: getConfig("R2_ACCESS_KEY_ID"),
+		SecretKey:   getConfig("R2_SECRET_KEY"),
+		Endpoint:    getConfig("R2_S3_ENDPOINT"),
+		PublicURL:   getConfig("R2_PUBLIC_URL"),
+	})
 	if err != nil {
 		fmt.Printf("Info: R2 service not available: %v\n", err)
 	} else {
@@ -127,8 +132,8 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	// Initialize direct Turso connection for remote data (users, groups, channels)
-	tursoURL := os.Getenv("TURSO_URL")
-	tursoToken := os.Getenv("TURSO_TOKEN")
+	tursoURL := getConfig("TURSO_URL")
+	tursoToken := getConfig("TURSO_TOKEN")
 	if tursoURL != "" && tursoToken != "" {
 		// Build Turso connection string
 		if !strings.Contains(tursoURL, "authToken=") {
@@ -155,9 +160,9 @@ func (a *App) startup(ctx context.Context) {
 	a.networkService.StartMonitoring()
 
 	// Initialize service client from environment variable
-	serviceURL := os.Getenv("VITE_SERVICE_URL")
+	serviceURL := getConfig("VITE_SERVICE_URL")
 	if serviceURL == "" {
-		serviceURL = "localhost:50051" // Default
+		serviceURL = "localhost:50051"
 	}
 	if err := a.SetServiceURL(serviceURL); err != nil {
 		fmt.Printf("Warning: Failed to initialize service client: %v (app will work offline)\n", err)
@@ -2000,7 +2005,7 @@ func (a *App) AuthenticateAndLoadUser(clerkToken string) (*models.User, error) {
 // - VITE_CLERK_PUBLISHABLE_KEY: Required. Clerk publishable key
 // - CLERK_ACCOUNT_PORTAL_URL: Optional. Override the sign-in URL (e.g., "https://accounts.clerk.com/sign-in/your-instance")
 func (a *App) AuthenticateWithClerk() (string, error) {
-	pubKey := os.Getenv("VITE_CLERK_PUBLISHABLE_KEY")
+	pubKey := getConfig("VITE_CLERK_PUBLISHABLE_KEY")
 	if pubKey == "" {
 		return "", fmt.Errorf("VITE_CLERK_PUBLISHABLE_KEY not set in environment")
 	}
@@ -2021,7 +2026,7 @@ func (a *App) AuthenticateWithClerk() (string, error) {
 	accountPortalDomain := strings.Replace(frontendAPIDomain, "clerk.", "accounts.", 1)
 
 	// Allow override via environment variable for custom Account Portal URLs
-	if overrideDomain := os.Getenv("CLERK_SIGN_IN_URL"); overrideDomain != "" {
+	if overrideDomain := getConfig("CLERK_SIGN_IN_URL"); overrideDomain != "" {
 		fmt.Printf("[Auth] Using override sign-in URL from CLERK_SIGN_IN_URL: %s\n", overrideDomain)
 		accountPortalDomain = overrideDomain
 	} else {
@@ -2113,7 +2118,7 @@ func (a *App) AuthenticateWithClerk() (string, error) {
 
 	// For production: Use web-hosted callback page that redirects to localhost
 	// For development: Can use localhost directly
-	clerkRedirectURL := os.Getenv("CLERK_REDIRECT_URL")
+	clerkRedirectURL := getConfig("CLERK_REDIRECT_URL")
 	if clerkRedirectURL == "" {
 		// Default to production callback page
 		clerkRedirectURL = "https://pollis.com/auth-callback"

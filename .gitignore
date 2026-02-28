@@ -51,8 +51,6 @@ Thumbs.db
 
 # Generated files
 pkg/proto/gen/
-*.pb.go
-*.pb.gw.go
 
 # Environment
 .env.production
