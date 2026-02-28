@@ -13,8 +13,6 @@ on:
 
 env:
   APP_NAME: Pollis
-  # Production API URL - baked into the binary
-  VITE_SERVICE_URL: https://api.pollis.com
 
 jobs:
   build-macos:
@@ -32,15 +30,6 @@ jobs:
           cache-dependency-path: |
             go.sum
             server/go.sum
-
-      - name: Setup protoc
-        uses: arduino/setup-protoc@v3
-
-      - name: Generate protobuf code
-        run: |
-          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-          make proto
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -60,9 +49,19 @@ jobs:
 
       - name: Build macOS (Universal)
         run: |
-          wails build -platform darwin/universal -ldflags "-X main.version=${{ github.ref_name }}"
+          LDFLAGS="-X main.version=${{ github.ref_name }} $(./scripts/build-ldflags.sh)"
+          wails build -platform darwin/universal -ldflags "$LDFLAGS"
         env:
-          VITE_SERVICE_URL: ${{ env.VITE_SERVICE_URL }}
+          VITE_SERVICE_URL: ${{ secrets.VITE_SERVICE_URL }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+          R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
 
       - name: Create DMG
         run: |
@@ -99,15 +98,6 @@ jobs:
             go.sum
             server/go.sum
 
-      - name: Setup protoc
-        uses: arduino/setup-protoc@v3
-
-      - name: Generate protobuf code
-        run: |
-          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-          protoc --go_out=pkg/proto --go_opt=paths=source_relative --go-grpc_out=pkg/proto --go-grpc_opt=paths=source_relative --proto_path=pkg/proto pkg/proto/pollis.proto
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -126,9 +116,19 @@ jobs:
 
       - name: Build Windows
         run: |
-          wails build -platform windows/amd64 -nsis -ldflags "-X main.version=${{ github.ref_name }}"
+          LDFLAGS="-X main.version=${{ github.ref_name }} $(./scripts/build-ldflags.sh)"
+          wails build -platform windows/amd64 -nsis -ldflags "$LDFLAGS"
         env:
-          VITE_SERVICE_URL: ${{ env.VITE_SERVICE_URL }}
+          VITE_SERVICE_URL: ${{ secrets.VITE_SERVICE_URL }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+          R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -153,15 +153,6 @@ jobs:
             go.sum
             server/go.sum
 
-      - name: Setup protoc
-        uses: arduino/setup-protoc@v3
-
-      - name: Generate protobuf code
-        run: |
-          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-          make proto
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -185,9 +176,19 @@ jobs:
 
       - name: Build Linux
         run: |
-          wails build -platform linux/amd64 -ldflags "-X main.version=${{ github.ref_name }}"
+          LDFLAGS="-X main.version=${{ github.ref_name }} $(./scripts/build-ldflags.sh)"
+          wails build -platform linux/amd64 -ldflags "$LDFLAGS"
         env:
-          VITE_SERVICE_URL: ${{ env.VITE_SERVICE_URL }}
+          VITE_SERVICE_URL: ${{ secrets.VITE_SERVICE_URL }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+          R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
 
       - name: Create AppImage
         run: |

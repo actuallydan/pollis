@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -18,28 +17,32 @@ import (
 
 // R2Service handles Cloudflare R2 object storage operations
 type R2Service struct {
-	s3Client *s3.Client
-	bucket   string
-	endpoint string
+	s3Client     *s3.Client
+	bucket       string
+	endpoint     string
+	publicBaseURL string
+}
+
+// R2Config holds the configuration needed to initialize the R2 service
+type R2Config struct {
+	AccessKeyID string
+	SecretKey   string
+	Endpoint    string
+	PublicURL   string
 }
 
 // NewR2Service creates a new R2 service instance
-func NewR2Service() (*R2Service, error) {
-	// Get credentials from environment (loaded from .env.local in main.go)
-	accessKeyID := os.Getenv("R2_ACCESS_KEY_ID")
-	secretKey := os.Getenv("R2_SECRET_KEY")
-	endpoint := os.Getenv("R2_S3_ENDPOINT")
-
-	if accessKeyID == "" || secretKey == "" || endpoint == "" {
-		return nil, fmt.Errorf("R2 credentials not configured (R2_ACCESS_KEY_ID, R2_SECRET_KEY, R2_S3_ENDPOINT required). Check .env.local file")
+func NewR2Service(cfg R2Config) (*R2Service, error) {
+	if cfg.AccessKeyID == "" || cfg.SecretKey == "" || cfg.Endpoint == "" {
+		return nil, fmt.Errorf("R2 credentials not configured (AccessKeyID, SecretKey, Endpoint required)")
 	}
 
-	fmt.Printf("[R2] Initializing R2 service with endpoint: %s\n", endpoint)
-	fmt.Printf("[R2] Access Key ID: %s...\n", accessKeyID[:min(8, len(accessKeyID))])
+	fmt.Printf("[R2] Initializing R2 service with endpoint: %s\n", cfg.Endpoint)
+	fmt.Printf("[R2] Access Key ID: %s...\n", cfg.AccessKeyID[:min(8, len(cfg.AccessKeyID))])
 
 	// Parse endpoint to extract bucket name
 	// Format: https://account-id.r2.cloudflarestorage.com/bucket-name
-	parsedURL, err := url.Parse(endpoint)
+	parsedURL, err := url.Parse(cfg.Endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("invalid R2_S3_ENDPOINT format: %w", err)
 	}
@@ -54,8 +57,8 @@ func NewR2Service() (*R2Service, error) {
 	baseEndpoint := fmt.Sprintf("%s://%s", parsedURL.Scheme, parsedURL.Host)
 
 	// Create AWS config with custom endpoint for R2
-	cfg, err := awsconfig.LoadDefaultConfig(context.Background(),
-		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKeyID, secretKey, "")),
+	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(),
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.SecretKey, "")),
 		awsconfig.WithRegion("auto"), // R2 doesn't use regions, but SDK requires it
 	)
 	if err != nil {
@@ -63,17 +66,25 @@ func NewR2Service() (*R2Service, error) {
 	}
 
 	// Create S3 client with custom endpoint resolver for R2
-	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+	s3Client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(baseEndpoint)
 		o.UsePathStyle = true // R2 requires path-style addressing
 	})
 
-	fmt.Printf("[R2] Bucket: %s, Base endpoint: %s\n", bucket, baseEndpoint)
+	publicBaseURL := cfg.PublicURL
+	if publicBaseURL == "" {
+		// Fallback to S3 endpoint if no public URL configured
+		publicBaseURL = fmt.Sprintf("%s/%s", baseEndpoint, bucket)
+	}
+	publicBaseURL = strings.TrimSuffix(publicBaseURL, "/")
+
+	fmt.Printf("[R2] Bucket: %s, Base endpoint: %s, Public URL: %s\n", bucket, baseEndpoint, publicBaseURL)
 
 	return &R2Service{
-		s3Client: s3Client,
-		bucket:   bucket,
-		endpoint: baseEndpoint,
+		s3Client:      s3Client,
+		bucket:        bucket,
+		endpoint:      baseEndpoint,
+		publicBaseURL: publicBaseURL,
 	}, nil
 }
 
@@ -174,10 +185,10 @@ func (r *R2Service) GenerateFileKey(channelID, conversationID, messageID, filena
 	return fmt.Sprintf("%s/%s", prefix, uniqueFilename)
 }
 
-// GetPublicURL returns the public URL for an object (if bucket is public)
-// For private buckets, use PresignedGetURL instead
+// GetPublicURL returns the public URL for an object
+// Uses R2_PUBLIC_URL env var (e.g. https://cdn.pollis.com) if set
 func (r *R2Service) GetPublicURL(objectKey string) string {
-	return fmt.Sprintf("%s/%s/%s", r.endpoint, r.bucket, objectKey)
+	return fmt.Sprintf("%s/%s", r.publicBaseURL, objectKey)
 }
 
 // DeleteObject deletes an object from R2

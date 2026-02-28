@@ -29,11 +29,15 @@ pnpm dev:server           # Run gRPC server only
 
 ### Building
 ```bash
-pnpm build:app            # Build Wails app for current platform
-make build-macos          # Build universal macOS binary (Intel + Apple Silicon)
-make build-linux          # Build Linux amd64 binary
-make build-windows        # Build Windows amd64 binary
+pnpm build:app            # Build for current platform (uses .env.production)
+pnpm build:macos          # Build universal macOS binary
+pnpm build:linux          # Build Linux amd64 binary
+pnpm build:windows        # Build Windows amd64 binary
 ```
+
+**How config embedding works**: Production builds source `.env.production`, then `scripts/build-ldflags.sh` converts env vars into Go `-X` ldflags that are compiled into the binary. The resulting app is fully self-contained — no env files needed on the target machine. At runtime, `os.Getenv()` can still override any embedded value (useful for dev via `.env.local`).
+
+**For CI builds**: GitHub Actions secrets provide the env vars instead of `.env.production`. The same `build-ldflags.sh` script generates the ldflags.
 
 ### Protobuf
 ```bash

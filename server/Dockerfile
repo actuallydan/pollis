@@ -5,12 +5,7 @@ FROM golang:alpine AS builder
 
 WORKDIR /app
 
-# Install build dependencies including protoc
-RUN apk add --no-cache git ca-certificates protobuf-dev
-
-# Install Go protoc plugins
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
-    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+RUN apk add --no-cache git ca-certificates
 
 # Allow Go to download the required toolchain version
 ENV GOTOOLCHAIN=auto
@@ -23,13 +18,9 @@ COPY server/go.mod server/go.sum ./server/
 WORKDIR /app/server
 RUN go mod download
 
-# Copy proto file and generate Go code
+# Copy proto package (generated files are committed)
 WORKDIR /app
-COPY pkg/proto/pollis.proto ./pkg/proto/
-RUN protoc --go_out=pkg/proto --go_opt=paths=source_relative \
-    --go-grpc_out=pkg/proto --go-grpc_opt=paths=source_relative \
-    --proto_path=pkg/proto \
-    pkg/proto/pollis.proto
+COPY pkg/proto/ ./pkg/proto/
 
 # Copy server source code
 COPY server ./server

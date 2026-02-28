@@ -42,14 +42,11 @@ function MainApp() {
   const randomIndex = Math.floor(Math.random() * dotMatrixAlgorithms.length);
   const dotMatrixAlgorithm = dotMatrixAlgorithms[randomIndex]
 
-  // Ably real-time subscriptions (manages subscriptions based on selected channel)
+  // Set up Ably websocket client
   useAblyRealtime();
 
-  // Network status monitoring (polls backend and listens to browser events)
+  // Listen for changes in network state
   useNetworkStatus(appState === "ready");
-
-  // Router handles URL-based state persistence
-
 
   // Initialize app and set user - React Query hooks handle data fetching
   const loadProfileData = useCallback(async () => {
