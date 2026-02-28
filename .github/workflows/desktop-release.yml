@@ -115,6 +115,7 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
       - name: Build Windows
+        shell: bash
         run: |
           LDFLAGS="-X main.version=${{ github.ref_name }} $(./scripts/build-ldflags.sh)"
           wails build -platform windows/amd64 -nsis -ldflags "$LDFLAGS"
@@ -166,7 +167,7 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libwebkit2gtk-4.1-dev
 
       - name: Install dependencies
         run: pnpm install
