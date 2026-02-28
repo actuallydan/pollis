@@ -167,7 +167,7 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libfuse2
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
 
       - name: Install dependencies
         run: pnpm install
@@ -193,9 +193,11 @@ jobs:
 
       - name: Create AppImage
         run: |
-          # Download appimagetool
+          # Download and extract appimagetool (avoids FUSE requirement)
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
+          ./appimagetool-x86_64.AppImage --appimage-extract
+          mv squashfs-root appimagetool-extracted
 
           # Create AppDir structure
           mkdir -p AppDir/usr/bin
@@ -239,7 +241,7 @@ jobs:
           ln -sf usr/share/icons/hicolor/256x256/apps/pollis.png AppDir/pollis.png
 
           # Build AppImage
-          ARCH=x86_64 ./appimagetool-x86_64.AppImage AppDir build/bin/Pollis-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool-extracted/AppRun AppDir build/bin/Pollis-x86_64.AppImage
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
