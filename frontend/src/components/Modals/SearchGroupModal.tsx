@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { X, Search } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
-import { Card, Button, TextInput, Header, Paragraph } from "monopollis";
 import { useJoinGroup } from "../../hooks/queries";
 
 interface SearchGroupModalProps {
@@ -19,25 +18,23 @@ export const SearchGroupModal: React.FC<SearchGroupModalProps> = ({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [foundGroup, setFoundGroup] = useState<any>(null);
 
-  // Use React Query mutation for joining group
   const joinGroupMutation = useJoinGroup();
 
-  if (!isOpen) return null;
+  if (!isOpen) {
+    return null;
+  }
 
   const handleSearch = async () => {
     if (!slug.trim()) {
       setSearchError("Please enter a group slug");
       return;
     }
-
     setIsSearching(true);
     setSearchError(null);
     setFoundGroup(null);
-
     try {
-      // Dynamically import Wails function
-      const { GetGroupBySlug } = await import("../../../wailsjs/go/main/App");
-      const group = await GetGroupBySlug(slug.trim());
+      const { invoke } = await import("@tauri-apps/api/core");
+      const group = await invoke<{ id: string; name: string; description?: string }>('search_group_by_slug', { slug: slug.trim() });
       setFoundGroup(group);
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : "Group not found");
@@ -50,106 +47,81 @@ export const SearchGroupModal: React.FC<SearchGroupModalProps> = ({
     if (!foundGroup || !currentUser) {
       return;
     }
-
     try {
       await joinGroupMutation.mutateAsync(foundGroup.slug);
-
       onClose();
-
-      // Reset form
       setSlug("");
       setFoundGroup(null);
     } catch (err) {
-      // Error is handled by the mutation
       console.error("Failed to join group:", err);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-2xl relative" variant="bordered">
+    <div data-testid="search-group-modal">
+      <button
+        data-testid="close-search-group-modal-button"
+        onClick={onClose}
+        aria-label="Close"
+      >
+        <X aria-hidden="true" />
+      </button>
+
+      <h2>Search Group</h2>
+      <p>Search for a group by its slug to join.</p>
+
+      <div>
+        <label htmlFor="search-group-slug">Group Slug</label>
+        <input
+          id="search-group-slug"
+          data-testid="search-group-slug-input"
+          type="text"
+          value={slug}
+          onChange={(e) => setSlug(e.target.value)}
+          placeholder="my-group"
+          disabled={isSearching}
+        />
         <button
-          onClick={onClose}
-          className="absolute top-4 right-4 p-1 text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-colors"
-          aria-label="Close"
+          data-testid="search-group-button"
+          onClick={handleSearch}
+          disabled={!slug.trim() || isSearching}
         >
-          <X className="w-5 h-5" />
+          <Search aria-hidden="true" />
+          {isSearching ? "Searching..." : "Search"}
         </button>
+      </div>
 
-        <Header size="lg" className="mb-2 pr-8">
-          Search Group
-        </Header>
-        <Paragraph size="sm" className="mb-6 text-orange-300/70">
-          Search for a group by its slug to join.
-        </Paragraph>
-
-        <div className="space-y-4">
-          <div className="flex gap-2">
-            <TextInput
-              id="slug"
-              label="Group Slug"
-              value={slug}
-              onChange={setSlug}
-              placeholder="my-group"
-              disabled={isSearching}
-              className="flex-1"
-            />
-            <Button
-              onClick={handleSearch}
-              isLoading={isSearching}
-              disabled={!slug.trim() || isSearching}
-              icon={<Search className="w-4 h-4" />}
-              className="mt-6"
-            >
-              Search
-            </Button>
-          </div>
-
-          {foundGroup && (
-            <div className="p-4 bg-orange-300/10 border border-orange-300/30 rounded">
-              <Header size="base" className="mb-2">
-                {foundGroup.name}
-              </Header>
-              <Paragraph size="sm" className="text-orange-300/70 mb-2">
-                Slug: {foundGroup.slug}
-              </Paragraph>
-              {foundGroup.description && (
-                <Paragraph size="sm" className="text-orange-300/70 mb-4">
-                  {foundGroup.description}
-                </Paragraph>
-              )}
-              <Button
-                onClick={handleJoin}
-                isLoading={joinGroupMutation.isPending}
-                className="w-full"
-              >
-                Join Group
-              </Button>
-            </div>
-          )}
-
-          {(searchError || joinGroupMutation.error) && (
-            <div className="p-3 bg-red-900/20 border border-red-300/30 rounded">
-              <Paragraph size="sm" className="text-red-300">
-                {searchError ||
-                  (joinGroupMutation.error instanceof Error
-                    ? joinGroupMutation.error.message
-                    : "Failed to join group")}
-              </Paragraph>
-            </div>
-          )}
-
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={onClose}
-            disabled={isSearching}
-            className="w-full"
+      {foundGroup && (
+        <div data-testid="found-group">
+          <h3>{foundGroup.name}</h3>
+          <p>Slug: {foundGroup.slug}</p>
+          {foundGroup.description && <p>{foundGroup.description}</p>}
+          <button
+            data-testid="join-group-button"
+            onClick={handleJoin}
+            disabled={joinGroupMutation.isPending}
           >
-            Close
-          </Button>
+            {joinGroupMutation.isPending ? "Joining..." : "Join Group"}
+          </button>
         </div>
-      </Card>
+      )}
+
+      {(searchError || joinGroupMutation.error) && (
+        <p data-testid="search-group-error">
+          {searchError ||
+            (joinGroupMutation.error instanceof Error
+              ? joinGroupMutation.error.message
+              : "Failed to join group")}
+        </p>
+      )}
+
+      <button
+        data-testid="close-search-group-cancel-button"
+        onClick={onClose}
+        disabled={isSearching}
+      >
+        Close
+      </button>
     </div>
   );
 };

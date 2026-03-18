@@ -1,0 +1,82 @@
+mod config;
+pub mod db;
+mod error;
+mod keystore;
+mod signal;
+mod state;
+pub mod commands;
+
+use std::sync::Arc;
+use tauri::Manager;
+
+use config::Config;
+use state::AppState;
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_process::init())
+        .setup(|app| {
+            // Load .env.development in dev builds (no-op if file doesn't exist)
+            #[cfg(debug_assertions)]
+            let _ = dotenvy::from_filename(".env.development");
+
+            let config = Config::from_env().map_err(|e| e.to_string())?;
+
+            tauri::async_runtime::block_on(async move {
+                let state = AppState::new(config).await.map_err(|e| e.to_string())?;
+                app.manage(Arc::new(state));
+                Ok::<(), String>(())
+            })?;
+
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::auth::initialize_identity,
+            commands::auth::get_identity,
+            commands::auth::request_otp,
+            commands::auth::verify_otp,
+            commands::auth::get_session,
+            commands::auth::logout,
+            commands::user::get_user_profile,
+            commands::user::update_user_profile,
+            commands::user::search_user_by_username,
+            commands::groups::list_user_groups,
+            commands::groups::list_group_channels,
+            commands::groups::create_group,
+            commands::groups::create_channel,
+            commands::groups::invite_to_group,
+            commands::groups::update_group,
+            commands::groups::delete_group,
+            commands::groups::get_group_members,
+            commands::groups::remove_member_from_group,
+            commands::groups::leave_group,
+            commands::groups::update_channel,
+            commands::groups::delete_channel,
+            commands::groups::transfer_ownership,
+            commands::dm::create_dm_channel,
+            commands::dm::list_dm_channels,
+            commands::dm::get_dm_channel,
+            commands::dm::add_user_to_dm_channel,
+            commands::dm::remove_user_from_dm_channel,
+            commands::messages::list_messages,
+            commands::messages::send_message,
+            commands::messages::poll_pending_messages,
+            commands::messages::get_channel_messages,
+            commands::messages::list_messages_by_sender,
+            commands::messages::list_channel_previews,
+            commands::signal::get_prekey_bundle,
+            commands::signal::rotate_signed_prekey,
+            commands::signal::replenish_one_time_prekeys,
+            commands::livekit::get_livekit_token,
+            commands::r2::upload_file,
+            commands::r2::download_file,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running Pollis");
+}

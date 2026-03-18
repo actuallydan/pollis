@@ -1,7 +1,6 @@
 import React from 'react';
 import { X, Clock, Send, AlertCircle } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
-import { Card, Badge, Button, Paragraph, Header } from 'monopollis';
 
 export const MessageQueue: React.FC = () => {
   const {
@@ -21,15 +20,11 @@ export const MessageQueue: React.FC = () => {
   }
 
   const getMessageContent = (_messageId: string): string => {
-    // TODO: When implementing the message queue feature, store content in
-    // the queue item itself or use React Query cache lookup
     return '[Pending message]';
   };
 
-  const handleCancel = (queueItemId: string, messageId: string) => {
+  const handleCancel = (queueItemId: string, _messageId: string) => {
     updateMessageQueueItem(queueItemId, { status: 'cancelled' });
-    // Note: In a real implementation, you'd also delete the message from the messages store
-    // and potentially call a backend method to cancel it
     removeFromMessageQueue(queueItemId);
   };
 
@@ -41,101 +36,75 @@ export const MessageQueue: React.FC = () => {
   };
 
   return (
-    <div className="border-t border-orange-300/20 bg-black">
-      <div className="px-4 py-2 border-b border-orange-300/10">
-        <Header size="sm" className="text-orange-300/80">
-          Message Queue
-        </Header>
+    <div data-testid="message-queue">
+      <div>
+        <h3>Message Queue</h3>
       </div>
 
-      <div className="max-h-48 overflow-y-auto">
-        {/* Pending/Sending Messages */}
+      <div>
         {pendingMessages.length > 0 && (
-          <div className="py-2">
+          <div>
             {pendingMessages.map((item) => {
               const content = getMessageContent(item.message_id);
               const snippet = content.length > 60 ? content.substring(0, 60) + '...' : content;
 
               return (
-                <div
-                  key={item.id}
-                  className="px-4 py-2 border-b border-orange-300/10 hover:bg-orange-300/5 transition-colors flex items-start gap-3"
-                >
-                  <div className="flex-shrink-0 mt-0.5">
+                <div key={item.id} data-testid={`queue-item-${item.id}`}>
+                  <div>
                     {item.status === 'sending' ? (
-                      <Send className="w-4 h-4 text-orange-300/70 animate-pulse" />
+                      <Send aria-hidden="true" />
                     ) : (
-                      <Clock className="w-4 h-4 text-orange-300/70" />
+                      <Clock aria-hidden="true" />
                     )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge
-                        variant={item.status === 'sending' ? 'warning' : 'default'}
-                        size="sm"
-                      >
-                        {item.status}
-                      </Badge>
-                    </div>
-                    <Paragraph size="sm" className="text-orange-300/80 font-mono truncate">
-                      {snippet}
-                    </Paragraph>
+                  <div>
+                    <span data-testid="queue-item-status">{item.status}</span>
+                    <p>{snippet}</p>
                   </div>
-                  <Button
-                    variant="secondary"
+                  <button
+                    data-testid={`cancel-queue-item-${item.id}`}
                     onClick={() => handleCancel(item.id, item.message_id)}
-                    className="flex-shrink-0"
-                    icon={<X className="w-3 h-3" />}
+                    aria-label="Cancel message"
                   >
+                    <X aria-hidden="true" />
                     Cancel
-                  </Button>
+                  </button>
                 </div>
               );
             })}
           </div>
         )}
 
-        {/* Failed Messages */}
         {failedMessages.length > 0 && (
-          <div className="py-2 border-t border-orange-300/20">
+          <div>
             {failedMessages.map((item) => {
               const content = getMessageContent(item.message_id);
               const snippet = content.length > 60 ? content.substring(0, 60) + '...' : content;
 
               return (
-                <div
-                  key={item.id}
-                  className="px-4 py-2 border-b border-orange-300/10 hover:bg-orange-300/5 transition-colors flex items-start gap-3"
-                >
-                  <div className="flex-shrink-0 mt-0.5">
-                    <AlertCircle className="w-4 h-4 text-red-300" />
+                <div key={item.id} data-testid={`queue-item-failed-${item.id}`}>
+                  <div>
+                    <AlertCircle aria-hidden="true" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge variant="error" size="sm">
-                        Failed (retry {item.retry_count})
-                      </Badge>
-                    </div>
-                    <Paragraph size="sm" className="text-orange-300/80 font-mono truncate">
-                      {snippet}
-                    </Paragraph>
+                  <div>
+                    <span>Failed (retry {item.retry_count})</span>
+                    <p>{snippet}</p>
                   </div>
-                  <div className="flex gap-2 flex-shrink-0">
-                    <Button
-                      variant="secondary"
+                  <div>
+                    <button
+                      data-testid={`retry-queue-item-${item.id}`}
                       onClick={() => handleRetry(item.id)}
-                      className="text-xs"
                     >
                       Retry
-                    </Button>
-                    <Button
-                      variant="secondary"
+                    </button>
+                    <button
+                      data-testid={`cancel-queue-item-${item.id}`}
                       onClick={() => handleCancel(item.id, item.message_id)}
-                      className="flex-shrink-0"
-                      icon={<X className="w-3 h-3" />}
+                      aria-label="Cancel message"
                     >
+                      <X aria-hidden="true" />
                       Cancel
-                    </Button>
+                    </button>
                   </div>
                 </div>
               );
@@ -146,4 +115,3 @@ export const MessageQueue: React.FC = () => {
     </div>
   );
 };
-

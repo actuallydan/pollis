@@ -1,7 +1,6 @@
 import React from "react";
-import { Hash, Pin, Info, MessageCircle, Settings } from "lucide-react";
+import { Hash, MessageCircle, Settings } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
-import { Header, Paragraph } from "monopollis";
 import { NetworkStatusIndicator } from "../NetworkStatusIndicator";
 import { updateURL } from "../../utils/urlRouting";
 
@@ -13,10 +12,8 @@ export const ChannelHeader: React.FC = () => {
     selectedGroupId,
     groups,
     dmConversations,
-    currentUser,
   } = useAppStore();
 
-  // Get current channel or conversation
   const currentChannel = selectedChannelId
     ? Object.values(channels)
         .flat()
@@ -33,58 +30,49 @@ export const ChannelHeader: React.FC = () => {
 
   if (!currentChannel && !currentConversation) {
     return (
-      <div className="h-16 border-b border-orange-300/20 bg-black flex items-center justify-center">
-        <Paragraph size="sm" className="text-orange-300/50">
-          Select a channel or conversation
-        </Paragraph>
+      <div data-testid="channel-header">
+        <p>Select a channel or conversation</p>
       </div>
     );
   }
 
   return (
-    <div className="h-16 border-b border-orange-300/20 bg-black flex items-center justify-between px-4">
-      <div className="flex items-center gap-3 flex-1 min-w-0">
+    <div data-testid="channel-header">
+      <div>
         {currentChannel ? (
           <>
-            <Hash className="w-5 h-5 text-orange-300 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <Header size="base" className="truncate">
-                {currentChannel.name}
-              </Header>
+            <Hash aria-hidden="true" />
+            <div>
+              <h2 data-testid="channel-name">{currentChannel.name}</h2>
               {currentChannel.description && (
-                <Paragraph
-                  size="sm"
-                  className="text-orange-300/70 truncate mt-0.5"
-                >
-                  {currentChannel.description}
-                </Paragraph>
+                <p data-testid="channel-description">{currentChannel.description}</p>
               )}
             </div>
           </>
         ) : (
           <>
-            <MessageCircle className="w-5 h-5 text-orange-300 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <Header size="base" className="truncate">
+            <MessageCircle aria-hidden="true" />
+            <div>
+              <h2 data-testid="channel-name">
                 {currentConversation?.user2_identifier || "Direct Message"}
-              </Header>
+              </h2>
             </div>
           </>
         )}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div>
         <NetworkStatusIndicator />
         {currentGroup && (
           <button
+            data-testid="group-settings-button"
             onClick={() => {
               updateURL(`/g/${currentGroup.slug}/settings`);
               window.dispatchEvent(new PopStateEvent("popstate"));
             }}
-            className="p-2 text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-colors"
             aria-label="Group settings"
           >
-            <Settings className="w-5 h-5" />
+            <Settings aria-hidden="true" />
           </button>
         )}
       </div>

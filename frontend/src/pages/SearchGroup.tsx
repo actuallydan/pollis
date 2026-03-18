@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { ArrowLeft, Search } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
-import { Button, TextInput, Header, Paragraph } from "monopollis";
 import { useJoinGroup } from "../hooks/queries";
 import { updateURL } from "../utils/urlRouting";
 
@@ -12,7 +11,6 @@ export const SearchGroup: React.FC = () => {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [foundGroup, setFoundGroup] = useState<any>(null);
 
-  // Use React Query mutation for joining group
   const joinGroupMutation = useJoinGroup();
 
   const handleBack = () => {
@@ -24,15 +22,12 @@ export const SearchGroup: React.FC = () => {
       setSearchError("Please enter a group slug");
       return;
     }
-
     setIsSearching(true);
     setSearchError(null);
     setFoundGroup(null);
-
     try {
-      // Dynamically import Wails function
-      const { GetGroupBySlug } = await import("../../wailsjs/go/main/App");
-      const group = await GetGroupBySlug(slug.trim());
+      const { invoke } = await import("@tauri-apps/api/core");
+      const group = await invoke<{ id: string; name: string; description?: string }>('search_group_by_slug', { slug: slug.trim() });
       setFoundGroup(group);
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : "Group not found");
@@ -45,100 +40,75 @@ export const SearchGroup: React.FC = () => {
     if (!foundGroup || !currentUser) {
       return;
     }
-
     try {
       await joinGroupMutation.mutateAsync(foundGroup.slug);
-
-      // Navigate to the group
       updateURL(`/g/${foundGroup.slug}`);
       window.dispatchEvent(new PopStateEvent("popstate"));
-
-      // Reset form
       setSlug("");
       setFoundGroup(null);
     } catch (err) {
-      // Error is handled by the mutation
       console.error("Failed to join group:", err);
     }
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-black overflow-hidden">
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto p-8">
-          <button
-            onClick={handleBack}
-            className="flex items-center gap-2 text-orange-300/70 hover:text-orange-300 mb-6 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </button>
+    <div data-testid="search-group-page">
+      <button
+        data-testid="search-group-back-button"
+        onClick={handleBack}
+        aria-label="Back"
+      >
+        <ArrowLeft aria-hidden="true" />
+        Back
+      </button>
 
-          <Header size="xl" className="mb-2">
-            Search Group
-          </Header>
-          <Paragraph size="base" className="mb-8 text-orange-300/70">
-            Search for a group by its slug to join.
-          </Paragraph>
+      <h1>Search Group</h1>
+      <p>Search for a group by its slug to join.</p>
 
-          <div className="space-y-6">
-            <div className="flex gap-2">
-              <TextInput
-                id="slug"
-                label="Group Slug"
-                value={slug}
-                onChange={setSlug}
-                placeholder="my-group"
-                disabled={isSearching}
-                className="flex-1"
-              />
-              <Button
-                onClick={handleSearch}
-                isLoading={isSearching}
-                disabled={!slug.trim() || isSearching}
-                icon={<Search className="w-4 h-4" />}
-                className="mt-6"
-              >
-                Search
-              </Button>
-            </div>
-
-            {foundGroup && (
-              <div className="p-6 bg-orange-300/10 border border-orange-300/30 rounded">
-                <Header size="lg" className="mb-2">
-                  {foundGroup.name}
-                </Header>
-                <Paragraph size="sm" className="text-orange-300/70 mb-2">
-                  Slug: {foundGroup.slug}
-                </Paragraph>
-                {foundGroup.description && (
-                  <Paragraph size="sm" className="text-orange-300/70 mb-4">
-                    {foundGroup.description}
-                  </Paragraph>
-                )}
-                <Button
-                  onClick={handleJoin}
-                  isLoading={joinGroupMutation.isPending}
-                  className="w-full"
-                >
-                  Join Group
-                </Button>
-              </div>
-            )}
-
-            {(searchError || joinGroupMutation.error) && (
-              <div className="p-4 bg-red-900/20 border border-red-300/30 rounded">
-                <Paragraph size="sm" className="text-red-300">
-                  {searchError ||
-                    (joinGroupMutation.error instanceof Error
-                      ? joinGroupMutation.error.message
-                      : "Failed to join group")}
-                </Paragraph>
-              </div>
-            )}
-          </div>
-        </div>
+      <div>
+        <label htmlFor="search-group-slug">Group Slug</label>
+        <input
+          id="search-group-slug"
+          data-testid="search-group-slug-input"
+          type="text"
+          value={slug}
+          onChange={(e) => setSlug(e.target.value)}
+          placeholder="my-group"
+          disabled={isSearching}
+        />
+        <button
+          data-testid="search-group-button"
+          onClick={handleSearch}
+          disabled={!slug.trim() || isSearching}
+        >
+          <Search aria-hidden="true" />
+          {isSearching ? "Searching..." : "Search"}
+        </button>
       </div>
+
+      {foundGroup && (
+        <div data-testid="search-group-result">
+          <h2>{foundGroup.name}</h2>
+          <p>Slug: {foundGroup.slug}</p>
+          {foundGroup.description && <p>{foundGroup.description}</p>}
+          <button
+            data-testid="join-group-button"
+            onClick={handleJoin}
+            disabled={joinGroupMutation.isPending}
+          >
+            {joinGroupMutation.isPending ? "Joining..." : "Join Group"}
+          </button>
+        </div>
+      )}
+
+      {(searchError || joinGroupMutation.error) && (
+        <p data-testid="search-group-error">
+          {searchError ||
+            (joinGroupMutation.error instanceof Error
+              ? joinGroupMutation.error.message
+              : "Failed to join group")}
+        </p>
+      )}
     </div>
   );
 };

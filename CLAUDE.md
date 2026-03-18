@@ -4,215 +4,161 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Pollis is a privacy-first desktop messaging app with end-to-end encryption using Signal Protocol. Built with Wails (Go + React), it combines Signal's security with Slack's group messaging features. The server never sees message plaintext.
+Pollis is a privacy-first desktop messaging app with end-to-end encryption using Signal Protocol. Built with Tauri 2 (Rust + React), it combines Signal's security with Slack's group messaging features. The server never sees message plaintext.
 
-**Stack**: Wails v2, React/TypeScript, Go, gRPC, Turso (libSQL), Signal Protocol
+**Stack**: Tauri 2, React/TypeScript, Rust, Turso (libSQL), Signal Protocol
 
-**Key Architecture**: Desktop app connects **directly** to Turso (1 hop). Server exists ONLY for WebRTC signaling, message relay, and key exchange coordination. All CRUD operations (users, groups, channels) go through Wails backend → Turso, NOT through the gRPC server.
+**Key Architecture**: Tauri Rust backend connects **directly** to Turso (1 hop) for all CRUD. No separate backend server. All operations go through Tauri commands invoked from the React frontend.
 
 ## Development Commands
 
 ### Setup
 ```bash
-pnpm install              # Install dependencies
-pnpm proto                # Generate protobuf code (required after proto changes)
-cp .env.example .env.local # Set up environment (add Turso credentials)
+pnpm install              # Install JS dependencies
+pnpm secrets:decrypt      # Decrypt secrets.enc.env → .env.development (requires age key)
 ```
+
+`.env.development` is loaded automatically in dev builds via `dotenvy::from_filename(".env.development")` in `src-tauri/src/lib.rs`. No manual sourcing needed.
 
 ### Running
 ```bash
-pnpm dev                  # Run server + desktop app
-pnpm dev:wails            # Run desktop app only (includes embedded server)
-pnpm dev:frontend         # Run frontend in browser
-pnpm dev:server           # Run gRPC server only
+pnpm dev                  # Run Tauri desktop app (Rust + React)
+pnpm dev:frontend         # Run frontend in browser only (no Tauri commands)
 ```
 
 ### Building
 ```bash
-pnpm build:app            # Build for current platform (uses .env.production)
-pnpm build:macos          # Build universal macOS binary
-pnpm build:linux          # Build Linux amd64 binary
-pnpm build:windows        # Build Windows amd64 binary
+pnpm build                # Build for current platform
+pnpm build:linux          # Linux amd64
+pnpm build:macos          # Universal macOS binary
+pnpm build:windows        # Windows amd64
 ```
 
-**How config embedding works**: Production builds source `.env.production`, then `scripts/build-ldflags.sh` converts env vars into Go `-X` ldflags that are compiled into the binary. The resulting app is fully self-contained — no env files needed on the target machine. At runtime, `os.Getenv()` can still override any embedded value (useful for dev via `.env.local`).
-
-**For CI builds**: GitHub Actions secrets provide the env vars instead of `.env.production`. The same `build-ldflags.sh` script generates the ldflags.
-
-### Protobuf
+### Secrets Management
 ```bash
-pnpm proto                # Generate Go/TypeScript code from proto files
-make proto                # Alternative using Makefile
-```
-
-### Server Commands
-```bash
-cd server
-go run cmd/server/main.go              # Run server directly
-go run cmd/reset_schema.go             # Reset remote database (destructive)
-go test ./...                          # Run Go tests
+pnpm secrets:decrypt      # Decrypt secrets.enc.env → .env.development
+pnpm secrets:encrypt      # Encrypt .env.development → secrets.enc.env
+pnpm secrets:edit         # Edit secrets in-place with SOPS
 ```
 
 ## Architecture
 
-### 🎯 CRITICAL: Network Architecture
+### Network Architecture
 
-**Desktop App → Turso (DIRECT libSQL connection)**
-- ✅ **1 network hop** - simple and fast
-- Desktop app is compiled Go - same capabilities as server!
-- Uses libSQL driver directly to connect to Turso
+**Tauri Rust backend → Turso (DIRECT libsql connection)**
+- 1 network hop — simple and fast
+- Rust backend has same DB access as any server
 
-**Server ONLY exists for:**
-- 🔄 **WebRTC signaling** (needs central coordination)
-- 📨 **Message relay** (for offline delivery)
-- 🔑 **Key exchange coordination** (when users establish sessions)
+**No separate gRPC/HTTP server** — that has been removed. All backend logic runs in the Tauri process.
 
-**Desktop app handles DIRECTLY (no server middleman):**
-- ✅ User profile CRUD (username, avatar, etc.)
-- ✅ Groups and channels CRUD
-- ✅ Reading/writing to Turso
-- ✅ R2 uploads/downloads (avatar images, file attachments)
-
-**DO NOT add gRPC endpoints for CRUD operations** - the desktop app should connect to Turso directly using the libSQL client.
+**Tauri handles directly:**
+- User profile CRUD
+- Groups and channels CRUD
+- Reading/writing to Turso
+- R2 uploads/downloads
+- Signal protocol operations
+- Auth (email OTP + session in OS keystore)
 
 ### Data Storage Model
 
-**Remote Database (Turso)** - Stores public metadata:
-- Users (id, clerk_id, username, email, phone, avatar_url)
-- Groups, channels, membership
+**Remote Database (Turso)** — public metadata:
+- Users, groups, channels, membership
 - Public keys for Signal Protocol key exchange
 - Encrypted message envelopes (for offline delivery)
 - **Never stores**: message plaintext, private keys
 
-**Local Database (SQLite)** - Stores secrets:
+**Local Database (SQLite via rusqlite)** — secrets:
 - Encrypted messages (ciphertext, nonce)
-- Private keys (encrypted at rest)
 - Signal protocol session state
 - **Never stores**: user profiles, groups, channels (fetched from remote)
 
+**OS Keystore (keyring crate)**:
+- Ed25519 identity key pair
+- Session token
+
 ### Frontend Data Fetching
 
-All non-encrypted data uses **React Query** with network-first strategy:
+All backend calls use `invoke()` from `@tauri-apps/api/core`, wrapped in React Query hooks:
 
 ```typescript
 // React Query hooks in frontend/src/hooks/queries/
-useUserProfile()                    // User profile (username, email, avatar)
-useUserGroups()                     // Groups user belongs to
-useGroupChannels(groupId)           // Channels in a group
-useChannelMessages(channelId)       // Messages (encrypted, from local DB)
-useCreateGroup()                    // Create group mutation
-useSendMessage()                    // Send message mutation
+useUserProfile()                    // invoke("get_user_profile")
+useUserGroups()                     // invoke("list_user_groups")
+useGroupChannels(groupId)           // invoke("list_group_channels", { groupId })
+useChannelMessages(channelId)       // invoke("list_messages", { channelId })
+useSendMessage()                    // invoke("send_message", ...)
 ```
 
-**React Query calls Wails backend → Wails backend calls Turso directly** (no gRPC server for CRUD).
-
-**Benefits**: Automatic caching, deduplication, refetching, optimistic updates, cache invalidation.
+**React Query is the source of truth** for remote data — don't duplicate in Zustand.
 
 **Zustand store**: Only holds UI state (selected group/channel), current user reference, temporary session data.
 
-### Message Encryption Flow
+### Tauri Commands
 
-**Sending**:
-1. User types message → Frontend encrypts with Signal protocol
-2. Store encrypted locally in SQLite
-3. Send ciphertext to **server** via gRPC (server needed for message relay)
-4. Server stores in message_envelope for delivery
-5. Recipients fetch envelope, decrypt locally
+Implemented in `src-tauri/src/commands/`, registered in `src-tauri/src/lib.rs`:
 
-**Key Exchange (X3DH)**:
-- Alice requests Bob's prekey bundle via **server** (coordination needed)
-- Derives shared secret using X3DH
-- Creates session, encrypts first message
-- Both establish session for ongoing communication
+- **auth**: `initialize_identity`, `get_identity`, `request_otp`, `verify_otp`, `get_session`, `logout`
+- **user**: `get_user_profile`, `update_user_profile`, `search_user_by_username`
+- **groups**: `list_user_groups`, `list_group_channels`, `create_group`, `create_channel`, `invite_to_group`
+- **messages**: `list_messages`, `send_message`, `poll_pending_messages`
+- **signal**: `get_prekey_bundle`, `rotate_signed_prekey`, `replenish_one_time_prekeys`
+- **livekit**: `get_livekit_token`
+- **r2**: `upload_file`, `download_file`
 
 ### Project Structure
 
 ```
-frontend/           # React app (Vite, TypeScript, TailwindCSS)
+src-tauri/              # Rust backend (Tauri)
   src/
-    hooks/queries/  # React Query hooks (useUserProfile, useGroups, useMessages)
-    types/          # TypeScript types (documented with storage location)
-    components/     # React components
-    services/       # API client
-server/             # gRPC server
-  cmd/              # Server executables (main.go, reset_schema.go, etc.)
-  internal/         # Server logic (handlers, database, migrations)
-internal/           # Desktop app Go code (Wails backend)
-  services/         # Business logic services
-  database/         # Local SQLite database
-  signal/           # Signal protocol implementation
-pkg/proto/          # Shared protobuf definitions
-packages/monopollis # Shared React UI library for frontend and website
-website             # Next.js app on Vercel for auth and marketing info
-```
-
-### Database Migrations
-
-**Remote migrations** (server/internal/database/migrations/):
-- Run automatically on server startup
-- Tracked in `schema_migrations` table
-- Create new migration: `NNN_description.sql` (increment number)
-
-**Local migrations** (internal/database/migrations/):
-- Applied to desktop app's local SQLite database
-- Stores encrypted messages and crypto state
-
-**Resetting remote DB**: `cd server && go run cmd/reset_schema.go` (destructive)
-
-## Type Safety
-
-TypeScript types in `frontend/src/types/index.ts` are documented with:
-- Storage location (Remote DB vs Local DB)
-- React Query hook for fetching
-- Security notes (encrypted, never persisted, etc.)
-
-Example:
-```typescript
-export interface Message {
-  // Stored in: Local DB (encrypted)
-  // Fetched via: useChannelMessages()
-  // CRITICAL: Encrypted content NEVER leaves device in plaintext
-  id: string;
-  ciphertext: Uint8Array;  // Signal protocol encrypted
-  content_decrypted?: string;  // In-memory only, never persisted
-}
+    commands/           # Tauri command handlers
+    config.rs           # Config from env vars
+    db.rs               # Turso + local SQLite
+    keystore.rs         # OS keystore (keyring)
+    signal/             # Signal protocol
+    state.rs            # AppState
+    lib.rs              # App setup, command registration
+frontend/               # React app (Vite, TypeScript, TailwindCSS)
+  src/
+    hooks/queries/      # React Query hooks
+    types/              # TypeScript types
+    components/         # React components
+    pages/              # Route pages
+website/                # Next.js marketing site (Vercel)
 ```
 
 ## Security Model
 
-**Trusted**: User's device, local database (encrypted at rest), desktop app code
+**Trusted**: User's device, local database (encrypted at rest), Tauri app code, OS keystore
 
-**Untrusted**: Network, remote server, server operators
+**Untrusted**: Network, Turso database, server operators
 
-**Server can see**: User metadata, group membership, message metadata (sender, timestamp, size), connection patterns
+**Turso can see**: User metadata, group membership, message metadata (sender, timestamp, size), connection patterns
 
-**Server cannot see**: Message content (encrypted), private keys (never leave device)
+**Turso cannot see**: Message content (encrypted), private keys (never leave device)
 
 ## Key Files
 
-- `app.go` - Wails app entry point, service initialization
-- `frontend/src/main.tsx` - React app entry point
-- `frontend/src/services/api.ts` - API client for backend calls
-- `server/cmd/server/main.go` - gRPC server entry point
-- `pkg/proto/pollis.proto` - gRPC service definitions
-- `ARCHITECTURE.md` - Detailed architecture documentation (read this first for deep dives)
+- `src-tauri/src/lib.rs` — Tauri app entry point, command registration
+- `src-tauri/src/commands/` — All Tauri command implementations
+- `src-tauri/src/state.rs` — AppState shared across commands
+- `frontend/src/main.tsx` — React app entry point
+- `frontend/src/hooks/queries/` — React Query hooks
+- `ARCHITECTURE.md` — Detailed architecture documentation
 
 ## Important Notes
 
-- **Desktop app connects DIRECTLY to Turso** - Do NOT route CRUD operations through the gRPC server
-- **Server is ONLY for signaling/relay** - WebRTC signaling, message relay, key exchange coordination
-- **Always regenerate protobuf code** after modifying `.proto` files: `pnpm proto`
+- **Tauri backend connects DIRECTLY to Turso** — no server middleman for CRUD
+- **All backend calls from frontend use `invoke()`** — never fetch() to a local server
+- **React Query is the source of truth** for remote data — don't duplicate in Zustand
+- **Local DB should NOT have users/groups/channels tables** — those come from remote Turso
+- **TypeScript types should match Rust structs** — keep them synchronized
 - **Prefer editing existing files** over creating new ones
-- **React Query is the source of truth** for remote data - don't duplicate in Zustand
-- **Local DB should NOT have users/groups/channels tables** - those come from remote Turso
-- **TypeScript types should match Go models** - keep them synchronized
-- **Migrations run automatically** on server startup - create new files, don't modify existing ones
+- **Always use `pnpm`** not `npm`
 
+## Coding Style
 
-## Other tidbits
-- When responding be as succint as possible unless I ask for full explanation
-- When coding if statements, NEVER use inline statements e.g.
-```
+### If statements always use braces
+```typescript
 // BAD
 if (!currentUser) return;
 
@@ -221,8 +167,13 @@ if (!currentUser) {
   return;
 }
 ```
-- Avoid inline comments, place them above their relevant line
-```
+
+### Comments go above their relevant line, not inline
+```typescript
+// BAD
 checkStatus(); // Verify with backend
+
+// GOOD
+// Verify with backend
+checkStatus();
 ```
-- Always use `pnpm` and not `npm` when possible

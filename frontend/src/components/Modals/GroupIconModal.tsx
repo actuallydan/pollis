@@ -1,8 +1,6 @@
 import React, { useState, useRef } from "react";
-import { X, Upload, Loader2, Image as ImageIcon } from "lucide-react";
-import { useAppStore } from "../../stores/appStore";
+import { X, Upload } from "lucide-react";
 import { uploadGroupIcon } from "../../services/r2-upload";
-import { Button, Paragraph, Header } from "monopollis";
 import type { Group } from "../../types";
 
 interface GroupIconModalProps {
@@ -25,28 +23,25 @@ export const GroupIconModal: React.FC<GroupIconModalProps> = ({
   const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  if (!isOpen || !group) return null;
+  if (!isOpen || !group) {
+    return null;
+  }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
+    if (!file) {
+      return;
+    }
     if (!file.type.startsWith("image/")) {
       setUploadError("Please select an image file");
       return;
     }
-
-    // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       setUploadError("Image must be less than 5MB");
       return;
     }
-
     setSelectedFile(file);
     setUploadError(null);
-
-    // Generate preview
     const reader = new FileReader();
     reader.onload = (e) => {
       setPreview(e.target?.result as string);
@@ -55,28 +50,19 @@ export const GroupIconModal: React.FC<GroupIconModalProps> = ({
   };
 
   const handleUpload = async () => {
-    if (!selectedFile || !group) return;
-
+    if (!selectedFile || !group) {
+      return;
+    }
     setIsUploading(true);
     setUploadError(null);
-
     try {
       const response = await uploadGroupIcon(group.id, selectedFile);
-
       setUploadedUrl(response.public_url || response.object_key);
-
-      // Notify parent component
       if (onIconUpdated) {
         onIconUpdated(response.public_url || response.object_key);
       }
-
-      // TODO: Update group with the new icon URL
-      // This would require backend API to update the group
-
-      // Close modal after a short delay to show success
       setTimeout(() => {
         onClose();
-        // Reset state
         setSelectedFile(null);
         setPreview(null);
         setUploadedUrl(null);
@@ -102,125 +88,73 @@ export const GroupIconModal: React.FC<GroupIconModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <div className="bg-black border border-orange-300/20 rounded-lg w-full max-w-md">
-        <div className="flex items-center justify-between p-4 border-b border-orange-300/20">
-          <Header size="lg">Group Icon</Header>
+    <div data-testid="group-icon-modal">
+      <div>
+        <h2>Group Icon</h2>
+        <button
+          data-testid="close-group-icon-modal-button"
+          onClick={handleClose}
+          disabled={isUploading}
+          aria-label="Close"
+        >
+          <X aria-hidden="true" />
+        </button>
+      </div>
+
+      <div>
+        <p>Group: {group.name}</p>
+
+        {group.icon_url && !preview && (
+          <div data-testid="current-group-icon">
+            <p>Current Icon</p>
+            <img src={group.icon_url} alt={`${group.name} icon`} />
+          </div>
+        )}
+
+        {preview && (
+          <div data-testid="group-icon-preview">
+            <p>Preview</p>
+            <img src={preview} alt="Preview" />
+          </div>
+        )}
+
+        {uploadedUrl && (
+          <p data-testid="group-icon-upload-success">Icon uploaded successfully!</p>
+        )}
+
+        {uploadError && (
+          <p data-testid="group-icon-upload-error">{uploadError}</p>
+        )}
+
+        <input
+          ref={fileInputRef}
+          data-testid="group-icon-file-input"
+          type="file"
+          accept="image/*"
+          onChange={handleFileSelect}
+          aria-label="Select group icon"
+        />
+        <button
+          data-testid="select-group-icon-button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+        >
+          <Upload aria-hidden="true" />
+          {selectedFile ? "Change Image" : "Select Image"}
+        </button>
+
+        {selectedFile && (
           <button
-            onClick={handleClose}
+            data-testid="upload-group-icon-button"
+            onClick={handleUpload}
             disabled={isUploading}
-            className="text-orange-300/70 hover:text-orange-300 disabled:opacity-50 transition-colors"
-            aria-label="Close"
           >
-            <X className="w-5 h-5" />
+            <Upload aria-hidden="true" />
+            {isUploading ? "Uploading..." : "Upload Icon"}
           </button>
-        </div>
+        )}
 
-        <div className="p-4 space-y-4">
-          {/* Group name */}
-          <div>
-            <Paragraph size="sm" className="mb-2 text-orange-300/70">
-              Group: {group.name}
-            </Paragraph>
-          </div>
-
-          {/* Current icon */}
-          {group.icon_url && (
-            <div>
-              <Paragraph size="sm" className="mb-2 text-orange-300/70">
-                Current Icon
-              </Paragraph>
-              <div className="w-24 h-24 rounded-full overflow-hidden border border-orange-300/20">
-                <img
-                  src={group.icon_url}
-                  alt={`${group.name} icon`}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Preview */}
-          {preview && (
-            <div>
-              <Paragraph size="sm" className="mb-2 text-orange-300/70">
-                Preview
-              </Paragraph>
-              <div className="w-24 h-24 rounded-full overflow-hidden border border-orange-300/20">
-                <img
-                  src={preview}
-                  alt="Preview"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Upload success */}
-          {uploadedUrl && (
-            <div className="p-3 bg-green-900/20 border border-green-500/30 rounded">
-              <Paragraph size="sm" className="text-green-400">
-                Icon uploaded successfully!
-              </Paragraph>
-            </div>
-          )}
-
-          {/* Error */}
-          {uploadError && (
-            <div className="p-3 bg-red-900/20 border border-red-500/30 rounded">
-              <Paragraph size="sm" className="text-red-400">
-                {uploadError}
-              </Paragraph>
-            </div>
-          )}
-
-          {/* File input */}
-          <div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFileSelect}
-              className="hidden"
-              aria-label="Select group icon"
-            />
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading}
-              variant="secondary"
-              className="w-full"
-            >
-              <Upload className="w-4 h-4 mr-2" />
-              {selectedFile ? "Change Image" : "Select Image"}
-            </Button>
-          </div>
-
-          {/* Upload button */}
-          {selectedFile && (
-            <Button
-              onClick={handleUpload}
-              disabled={isUploading}
-              className="w-full"
-            >
-              {isUploading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Uploading...
-                </>
-              ) : (
-                <>
-                  <Upload className="w-4 h-4 mr-2" />
-                  Upload Icon
-                </>
-              )}
-            </Button>
-          )}
-
-          {/* Info */}
-          <Paragraph size="sm" className="text-orange-300/50">
-            Supported formats: PNG, JPG, GIF. Max size: 5MB.
-          </Paragraph>
-        </div>
+        <p>Supported formats: PNG, JPG, GIF. Max size: 5MB.</p>
       </div>
     </div>
   );

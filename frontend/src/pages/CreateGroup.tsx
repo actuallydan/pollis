@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
-import { Button, Header, Paragraph, TextInput, Textarea } from "monopollis";
-import { CreateGroup as CreateGroupAPI } from "../../wailsjs/go/main/App";
+import { invoke } from "@tauri-apps/api/core";
 import { deriveSlug, updateURL } from "../utils/urlRouting";
 
 export const CreateGroup: React.FC = () => {
@@ -21,51 +20,39 @@ export const CreateGroup: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!name.trim()) {
       setError("Name is required");
       return;
     }
-
     const finalSlug = (slugEdited ? slug : deriveSlug(name)).trim();
     if (!finalSlug) {
       setError("Slug must contain at least one letter or number");
       return;
     }
-
     if (!currentUser) {
       setError("User not found");
       return;
     }
-
     setIsLoading(true);
     setError(null);
-
     try {
-      const group = await CreateGroupAPI(
-        finalSlug,
-        name.trim(),
-        description.trim() || "",
-        currentUser.id
+      const group = await invoke<{ id: string; name: string; description?: string; owner_id: string; created_at: string }>(
+        'create_group',
+        { name: name.trim(), description: description.trim() || null, ownerId: currentUser.id },
       );
-
-      // Convert to our Group type
       const groupData: any = {
         id: group.id,
-        slug: group.slug,
+        slug: finalSlug,
         name: group.name,
-        description: group.description,
-        created_by: group.created_by,
-        created_at: group.created_at,
-        updated_at: group.updated_at,
+        description: group.description || '',
+        created_by: group.owner_id,
+        created_at: new Date(group.created_at).getTime(),
+        updated_at: new Date(group.created_at).getTime(),
       };
-
       addGroup(groupData);
       setSelectedGroupId(groupData.id);
       updateURL(`/g/${groupData.slug}`);
       window.dispatchEvent(new PopStateEvent("popstate"));
-
-      // Reset form
       setName("");
       setSlug("");
       setSlugEdited(false);
@@ -79,98 +66,86 @@ export const CreateGroup: React.FC = () => {
 
   if (!currentUser) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-black">
-        <Paragraph>Please sign in to create a group</Paragraph>
+      <div data-testid="create-group-no-user">
+        <p>Please sign in to create a group</p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-black overflow-hidden min-w-0 w-full">
-      {/* Header */}
-      <div className="border-b border-orange-300/20 p-4 flex-shrink-0">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={handleBack}
-            className="p-2 text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-colors"
-            aria-label="Back"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <Header size="lg">Create Group</Header>
-        </div>
+    <div data-testid="create-group-page">
+      <div data-testid="create-group-header">
+        <button
+          data-testid="create-group-back-button"
+          onClick={handleBack}
+          aria-label="Back"
+        >
+          <ArrowLeft aria-hidden="true" />
+        </button>
+        <h1>Create Group</h1>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 min-w-0 w-full">
-        <div className="w-full">
-          <div className="w-full max-w-[500px] space-y-6">
-            <div>
-              <Paragraph size="sm" className="mb-6 text-orange-300/70">
-                Create a new group to organize your channels.
-              </Paragraph>
+      <div data-testid="create-group-content">
+        <p>Create a new group to organize your channels.</p>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <TextInput
-                  id="name"
-                  label="Group Name"
-                  value={name}
-                  onChange={(val) => {
-                    setName(val);
-                    // Only auto-update slug if user hasn't manually edited it
-                    if (!slugEdited) {
-                      setSlug(deriveSlug(val));
-                    }
-                  }}
-                  placeholder="My Group"
-                  required
-                  disabled={isLoading}
-                  description="The display name for the group"
-                />
+        <form data-testid="create-group-form" onSubmit={handleSubmit}>
+          <label htmlFor="create-group-name">Group Name</label>
+          <input
+            id="create-group-name"
+            data-testid="create-group-name-input"
+            type="text"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (!slugEdited) {
+                setSlug(deriveSlug(e.target.value));
+              }
+            }}
+            placeholder="My Group"
+            required
+            disabled={isLoading}
+          />
+          <p>The display name for the group</p>
 
-                <TextInput
-                  id="slug"
-                  label="Group Slug"
-                  value={slug}
-                  onChange={(val) => {
-                    setSlug(val.toLowerCase());
-                    setSlugEdited(true);
-                  }}
-                  placeholder="my-group"
-                  required
-                  disabled={isLoading}
-                  description="Lowercase, letters/numbers/hyphens. Auto-generates from name."
-                />
+          <label htmlFor="create-group-slug">Group Slug</label>
+          <input
+            id="create-group-slug"
+            data-testid="create-group-slug-input"
+            type="text"
+            value={slug}
+            onChange={(e) => {
+              setSlug(e.target.value.toLowerCase());
+              setSlugEdited(true);
+            }}
+            placeholder="my-group"
+            required
+            disabled={isLoading}
+          />
+          <p>Lowercase, letters/numbers/hyphens. Auto-generates from name.</p>
 
-                <Textarea
-                  id="description"
-                  label="Description"
-                  value={description}
-                  onChange={setDescription}
-                  placeholder="Group description..."
-                  disabled={isLoading}
-                  description="Optional description for the group"
-                />
+          <label htmlFor="create-group-description">Description</label>
+          <textarea
+            id="create-group-description"
+            data-testid="create-group-description-input"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Group description..."
+            disabled={isLoading}
+          />
+          <p>Optional description for the group</p>
 
-                {error && (
-                  <div className="p-3 bg-red-900/20 border border-red-500/30 rounded">
-                    <Paragraph size="sm" className="text-red-400">
-                      {error}
-                    </Paragraph>
-                  </div>
-                )}
+          {error && (
+            <p data-testid="create-group-error">{error}</p>
+          )}
 
-                <Button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full"
-                >
-                  {isLoading ? "Creating..." : "Create Group"}
-                </Button>
-              </form>
-            </div>
-          </div>
-        </div>
+          <button
+            data-testid="create-group-submit-button"
+            type="submit"
+            disabled={isLoading}
+          >
+            {isLoading ? "Creating..." : "Create Group"}
+          </button>
+        </form>
       </div>
     </div>
   );

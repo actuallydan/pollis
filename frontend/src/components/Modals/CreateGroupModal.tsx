@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { X } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
-import { Card, Button, TextInput, Textarea, Header, Paragraph } from "monopollis";
 import { useCreateGroup } from "../../hooks/queries";
 import { deriveSlug, updateURL } from "../../utils/urlRouting";
 
@@ -22,44 +21,37 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  // Use React Query mutation for creating group
   const createGroupMutation = useCreateGroup();
 
-  if (!isOpen) return null;
+  if (!isOpen) {
+    return null;
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!name.trim()) {
       setError("Name is required");
       return;
     }
-
     const finalSlug = (slugEdited ? slug : deriveSlug(name)).trim();
     if (!finalSlug) {
       setError("Slug must contain at least one letter or number");
       return;
     }
-
     if (!currentUser) {
       setError("User not found");
       return;
     }
-
     setError(null);
-
     try {
       const group = await createGroupMutation.mutateAsync({
         slug: finalSlug,
         name: name.trim(),
         description: description.trim() || "",
       });
-
-      setSelectedGroupId(group.id);
-      updateURL(`/g/${group.slug}`);
+      setSelectedGroupId(group?.id ?? '');
+      updateURL(`/g/${finalSlug}`);
       onClose();
-
-      // Reset form
       setName("");
       setSlug("");
       setSlugEdited(false);
@@ -70,95 +62,90 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-md relative" variant="bordered">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 p-1 text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-colors"
-          aria-label="Close"
-        >
-          <X className="w-5 h-5" />
-        </button>
+    <div data-testid="create-group-modal">
+      <button
+        data-testid="close-create-group-modal-button"
+        onClick={onClose}
+        aria-label="Close"
+      >
+        <X aria-hidden="true" />
+      </button>
 
-        <Header size="lg" className="mb-2 pr-8">
-          Create Group
-        </Header>
-        <Paragraph size="sm" className="mb-6 text-orange-300/70">
-          Create a new group to organize your channels.
-        </Paragraph>
+      <h2>Create Group</h2>
+      <p>Create a new group to organize your channels.</p>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <TextInput
-            id="name"
-            label="Group Name"
-            value={name}
-            onChange={(val) => {
-              setName(val);
-              if (!slugEdited) {
-                setSlug(deriveSlug(val));
-              }
-            }}
-            placeholder="My Group"
-            required
+      <form data-testid="create-group-form" onSubmit={handleSubmit}>
+        <label htmlFor="group-name">Group Name</label>
+        <input
+          id="group-name"
+          data-testid="group-name-input"
+          type="text"
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value);
+            if (!slugEdited) {
+              setSlug(deriveSlug(e.target.value));
+            }
+          }}
+          placeholder="My Group"
+          required
+          disabled={createGroupMutation.isPending}
+        />
+        <p>Enter the display name for the group</p>
+
+        <label htmlFor="group-slug">Group Slug</label>
+        <input
+          id="group-slug"
+          data-testid="group-slug-input"
+          type="text"
+          value={slug}
+          onChange={(e) => {
+            setSlug(e.target.value.toLowerCase());
+            setSlugEdited(true);
+          }}
+          placeholder="my-group"
+          required
+          disabled={createGroupMutation.isPending}
+        />
+        <p>Lowercase, letters/numbers/hyphens. Defaults from name.</p>
+
+        <label htmlFor="group-description">Description (optional)</label>
+        <textarea
+          id="group-description"
+          data-testid="group-description-input"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Group description..."
+          disabled={createGroupMutation.isPending}
+        />
+
+        {(error || createGroupMutation.error) && (
+          <p data-testid="create-group-error">
+            {error ||
+              (createGroupMutation.error instanceof Error
+                ? createGroupMutation.error.message
+                : "Failed to create group")}
+          </p>
+        )}
+
+        <div>
+          <button
+            data-testid="cancel-create-group-button"
+            type="button"
+            onClick={onClose}
             disabled={createGroupMutation.isPending}
-            description="Enter the display name for the group"
-          />
-
-          <TextInput
-            id="slug"
-            label="Group Slug"
-            value={slug}
-            onChange={(val) => {
-              setSlug(val.toLowerCase());
-              setSlugEdited(true);
-            }}
-            placeholder="my-group"
-            required
+          >
+            Cancel
+          </button>
+          <button
+            data-testid="submit-create-group-button"
+            type="submit"
             disabled={createGroupMutation.isPending}
-            description="Lowercase, letters/numbers/hyphens. Defaults from name."
-          />
-
-          <Textarea
-            id="description"
-            label="Description (optional)"
-            value={description}
-            onChange={setDescription}
-            placeholder="Group description..."
-            disabled={createGroupMutation.isPending}
-          />
-
-          {(error || createGroupMutation.error) && (
-            <div className="p-3 bg-red-900/20 border border-red-300/30 rounded">
-              <Paragraph size="sm" className="text-red-300">
-                {error ||
-                  (createGroupMutation.error instanceof Error
-                    ? createGroupMutation.error.message
-                    : "Failed to create group")}
-              </Paragraph>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={onClose}
-              disabled={createGroupMutation.isPending}
-              className="flex-1"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              isLoading={createGroupMutation.isPending}
-              loadingText="Creating..."
-              className="flex-1"
-            >
-              Create
-            </Button>
-          </div>
-        </form>
-      </Card>
+          >
+            {createGroupMutation.isPending ? "Creating..." : "Create"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 };

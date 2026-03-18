@@ -1,26 +1,38 @@
-# Next
+# TODO
 
-## Easiest / lowest risk
-- remove useViewCounter.ts and anywhere it's used, not interested
-- change github action desktop flow to not create new releases of app and not push to R2 if any of the apps fail to build (release job already depends on all 3 builds — may already work as intended, just verify and add R2 guard when that step exists)
-- figure out how to have multiple dev clients for testing work locally (no code changes needed — separate SQLite profiles + separate Clerk test accounts)
-- Create wiki .md files in repo for onboarding developers (how to add a new api endpoint in the server, how to add a protobuf...thing between server and wails app)
-- Make the website much faster, caching, edge, pre-render the root view whatever it takes (site is already minimal on Vercel — main win is static export and reducing the DotMatrix animation cost)
+## Decisions needed
+- **Email provider for OTP auth**: Currently wired to Resend (POST to api.resend.com). Add `RESEND_API_KEY` to your `.env.development`. Alternatives: SendGrid, Mailgun, SMTP. Easy swap in `src-tauri/src/commands/auth.rs`.
+- **`app/` and `website-2/` directories**: Appear to be old prototypes. Delete if not needed.
+- **Session tokens**: Currently using random UUID stored in keystore. Need to decide expiry policy (currently no expiry). Add refresh/expiry logic?
+- **Username setup**: After OTP auth, user gets email as default username. Need a "set username" step on first login?
 
-## Small effort, low risk
-- optimize docker image file size and perf for server (already multi-stage alpine with stripped binary — marginal gains from distroless or trimming apk packages)
-- solution for logging from prod server so we don't need to SSH in (look at cheapest, production ready solutions, ideally free or self-hosted, that create the least amount of code changes to the server) (swap stdlib log for slog/zap + forward to Grafana Loki or similar — additive changes only)
+## Bugs
+- [ ] R2 avatar upload: 403 SignatureDoesNotMatch — canonical request shows `content-type:image/jpeg, image/jpeg` (duplicated), likely caused by reqwest setting Content-Type on top of our SigV4 header. Possibly also a CORS/bucket policy issue. Fix: don't set Content-Type separately in the reqwest call since sigv4_headers already includes it.
+
+## Immediate / in-progress
+- [ ] Add Playwright tests for auth flow, sidebar, messaging (testids are in place)
+- [ ] Wire up Resend API key in config (add to `src-tauri/src/config.rs` and `.env.example`)
+- [ ] Verify OTP auth works end-to-end (request + verify commands added to Tauri)
+- [ ] Add styles pass — UI is intentionally unstyled right now, bring in monopollis-ui components selectively
+- [ ] `useViewCounter.ts` — remove this hook and all usages (not needed)
+- [ ] Remove Clerk dependency from `frontend/package.json` once auth is confirmed working
+
+## Small effort
+- [ ] CI: guard R2 upload step so it only runs if all 3 platform builds succeed (verify release job dependency is correct)
+- [ ] Multiple dev clients for local testing: separate SQLite profiles (different `TAURI_APP_DATA_DIR` or separate Tauri dev instances)
+- [ ] Migration safety: add pre-flight schema check on startup, Turso PITR as backup before running migrations
+- [ ] Website speed: static export + reduce DotMatrix animation cost on Vercel
 
 ## Medium effort
-- Analyze repos and see how we can simplify/improve/speed up the deployment workflow (parallelize desktop platform builds, consolidate caching)
-- research how to safely run migrations and if the target db doesn't have the same schema, how we manage that (currently auto-runs on startup with no rollback — need pre-flight checks, dry-run mode, Turso PITR as safety net)
-- research and document plan to implement local E2E testing of app and server
-- decide how to manage downloads since we don't want users downloading broken builds, but we don't necessarily want them to always have to download the latest if there are issues they identify before I do.
-- Add executables to cdn.pollis.com R2 bucket and add download links to /website, these files should be overwritten on push, if they want older builds, they can get them from github (new website page + R2 upload CI step — coordinates with OTA plan below)
+- [ ] E2E testing plan: Playwright for frontend + mocked Tauri commands for unit tests, real integration tests with test Turso DB
+- [ ] Download management: decide versioning/rollback strategy before adding CDN downloads
+- [ ] CI build optimization: parallelize macOS/Linux/Windows builds, share cargo cache
 
-## Large effort / highest risk
-- create a plan for the application to fetch and run the built frontend from R2, so the app can implement OTA updates. This will require a change to the wails app to run the frontend as a fully detached view, keep some record of the latest frontend version somewhere, and then fetch it if the user's local version is older than the current version (also need to provide a way to tell the user the application is updating) (blocked by R2 downloads item above — high risk of breaking app if update is incomplete or version mismatches)
+## Large effort
+- [ ] OTA updates: fetch built frontend from R2, version check on startup, update flow with user notification (blocked by CDN downloads being set up first)
 
-# Not doing yet
-- manage secrets better between dev and prod/
-- test that adding images to groups works and persists
+## Not doing yet
+- Manage secrets better between dev and prod
+- Test that adding images to groups works and persists
+- Wiki/onboarding docs (low priority while rebuilding)
+- Docker/server logging solutions (server removed, no longer relevant)

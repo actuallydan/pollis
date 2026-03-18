@@ -1,23 +1,19 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { ArrowLeft, Upload, Loader2, User } from "lucide-react";
+import { ArrowLeft, Upload, User } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
-import { Button, Header, Paragraph, TextInput, FilePicker, type FileWithPreview } from "monopollis";
 import { uploadAvatar } from "../services/r2-upload";
 import { updateURL } from "../utils/urlRouting";
 import { resizeImage } from "../utils/imageProcessing";
 import { useUserProfile, useUpdateProfile, useUpdateAvatar, useUserAvatar } from "../hooks/queries";
-import { DeleteFile } from "../../wailsjs/go/main/App";
 
 export const Settings: React.FC = () => {
   const { currentUser } = useAppStore();
 
-  // React Query hooks - handle data fetching and mutations
-  const { data: userData, isLoading, error: loadError } = useUserProfile();
+  const { data: userData, isLoading } = useUserProfile();
   const { data: avatarDownloadUrl } = useUserAvatar();
   const updateProfileMutation = useUpdateProfile();
   const updateAvatarMutation = useUpdateAvatar();
 
-  // Local form state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [currentAvatarUrl, setCurrentAvatarUrl] = useState<string | null>(null);
@@ -25,10 +21,9 @@ export const Settings: React.FC = () => {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [filePickerKey, setFilePickerKey] = useState(0);
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Clean up preview URL when component unmounts or file changes
   useEffect(() => {
     return () => {
       if (preview) {
@@ -37,7 +32,6 @@ export const Settings: React.FC = () => {
     };
   }, [preview]);
 
-  // Initialize form fields when user data loads
   useEffect(() => {
     if (userData) {
       setUsername(userData.username || "");
@@ -46,13 +40,13 @@ export const Settings: React.FC = () => {
     }
   }, [userData]);
 
-  // Update current avatar URL when it loads from React Query
   useEffect(() => {
     setCurrentAvatarUrl(avatarDownloadUrl || null);
   }, [avatarDownloadUrl]);
 
-  const handleFilesChange = (files: FileWithPreview[]) => {
-    if (files.length === 0) {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
       setSelectedFile(null);
       if (preview) {
         URL.revokeObjectURL(preview);
@@ -61,62 +55,33 @@ export const Settings: React.FC = () => {
       setUploadError(null);
       return;
     }
-
-    const file = files[0];
     setSelectedFile(file);
     setUploadError(null);
-
-    // Clean up previous preview
     if (preview) {
       URL.revokeObjectURL(preview);
     }
-
-    // Use preview from FilePicker if available, otherwise create one
-    if (file.preview) {
-      setPreview(file.preview);
-    } else if (file.type.startsWith("image/")) {
+    if (file.type.startsWith("image/")) {
       setPreview(URL.createObjectURL(file));
     }
   };
 
-
   const handleAvatarUpload = useCallback(async () => {
-    if (!selectedFile || !currentUser) return;
-
+    if (!selectedFile || !currentUser) {
+      return;
+    }
     setUploadError(null);
-
     try {
       const oldAvatarKey = userData?.avatar_url;
-
-      // Resize and optimize image
       const optimizedFile = await resizeImage(selectedFile);
-
-      // Upload to R2
-      const response = await uploadAvatar(
-        currentUser.id,
-        "", // No alias/group ID for user avatar
-        optimizedFile
-      );
-
-      // Update avatar URL in Turso - React Query will handle cache invalidation
-      // and automatically refetch the avatar download URL
+      const response = await uploadAvatar(currentUser.id, "", optimizedFile);
       await updateAvatarMutation.mutateAsync(response.object_key);
-
-      // Delete old avatar from R2 if it exists (non-blocking)
-      if (oldAvatarKey) {
-        DeleteFile(oldAvatarKey).catch((error) => {
-          console.error("Failed to delete old avatar:", error);
-          // Non-critical error, continue
-        });
-      }
-
-      // Reset file picker and preview
+      // Old avatar cleanup not implemented (no delete_file command)
       setSelectedFile(null);
       if (preview) {
         URL.revokeObjectURL(preview);
       }
       setPreview(null);
-      setFilePickerKey((prev) => prev + 1);
+      setFileInputKey((prev) => prev + 1);
       setSaveSuccess(true);
     } catch (error) {
       console.error("Failed to upload avatar:", error);
@@ -126,7 +91,6 @@ export const Settings: React.FC = () => {
     }
   }, [selectedFile, currentUser, userData?.avatar_url, preview, updateAvatarMutation]);
 
-  // Auto-hide success message after 3 seconds
   useEffect(() => {
     if (saveSuccess) {
       const timer = setTimeout(() => setSaveSuccess(false), 3000);
@@ -135,20 +99,18 @@ export const Settings: React.FC = () => {
   }, [saveSuccess]);
 
   const handleSave = async () => {
-    if (!currentUser) return;
-
+    if (!currentUser) {
+      return;
+    }
     try {
       await updateProfileMutation.mutateAsync({
         username: username.trim(),
-        email: email.trim() || null,
-        phone: phone.trim() || null,
+        phone: phone.trim() || undefined,
       });
-
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
       console.error("Failed to save settings:", error);
-      // Error is already handled by the mutation
     }
   };
 
@@ -159,188 +121,142 @@ export const Settings: React.FC = () => {
 
   if (!currentUser) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-black">
-        <Paragraph>Please sign in to access settings</Paragraph>
+      <div data-testid="settings-no-user">
+        <p>Please sign in to access settings</p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-black overflow-hidden min-w-0 w-full">
-      {/* Header */}
-      <div className="border-b border-orange-300/20 p-4 flex-shrink-0">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={handleBack}
-            className="p-2 text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-colors"
-            aria-label="Back"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <Header size="lg">Settings</Header>
-        </div>
+    <div data-testid="settings-page">
+      <div data-testid="settings-header">
+        <button
+          data-testid="settings-back-button"
+          onClick={handleBack}
+          aria-label="Back"
+        >
+          <ArrowLeft aria-hidden="true" />
+        </button>
+        <h1>Settings</h1>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 min-w-0 w-full">
-        <div className="w-full">
-          <div className="w-full max-w-[500px] space-y-6">
-            {/* Account Information */}
+      <div data-testid="settings-content">
+        <div>
+          <h2>Account Information</h2>
+
+          {isLoading ? (
+            <span data-testid="settings-loading">Loading...</span>
+          ) : (
             <div>
-              <Header size="base" className="mb-4">
-                Account Information
-              </Header>
+              <label htmlFor="settings-username">Username</label>
+              <input
+                id="settings-username"
+                data-testid="settings-username-input"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="username"
+              />
 
-              <div className="space-y-4">
-                {isLoading ? (
-                  <div className="text-orange-300/70">Loading...</div>
-                ) : (
-                  <>
-                    <TextInput
-                      id="username"
-                      label="Username"
-                      value={username}
-                      onChange={setUsername}
-                      placeholder="username"
-                      type="text"
-                      description="Your username"
-                    />
+              <label htmlFor="settings-email">Email</label>
+              <input
+                id="settings-email"
+                data-testid="settings-email-input"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="your@email.com"
+              />
 
-                    <TextInput
-                      id="email"
-                      label="Email"
-                      value={email}
-                      onChange={setEmail}
-                      placeholder="your@email.com"
-                      type="email"
-                      description="Your email address"
-                    />
+              <label htmlFor="settings-phone">Phone</label>
+              <input
+                id="settings-phone"
+                data-testid="settings-phone-input"
+                type="text"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+1234567890"
+              />
 
-                    <TextInput
-                      id="phone"
-                      label="Phone"
-                      value={phone}
-                      onChange={setPhone}
-                      placeholder="+1234567890"
-                      type="text"
-                      description="Your phone number"
-                    />
-                  </>
-                )}
+            </div>
+          )}
 
-                {updateProfileMutation.error && (
-                  <div className="p-3 bg-red-900/20 border border-red-500/30 rounded">
-                    <Paragraph size="sm" className="text-red-400">
-                      {updateProfileMutation.error instanceof Error
-                        ? updateProfileMutation.error.message
-                        : "Failed to save settings"}
-                    </Paragraph>
-                  </div>
-                )}
+          {updateProfileMutation.error && (
+            <p data-testid="settings-save-error">
+              {updateProfileMutation.error instanceof Error
+                ? updateProfileMutation.error.message
+                : "Failed to save settings"}
+            </p>
+          )}
 
-                {saveSuccess && (
-                  <div className="p-3 bg-green-900/20 border border-green-500/30 rounded">
-                    <Paragraph size="sm" className="text-green-400">
-                      Settings saved successfully!
-                    </Paragraph>
-                  </div>
-                )}
+          {saveSuccess && (
+            <p data-testid="settings-save-success">Settings saved successfully!</p>
+          )}
 
-                <Button
-                  onClick={handleSave}
-                  disabled={updateProfileMutation.isPending}
-                  className="w-full"
-                >
-                  {updateProfileMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    "Save Changes"
-                  )}
-                </Button>
-              </div>
+          <button
+            data-testid="settings-save-button"
+            onClick={handleSave}
+            disabled={updateProfileMutation.isPending}
+          >
+            {updateProfileMutation.isPending ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+
+        <div>
+          <h2>Profile</h2>
+
+          <div>
+            <p>Avatar</p>
+            <div data-testid="avatar-preview-container">
+              {preview ? (
+                <img
+                  data-testid="avatar-new-preview"
+                  src={preview}
+                  alt="Avatar preview"
+                />
+              ) : currentAvatarUrl ? (
+                <img
+                  data-testid="avatar-current"
+                  src={currentAvatarUrl}
+                  alt="Current avatar"
+                  onError={() => setCurrentAvatarUrl(null)}
+                />
+              ) : (
+                <User data-testid="avatar-placeholder" aria-hidden="true" />
+              )}
             </div>
 
-            {/* Profile Section */}
-            <div>
-              <Header size="base" className="mb-4">
-                Profile
-              </Header>
+            <label htmlFor="settings-avatar-input">Select Avatar Image</label>
+            <input
+              key={fileInputKey}
+              id="settings-avatar-input"
+              data-testid="settings-avatar-input"
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              disabled={updateAvatarMutation.isPending}
+              aria-label="Select avatar image"
+            />
+            <p>Supported formats: PNG, JPG, GIF. Max size: 5MB.</p>
 
-              {/* Avatar */}
-              <div className="space-y-4">
-                <div>
-                  <Paragraph size="sm" className="mb-2 text-orange-300/70">
-                    Avatar
-                  </Paragraph>
-                  {/* Always show avatar preview */}
-                  <div className="mb-4">
-                    <div className="w-32 h-32 rounded-full overflow-hidden border border-orange-300/20 mx-auto bg-orange-300/20 flex items-center justify-center">
-                      {preview ? (
-                        <img
-                          src={preview}
-                          alt="Avatar preview"
-                          className="w-full h-full object-cover"
-                        />
-                      ) : currentAvatarUrl ? (
-                        <img
-                          src={currentAvatarUrl}
-                          alt="Current avatar"
-                          className="w-full h-full object-cover"
-                          onError={() => setCurrentAvatarUrl(null)} // Fallback to icon if image fails to load
-                        />
-                      ) : (
-                        <User className="w-16 h-16 text-orange-300/50" />
-                      )}
-                    </div>
-                  </div>
-                  <FilePicker
-                    key={filePickerKey}
-                    label="Select Avatar Image"
-                    accept="image/*"
-                    multiple={false}
-                    maxFiles={1}
-                    maxSize={5 * 1024 * 1024} // 5MB
-                    preview={true}
-                    onFilesChange={handleFilesChange}
-                    showSubmitButton={false}
-                    description="Supported formats: PNG, JPG, GIF. Max size: 5MB."
-                    error={uploadError || undefined}
-                    disabled={updateAvatarMutation.isPending}
-                  />
+            {uploadError && (
+              <p data-testid="avatar-upload-error">{uploadError}</p>
+            )}
 
-                  {saveSuccess && !selectedFile && (
-                    <div className="p-3 bg-green-900/20 border border-green-500/30 rounded mt-4">
-                      <Paragraph size="sm" className="text-green-400">
-                        Avatar uploaded successfully!
-                      </Paragraph>
-                    </div>
-                  )}
+            {saveSuccess && !selectedFile && (
+              <p data-testid="avatar-upload-success">Avatar uploaded successfully!</p>
+            )}
 
-                  {selectedFile && (
-                    <Button
-                      onClick={handleAvatarUpload}
-                      disabled={updateAvatarMutation.isPending}
-                      className="w-full mt-4"
-                    >
-                      {updateAvatarMutation.isPending ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Uploading...
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="w-4 h-4 mr-2" />
-                          Upload Avatar
-                        </>
-                      )}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
+            {selectedFile && (
+              <button
+                data-testid="upload-avatar-button"
+                onClick={handleAvatarUpload}
+                disabled={updateAvatarMutation.isPending}
+              >
+                <Upload aria-hidden="true" />
+                {updateAvatarMutation.isPending ? "Uploading..." : "Upload Avatar"}
+              </button>
+            )}
           </div>
         </div>
       </div>

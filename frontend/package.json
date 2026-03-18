@@ -11,6 +11,7 @@
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2",
     "@clerk/clerk-react": "^5.59.2",
     "@fontsource/atkinson-hyperlegible": "^5.2.8",
     "@internationalized/date": "^3.10.0",
@@ -20,7 +21,6 @@
     "@tanstack/react-router": "^1.157.18",
     "@tanstack/react-table": "^8.21.3",
     "lucide-react": "^0.344.0",
-    "monopollis": "workspace:*",
     "qrcode.react": "^4.2.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
@@ -28,9 +28,6 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
-    "@bufbuild/buf": "^1.61.0",
-    "@bufbuild/protoc-gen-es": "^2.10.2",
-    "@connectrpc/protoc-gen-connect-es": "^1.7.0",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@types/react-window": "^1.8.8",

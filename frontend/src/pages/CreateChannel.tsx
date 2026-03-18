@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
-import { Button, Header, Paragraph, TextInput, Textarea } from "monopollis";
-import { CreateChannel as CreateChannelAPI } from "../../wailsjs/go/main/App";
+import { invoke } from "@tauri-apps/api/core";
 import { deriveSlug, updateURL } from "../utils/urlRouting";
 
 export const CreateChannel: React.FC = () => {
@@ -27,19 +26,15 @@ export const CreateChannel: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!name.trim()) {
       setError("Name is required");
       return;
     }
-
     const finalSlug = (slugEdited ? slug : deriveSlug(name)).trim();
     if (!finalSlug) {
       setError("Slug is required");
       return;
     }
-
-    // Check for duplicate channel slug in the group
     const groupChannels = selectedGroupId ? channels[selectedGroupId] || [] : [];
     const channelSlugLower = finalSlug.toLowerCase();
     const duplicateExists = groupChannels.some((ch) => {
@@ -47,57 +42,42 @@ export const CreateChannel: React.FC = () => {
         (ch as any).slug?.toLowerCase() ?? deriveSlug(ch.name).toLowerCase();
       return existingSlug === channelSlugLower;
     });
-
     if (duplicateExists) {
       setError(`A channel with slug "${finalSlug}" already exists in this group`);
       return;
     }
-
     if (!currentUser) {
       setError("User not found");
       return;
     }
-
     if (!selectedGroupId) {
       setError("Please select a group first");
       return;
     }
-
     setIsLoading(true);
     setError(null);
-
     try {
-      const channel = await CreateChannelAPI(
-        selectedGroupId,
-        finalSlug,
-        name.trim(),
-        description.trim() || "",
-        currentUser.id
+      const channel = await invoke<{ id: string; group_id: string; name: string; description?: string }>(
+        'create_channel',
+        { groupId: selectedGroupId, name: name.trim(), description: description.trim() || null },
       );
-
-      // Convert to our Channel type
       const channelData: any = {
         id: channel.id,
         group_id: channel.group_id,
-        slug: channel.slug,
+        slug: finalSlug,
         name: channel.name,
-        description: channel.description,
-        channel_type: channel.channel_type,
-        created_by: channel.created_by,
-        created_at: channel.created_at,
-        updated_at: channel.updated_at,
+        description: channel.description || '',
+        channel_type: 'text',
+        created_by: currentUser.id,
+        created_at: Date.now(),
+        updated_at: Date.now(),
       };
-
       addChannel(channelData);
       setSelectedChannelId(channelData.id);
-
-      // Navigate to the new channel
       if (currentGroup) {
         updateURL(`/g/${currentGroup.slug}/${finalSlug}`);
         window.dispatchEvent(new PopStateEvent("popstate"));
       }
-
-      // Reset form
       setName("");
       setSlug("");
       setSlugEdited(false);
@@ -111,114 +91,103 @@ export const CreateChannel: React.FC = () => {
 
   if (!currentUser) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-black">
-        <Paragraph>Please sign in to create a channel</Paragraph>
+      <div data-testid="create-channel-no-user">
+        <p>Please sign in to create a channel</p>
       </div>
     );
   }
 
   if (!selectedGroupId || !currentGroup) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-black">
-        <div className="text-center">
-          <Paragraph className="mb-4">Please select a group first</Paragraph>
-          <Button onClick={() => {
+      <div data-testid="create-channel-no-group">
+        <p>Please select a group first</p>
+        <button
+          data-testid="create-channel-go-home-button"
+          onClick={() => {
             updateURL("/");
             window.dispatchEvent(new PopStateEvent("popstate"));
-          }}>
-            Go Home
-          </Button>
-        </div>
+          }}
+        >
+          Go Home
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-black overflow-hidden min-w-0 w-full">
-      {/* Header */}
-      <div className="border-b border-orange-300/20 p-4 flex-shrink-0">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={handleBack}
-            className="p-2 text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-colors"
-            aria-label="Back"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <Header size="lg">Create Channel</Header>
-        </div>
+    <div data-testid="create-channel-page">
+      <div data-testid="create-channel-header">
+        <button
+          data-testid="create-channel-back-button"
+          onClick={handleBack}
+          aria-label="Back"
+        >
+          <ArrowLeft aria-hidden="true" />
+        </button>
+        <h1>Create Channel</h1>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 min-w-0 w-full">
-        <div className="w-full">
-          <div className="w-full max-w-[500px] space-y-6">
-            <div>
-              <Paragraph size="sm" className="mb-6 text-orange-300/70">
-                Create a new channel in {currentGroup.name}.
-              </Paragraph>
+      <div data-testid="create-channel-content">
+        <p>Create a new channel in {currentGroup.name}.</p>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <TextInput
-                  id="name"
-                  label="Channel Name"
-                  value={name}
-                  onChange={(val) => {
-                    setName(val);
-                    // Only auto-update slug if user hasn't manually edited it
-                    if (!slugEdited) {
-                      setSlug(deriveSlug(val));
-                    }
-                  }}
-                  placeholder="General"
-                  required
-                  disabled={isLoading}
-                  description="The display name for the channel"
-                />
+        <form data-testid="create-channel-form" onSubmit={handleSubmit}>
+          <label htmlFor="create-channel-name">Channel Name</label>
+          <input
+            id="create-channel-name"
+            data-testid="create-channel-name-input"
+            type="text"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (!slugEdited) {
+                setSlug(deriveSlug(e.target.value));
+              }
+            }}
+            placeholder="General"
+            required
+            disabled={isLoading}
+          />
+          <p>The display name for the channel</p>
 
-                <TextInput
-                  id="slug"
-                  label="Channel Slug"
-                  value={slug}
-                  onChange={(val) => {
-                    setSlug(val.toLowerCase());
-                    setSlugEdited(true);
-                  }}
-                  placeholder="general"
-                  required
-                  disabled={isLoading}
-                  description="Lowercase, letters/numbers/hyphens. Auto-generates from name."
-                />
+          <label htmlFor="create-channel-slug">Channel Slug</label>
+          <input
+            id="create-channel-slug"
+            data-testid="create-channel-slug-input"
+            type="text"
+            value={slug}
+            onChange={(e) => {
+              setSlug(e.target.value.toLowerCase());
+              setSlugEdited(true);
+            }}
+            placeholder="general"
+            required
+            disabled={isLoading}
+          />
+          <p>Lowercase, letters/numbers/hyphens. Auto-generates from name.</p>
 
-                <Textarea
-                  id="description"
-                  label="Description"
-                  value={description}
-                  onChange={setDescription}
-                  placeholder="Channel description..."
-                  disabled={isLoading}
-                  description="Optional description for the channel"
-                />
+          <label htmlFor="create-channel-description">Description</label>
+          <textarea
+            id="create-channel-description"
+            data-testid="create-channel-description-input"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Channel description..."
+            disabled={isLoading}
+          />
+          <p>Optional description for the channel</p>
 
-                {error && (
-                  <div className="p-3 bg-red-900/20 border border-red-500/30 rounded">
-                    <Paragraph size="sm" className="text-red-400">
-                      {error}
-                    </Paragraph>
-                  </div>
-                )}
+          {error && (
+            <p data-testid="create-channel-error">{error}</p>
+          )}
 
-                <Button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full"
-                >
-                  {isLoading ? "Creating..." : "Create Channel"}
-                </Button>
-              </form>
-            </div>
-          </div>
-        </div>
+          <button
+            data-testid="create-channel-submit-button"
+            type="submit"
+            disabled={isLoading}
+          >
+            {isLoading ? "Creating..." : "Create Channel"}
+          </button>
+        </form>
       </div>
     </div>
   );

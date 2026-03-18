@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Check, Copy, ShieldAlert, ShieldCheck, X } from "lucide-react";
-import { Card, Header, Paragraph, Button, TextInput, Badge } from "monopollis";
 
 interface KeyVerificationProps {
   contactName: string;
@@ -58,156 +57,113 @@ export const KeyVerification: React.FC<KeyVerificationProps> = ({
   };
 
   return (
-    <Card variant="bordered" className="w-full max-w-3xl bg-black">
-      <div className="flex items-start justify-between gap-3">
+    <div data-testid="key-verification">
+      <div>
         <div>
-          <Header size="lg" className="mb-1">
-            Verify {contactName}
-          </Header>
-          <Paragraph size="sm" className="text-orange-300/70">
-            Compare safety numbers or scan QR to verify the contact&apos;s
-            identity.
-          </Paragraph>
+          <h1>Verify {contactName}</h1>
+          <p>Compare safety numbers or scan QR to verify the contact's identity.</p>
         </div>
         {keyChanged && (
-          <Badge
-            variant="warning"
-            size="sm"
-            className="flex items-center gap-1"
-          >
-            <ShieldAlert className="w-4 h-4" />
+          <span>
+            <ShieldAlert aria-hidden="true" />
             Key changed
-          </Badge>
+          </span>
         )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-        <div className="p-3 border border-orange-300/20 rounded">
-          <Header size="sm" className="mb-2 flex items-center gap-2">
+      <div>
+        <div>
+          <h3>
             Your safety number
-            <Badge variant="default" size="sm">
-              You
-            </Badge>
-          </Header>
-          <div className="flex flex-wrap gap-1 font-mono text-sm text-orange-300">
+            <span>You</span>
+          </h3>
+          <div>
             {localGroups.map((g, idx) => (
-              <span
-                key={`local-${idx}`}
-                className="px-2 py-1 bg-orange-300/10 border border-orange-300/20 rounded"
-              >
-                {g}
-              </span>
+              <span key={`local-${idx}`}>{g}</span>
             ))}
           </div>
         </div>
 
-        <div className="p-3 border border-orange-300/20 rounded">
-          <Header size="sm" className="mb-2 flex items-center gap-2">
-            {contactName}&apos;s safety number
+        <div>
+          <h3>
+            {contactName}'s safety number
             {keyChanged ? (
-              <Badge variant="warning" size="sm">
-                Needs verification
-              </Badge>
+              <span>Needs verification</span>
             ) : (
-              <Badge variant="success" size="sm">
-                Current
-              </Badge>
+              <span>Current</span>
             )}
-          </Header>
-          <div className="flex flex-wrap gap-1 font-mono text-sm text-orange-300">
+          </h3>
+          <div>
             {remoteGroups.map((g, idx) => (
-              <span
-                key={`remote-${idx}`}
-                className="px-2 py-1 bg-orange-300/10 border border-orange-300/20 rounded"
-              >
-                {g}
-              </span>
+              <span key={`remote-${idx}`}>{g}</span>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="p-3 border border-orange-300/20 rounded flex items-center justify-center bg-orange-300/5">
-          <div className="text-center space-y-2">
-            <QRCodeSVG
-              value={`pollis-verification:${remoteFingerprint}`}
-              size={160}
-              bgColor="#000000"
-              fgColor="#fdba74"
-              includeMargin
-            />
-            <Paragraph size="sm" className="text-orange-300/70">
-              Scan to verify out-of-band
-            </Paragraph>
-            <Button
-              variant="secondary"
-              onClick={handleCopy}
-              icon={
-                copied ? (
-                  <Check className="w-4 h-4" />
-                ) : (
-                  <Copy className="w-4 h-4" />
-                )
-              }
-              className="w-full"
-            >
-              {copied ? "Copied" : "Copy safety number"}
-            </Button>
-          </div>
+      <div>
+        <div>
+          <QRCodeSVG
+            value={`pollis-verification:${remoteFingerprint}`}
+            size={160}
+            bgColor="#000000"
+            fgColor="#fdba74"
+            includeMargin
+          />
+          <p>Scan to verify out-of-band</p>
+          <button
+            data-testid="copy-safety-number-button"
+            onClick={handleCopy}
+            aria-label="Copy safety number"
+          >
+            {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+            {copied ? "Copied" : "Copy safety number"}
+          </button>
         </div>
 
-        <div className="p-3 border border-orange-300/20 rounded space-y-3">
-          <Header size="sm" className="mb-1">
-            Manual comparison
-          </Header>
-          <TextInput
-            label="Enter the safety number you see on their device"
+        <div>
+          <h3>Manual comparison</h3>
+          <label htmlFor="manual-entry">Enter the safety number you see on their device</label>
+          <input
+            id="manual-entry"
+            data-testid="manual-safety-number-input"
+            type="text"
             value={manualEntry}
-            onChange={setManualEntry}
+            onChange={(e) => setManualEntry(e.target.value)}
             placeholder="ABCDE FGHIJ ..."
           />
-          <div className="flex items-center gap-2">
+          <div>
             {matches ? (
-              <Badge
-                variant="success"
-                size="sm"
-                className="flex items-center gap-1"
-              >
-                <ShieldCheck className="w-4 h-4" />
+              <span data-testid="safety-number-match">
+                <ShieldCheck aria-hidden="true" />
                 Matches
-              </Badge>
+              </span>
             ) : (
-              <Badge
-                variant="warning"
-                size="sm"
-                className="flex items-center gap-1"
-              >
-                <X className="w-4 h-4" />
+              <span data-testid="safety-number-no-match">
+                <X aria-hidden="true" />
                 Not verified
-              </Badge>
+              </span>
             )}
           </div>
-          <div className="flex gap-2">
-            <Button
+          <div>
+            <button
+              data-testid="mark-verified-button"
               onClick={() => onVerified?.(contactId)}
               disabled={!matches}
-              className="flex-1"
-              icon={<ShieldCheck className="w-4 h-4" />}
             >
+              <ShieldCheck aria-hidden="true" />
               Mark as verified
-            </Button>
-            <Button
-              variant="secondary"
+            </button>
+            <button
+              data-testid="cancel-verification-button"
               onClick={onCancel}
-              className="flex-1"
-              icon={<X className="w-4 h-4" />}
             >
+              <X aria-hidden="true" />
               Cancel
-            </Button>
+            </button>
           </div>
         </div>
       </div>
-    </Card>
+    </div>
   );
 };

@@ -54,7 +54,9 @@ pkg/proto/gen/
 
 # Environment
 .env.production
+.env.development
 .env.local
+*.enc.env
 
 # Turborepo
 .turbo
@@ -65,3 +67,5 @@ node_modules/
 
 temp/
 .claude/
+
+src-tauri/target/

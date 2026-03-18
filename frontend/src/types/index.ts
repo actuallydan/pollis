@@ -8,11 +8,10 @@
 // This is Signal (e2e encryption) + Slack (group features)
 
 export interface User {
-  id: string; // ULID
-  clerk_id: string; // Required, links to Clerk account
-  // Note: username, email, phone, avatar_url stored in remote DB only
-  // Fetched via useUserProfile() React Query hook
-  // Note: identity keys are not exposed to frontend for security
+  id: string;
+  clerk_id: string; // Legacy Clerk field, unused — kept for compatibility
+  email?: string;
+  username?: string;
   created_at: number;
   updated_at: number;
 }

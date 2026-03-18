@@ -1,0 +1,33 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+use crate::config::Config;
+use crate::db::{local::LocalDb, remote::RemoteDb};
+
+#[derive(Clone)]
+pub struct OtpEntry {
+    pub hash: String,
+    pub expires_at: u64,
+}
+
+pub struct AppState {
+    pub config: Config,
+    pub local_db: Arc<Mutex<LocalDb>>,
+    pub remote_db: Arc<RemoteDb>,
+    pub otp_store: Arc<Mutex<HashMap<String, OtpEntry>>>,
+}
+
+impl AppState {
+    pub async fn new(config: Config) -> crate::error::Result<Self> {
+        let local_db = LocalDb::open()?;
+        let remote_db = RemoteDb::connect(&config.turso_url, &config.turso_token).await?;
+
+        Ok(Self {
+            config,
+            local_db: Arc::new(Mutex::new(local_db)),
+            remote_db: Arc::new(remote_db),
+            otp_store: Arc::new(Mutex::new(HashMap::new())),
+        })
+    }
+}

@@ -3,13 +3,11 @@ import {
   Download,
   Upload,
   ShieldCheck,
-  ShieldAlert,
   Lock,
   RefreshCw,
   Eye,
   EyeOff,
 } from "lucide-react";
-import { Card, Header, Paragraph, Button, TextInput, Badge, Switch } from "monopollis";
 
 export interface VerifiedContact {
   id: string;
@@ -49,19 +47,7 @@ const strength = (password: string) => {
   if (/[^A-Za-z0-9]/.test(password)) score += 1;
 
   const labels = ["Very weak", "Weak", "Fair", "Good", "Strong", "Excellent"];
-  const colors = [
-    "bg-red-500",
-    "bg-orange-500",
-    "bg-yellow-500",
-    "bg-lime-500",
-    "bg-green-500",
-    "bg-emerald-500",
-  ];
-  return {
-    score,
-    label: labels[score],
-    color: colors[score],
-  };
+  return { score, label: labels[score] };
 };
 
 export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
@@ -81,250 +67,177 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
   const [showExportPassword, setShowExportPassword] = useState(false);
   const [showImportPassword, setShowImportPassword] = useState(false);
 
-  const exportStrength = useMemo(
-    () => strength(exportPassword),
-    [exportPassword]
-  );
-  const importStrength = useMemo(
-    () => strength(importPassword),
-    [importPassword]
-  );
+  const exportStrength = useMemo(() => strength(exportPassword), [exportPassword]);
+  const importStrength = useMemo(() => strength(importPassword), [importPassword]);
 
   return (
-    <div className="space-y-4">
-      <Card variant="bordered">
-        <Header size="lg" className="mb-2 flex items-center gap-2">
-          <Lock className="w-5 h-5" />
+    <div data-testid="security-settings">
+      <div>
+        <h1>
+          <Lock aria-hidden="true" />
           Security Settings
-        </Header>
-        <Paragraph size="sm" className="text-orange-300/70">
-          Manage your identity keys, backups, and verification settings.
-        </Paragraph>
-      </Card>
+        </h1>
+        <p>Manage your identity keys, backups, and verification settings.</p>
+      </div>
 
-      <Card variant="bordered">
-        <Header size="sm" className="mb-2">
-          Your safety number
-        </Header>
-        <Paragraph size="sm" className="font-mono text-orange-300">
-          {formatFingerprint(ownFingerprint)}
-        </Paragraph>
-      </Card>
+      <div>
+        <h3>Your safety number</h3>
+        <p>{formatFingerprint(ownFingerprint)}</p>
+      </div>
 
-      <Card variant="bordered">
-        <Header size="sm" className="mb-2 flex items-center gap-2">
-          Message previews
-        </Header>
-        <div className="flex items-center justify-between">
-          <Paragraph size="sm" className="text-orange-300/70">
-            Show decrypted previews in notifications (may leak on lock screen).
-          </Paragraph>
-          <Switch
-            label=""
-            checked={messagePreviewsEnabled}
-            onChange={(val) => onToggleMessagePreviews?.(val)}
-          />
-        </div>
-      </Card>
-
-      <Card variant="bordered">
-        <Header size="sm" className="mb-3 flex items-center gap-2">
-          Encrypted backup
-        </Header>
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="p-3 border border-orange-300/20 rounded space-y-2">
-            <Header size="sm">Export keys</Header>
-            <TextInput
-              label="Backup password"
-              value={exportPassword}
-              onChange={setExportPassword}
-              type={showExportPassword ? "text" : "password"}
-              placeholder="Strong unique password"
+      <div>
+        <h3>Message previews</h3>
+        <div>
+          <p>Show decrypted previews in notifications (may leak on lock screen).</p>
+          <label>
+            <input
+              data-testid="message-previews-toggle"
+              type="checkbox"
+              checked={messagePreviewsEnabled}
+              onChange={(e) => onToggleMessagePreviews?.(e.target.checked)}
             />
-            <div className="flex items-center gap-2">
-              <div className="w-24 h-2 bg-orange-300/20 rounded">
-                <div
-                  className={`h-2 rounded ${exportStrength.color}`}
-                  style={{ width: `${(exportStrength.score / 5) * 100}%` }}
-                />
-              </div>
-              <Paragraph size="sm" className="text-orange-300/70">
-                {exportStrength.label}
-              </Paragraph>
+            Enable
+          </label>
+        </div>
+      </div>
+
+      <div>
+        <h3>Encrypted backup</h3>
+        <div>
+          <div>
+            <h3>Export keys</h3>
+            <label htmlFor="export-password">Backup password</label>
+            <div>
+              <input
+                id="export-password"
+                data-testid="export-password-input"
+                type={showExportPassword ? "text" : "password"}
+                value={exportPassword}
+                onChange={(e) => setExportPassword(e.target.value)}
+                placeholder="Strong unique password"
+              />
               <button
-                className="text-orange-300/70 hover:text-orange-300"
                 type="button"
                 onClick={() => setShowExportPassword((p) => !p)}
                 aria-label="Toggle password visibility"
               >
-                {showExportPassword ? (
-                  <EyeOff className="w-4 h-4" />
-                ) : (
-                  <Eye className="w-4 h-4" />
-                )}
+                {showExportPassword ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
               </button>
             </div>
-            <Button
-              icon={<Download className="w-4 h-4" />}
+            <p>{exportStrength.label}</p>
+            <button
+              data-testid="export-backup-button"
               onClick={() => onExportBackup?.(exportPassword)}
               disabled={exportStrength.score < 3}
             >
+              <Download aria-hidden="true" />
               Export encrypted backup
-            </Button>
-            <Paragraph size="sm" className="text-orange-300/60">
-              Store the backup in a safe place. Losing it means losing access.
-            </Paragraph>
+            </button>
+            <p>Store the backup in a safe place. Losing it means losing access.</p>
           </div>
 
-          <div className="p-3 border border-orange-300/20 rounded space-y-2">
-            <Header size="sm">Import keys</Header>
-            <TextInput
-              label="Backup password"
-              value={importPassword}
-              onChange={setImportPassword}
-              type={showImportPassword ? "text" : "password"}
-              placeholder="Password used during export"
-            />
-            <div className="flex items-center gap-2">
-              <div className="w-24 h-2 bg-orange-300/20 rounded">
-                <div
-                  className={`h-2 rounded ${importStrength.color}`}
-                  style={{ width: `${(importStrength.score / 5) * 100}%` }}
-                />
-              </div>
-              <Paragraph size="sm" className="text-orange-300/70">
-                {importStrength.label}
-              </Paragraph>
+          <div>
+            <h3>Import keys</h3>
+            <label htmlFor="import-password">Backup password</label>
+            <div>
+              <input
+                id="import-password"
+                data-testid="import-password-input"
+                type={showImportPassword ? "text" : "password"}
+                value={importPassword}
+                onChange={(e) => setImportPassword(e.target.value)}
+                placeholder="Password used during export"
+              />
               <button
-                className="text-orange-300/70 hover:text-orange-300"
                 type="button"
                 onClick={() => setShowImportPassword((p) => !p)}
                 aria-label="Toggle password visibility"
               >
-                {showImportPassword ? (
-                  <EyeOff className="w-4 h-4" />
-                ) : (
-                  <Eye className="w-4 h-4" />
-                )}
+                {showImportPassword ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
               </button>
             </div>
+            <p>{importStrength.label}</p>
             <input
+              data-testid="import-backup-file-input"
               type="file"
               accept=".json,.bak"
               onChange={(e) => setImportFile(e.target.files?.[0])}
-              className="text-sm text-orange-300/80"
+              aria-label="Select backup file"
             />
-            <Button
-              icon={<Upload className="w-4 h-4" />}
+            <button
+              data-testid="import-backup-button"
               onClick={() => onImportBackup?.(importPassword, importFile)}
               disabled={!importFile || importStrength.score < 2}
             >
+              <Upload aria-hidden="true" />
               Import backup
-            </Button>
-            <Paragraph size="sm" className="text-orange-300/60">
-              Imports will replace your current identity keys. Use cautiously.
-            </Paragraph>
+            </button>
+            <p>Imports will replace your current identity keys. Use cautiously.</p>
           </div>
         </div>
-      </Card>
+      </div>
 
-      <Card variant="bordered">
-        <Header size="sm" className="mb-2 flex items-center gap-2">
+      <div>
+        <h3>
           Verified contacts
-          <Badge variant="success" size="sm">
-            {verifiedContacts.length}
-          </Badge>
-        </Header>
+          <span>{verifiedContacts.length}</span>
+        </h3>
         {verifiedContacts.length === 0 ? (
-          <Paragraph size="sm" className="text-orange-300/70">
-            No verified contacts yet.
-          </Paragraph>
+          <p>No verified contacts yet.</p>
         ) : (
-          <div className="space-y-2">
+          <div>
             {verifiedContacts.map((c) => (
-              <div
-                key={c.id}
-                className="p-2 border border-orange-300/20 rounded flex items-center justify-between"
-              >
+              <div key={c.id} data-testid={`verified-contact-${c.id}`}>
                 <div>
-                  <Paragraph size="sm" className="text-orange-300">
-                    {c.name}
-                  </Paragraph>
-                  <Paragraph size="sm" className="text-orange-300/60 font-mono">
-                    {formatFingerprint(c.fingerprint)}
-                  </Paragraph>
+                  <p>{c.name}</p>
+                  <p>{formatFingerprint(c.fingerprint)}</p>
                 </div>
-                <Badge
-                  variant="success"
-                  size="sm"
-                  className="flex items-center gap-1"
-                >
-                  <ShieldCheck className="w-4 h-4" />
+                <span>
+                  <ShieldCheck aria-hidden="true" />
                   Verified
-                </Badge>
+                </span>
               </div>
             ))}
           </div>
         )}
-      </Card>
+      </div>
 
-      <Card variant="bordered">
-        <Header size="sm" className="mb-2 flex items-center gap-2">
-          Sessions
-        </Header>
+      <div>
+        <h3>Sessions</h3>
         {sessions.length === 0 ? (
-          <Paragraph size="sm" className="text-orange-300/70">
-            No active sessions.
-          </Paragraph>
+          <p>No active sessions.</p>
         ) : (
-          <div className="space-y-2">
+          <div>
             {sessions.map((s) => (
-              <div
-                key={s.sessionId}
-                className="p-2 border border-orange-300/20 rounded flex items-center justify-between"
-              >
+              <div key={s.sessionId} data-testid={`session-${s.sessionId}`}>
                 <div>
-                  <Paragraph size="sm" className="text-orange-300">
-                    {s.contactName}
-                  </Paragraph>
-                  <Paragraph size="sm" className="text-orange-300/60">
-                    Session: {s.sessionId}
-                  </Paragraph>
-                  <Paragraph size="sm" className="text-orange-300/60">
-                    Last ratchet: {new Date(s.lastRatchetAt).toLocaleString()}
-                  </Paragraph>
+                  <p>{s.contactName}</p>
+                  <p>Session: {s.sessionId}</p>
+                  <p>Last ratchet: {new Date(s.lastRatchetAt).toLocaleString()}</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant={
-                      s.status === "active"
-                        ? "success"
-                        : s.status === "stale"
-                        ? "warning"
-                        : "error"
-                    }
-                    size="sm"
-                  >
-                    {s.status}
-                  </Badge>
-                  <Button
-                    variant="secondary"
-                    icon={<RefreshCw className="w-4 h-4" />}
+                <div>
+                  <span>{s.status}</span>
+                  <button
+                    data-testid={`reset-session-${s.sessionId}`}
                     onClick={() => onResetSession?.(s.sessionId)}
                   >
+                    <RefreshCw aria-hidden="true" />
                     Reset
-                  </Button>
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         )}
-        <div className="mt-3">
-          <Button variant="secondary" onClick={onClearSessions}>
+        <div>
+          <button
+            data-testid="clear-all-sessions-button"
+            onClick={onClearSessions}
+          >
             Clear all sessions
-          </Button>
+          </button>
         </div>
-      </Card>
+      </div>
     </div>
   );
 };

@@ -1,11 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { invoke } from "@tauri-apps/api/core";
 import * as api from "../../services/api";
 import { useAppStore } from "../../stores/appStore";
 import type { Group, Channel } from "../../types";
 
-/**
- * Query keys for groups and channels
- */
 export const groupQueryKeys = {
   all: ["groups"] as const,
   userGroups: (userId: string | null) => ["groups", "user", userId] as const,
@@ -13,9 +11,6 @@ export const groupQueryKeys = {
   channels: (groupId: string) => ["groups", groupId, "channels"] as const,
 };
 
-/**
- * Hook to fetch user's groups
- */
 export function useUserGroups() {
   const currentUser = useAppStore((state) => state.currentUser);
 
@@ -28,14 +23,11 @@ export function useUserGroups() {
       return await api.listUserGroups(currentUser.id);
     },
     enabled: !!currentUser,
-    staleTime: 1000 * 60, // 1 minute
+    staleTime: 1000 * 60,
     refetchOnWindowFocus: true,
   });
 }
 
-/**
- * Hook to fetch channels for a specific group
- */
 export function useGroupChannels(groupId: string | null) {
   return useQuery({
     queryKey: groupQueryKeys.channels(groupId ?? ""),
@@ -46,14 +38,11 @@ export function useGroupChannels(groupId: string | null) {
       return await api.listChannels(groupId);
     },
     enabled: !!groupId,
-    staleTime: 1000 * 60, // 1 minute
+    staleTime: 1000 * 60,
     refetchOnWindowFocus: true,
   });
 }
 
-/**
- * Hook to create a new group
- */
 export function useCreateGroup() {
   const queryClient = useQueryClient();
   const currentUser = useAppStore((state) => state.currentUser);
@@ -61,7 +50,6 @@ export function useCreateGroup() {
 
   return useMutation({
     mutationFn: async ({
-      slug,
       name,
       description,
     }: {
@@ -73,53 +61,53 @@ export function useCreateGroup() {
         throw new Error("No current user");
       }
 
-      // Dynamically import Wails function
-      const { CreateGroup } = await import("../../../wailsjs/go/main/App");
-      return await CreateGroup(slug, name, description, currentUser.id);
+      return await invoke<{ id: string; name: string; description?: string; owner_id: string; created_at: string }>(
+        'create_group',
+        { name, description: description || null, ownerId: currentUser.id },
+      );
     },
-    onSuccess: (newGroup) => {
-      // Invalidate user groups query to refetch
+    onSuccess: (rawGroup) => {
+      const ts = new Date(rawGroup.created_at).getTime();
+      const newGroup: Group = {
+        id: rawGroup.id,
+        slug: '',
+        name: rawGroup.name,
+        description: rawGroup.description || '',
+        created_by: rawGroup.owner_id,
+        created_at: ts,
+        updated_at: ts,
+      };
+
       queryClient.invalidateQueries({
         queryKey: groupQueryKeys.userGroups(currentUser?.id ?? null),
       });
 
-      // Optimistically update the store
       queryClient.setQueryData<Group[]>(
         groupQueryKeys.userGroups(currentUser?.id ?? null),
         (oldGroups) => {
           const updated = [...(oldGroups || []), newGroup];
-          setGroups(updated); // Update Zustand store for immediate UI update
+          setGroups(updated);
           return updated;
-        }
+        },
       );
     },
   });
 }
 
-/**
- * Hook to join a group by slug
- */
 export function useJoinGroup() {
   const queryClient = useQueryClient();
   const currentUser = useAppStore((state) => state.currentUser);
 
   return useMutation({
-    mutationFn: async (slug: string) => {
+    mutationFn: async (groupId: string) => {
       if (!currentUser) {
         throw new Error("No current user");
       }
 
-      // Dynamically import Wails functions
-      const { GetGroupBySlug, AddGroupMember } = await import(
-        "../../../wailsjs/go/main/App"
-      );
-
-      const group = await GetGroupBySlug(slug.trim());
-      await AddGroupMember(group.id, currentUser.id);
-      return group;
+      await invoke('invite_to_group', { groupId, userId: currentUser.id });
+      return { id: groupId, slug: groupId, name: groupId, description: '', created_by: currentUser.id, created_at: 0, updated_at: 0 } as Group;
     },
     onSuccess: () => {
-      // Invalidate user groups query to refetch
       queryClient.invalidateQueries({
         queryKey: groupQueryKeys.userGroups(currentUser?.id ?? null),
       });
@@ -127,10 +115,6 @@ export function useJoinGroup() {
   });
 }
 
-/**
- * Hook to update group icon
- * Automatically invalidates and refetches group data after update
- */
 export function useUpdateGroupIcon() {
   const queryClient = useQueryClient();
   const currentUser = useAppStore((state) => state.currentUser);
@@ -142,30 +126,27 @@ export function useUpdateGroupIcon() {
       return { groupId, iconUrl };
     },
     onSuccess: ({ groupId, iconUrl }) => {
-      // Invalidate user groups query to refetch with updated icon
       queryClient.invalidateQueries({
         queryKey: groupQueryKeys.userGroups(currentUser?.id ?? null),
       });
 
-      // Optimistically update the store
       queryClient.setQueryData<Group[]>(
         groupQueryKeys.userGroups(currentUser?.id ?? null),
         (oldGroups) => {
-          if (!oldGroups) return oldGroups;
+          if (!oldGroups) {
+            return oldGroups;
+          }
           const updated = oldGroups.map((g) =>
-            g.id === groupId ? { ...g, icon_url: iconUrl } : g
+            g.id === groupId ? { ...g, icon_url: iconUrl } : g,
           );
           setGroups(updated);
           return updated;
-        }
+        },
       );
     },
   });
 }
 
-/**
- * Hook to create a channel in a group
- */
 export function useCreateChannel() {
   const queryClient = useQueryClient();
   const currentUser = useAppStore((state) => state.currentUser);
@@ -174,7 +155,6 @@ export function useCreateChannel() {
   return useMutation({
     mutationFn: async ({
       groupId,
-      slug,
       name,
       description,
     }: {
@@ -187,30 +167,35 @@ export function useCreateChannel() {
         throw new Error("No current user");
       }
 
-      // Dynamically import Wails function
-      const { CreateChannel } = await import("../../../wailsjs/go/main/App");
-      return await CreateChannel(
-        groupId,
-        slug,
-        name,
-        description,
-        currentUser.id
+      return await invoke<{ id: string; group_id: string; name: string; description?: string }>(
+        'create_channel',
+        { groupId, name, description: description || null },
       );
     },
-    onSuccess: (newChannel, variables) => {
-      // Invalidate channels query for this group
+    onSuccess: (rawChannel, variables) => {
+      const newChannel: Channel = {
+        id: rawChannel.id,
+        group_id: rawChannel.group_id,
+        slug: '',
+        name: rawChannel.name,
+        description: rawChannel.description || '',
+        channel_type: 'text',
+        created_by: currentUser?.id || '',
+        created_at: 0,
+        updated_at: 0,
+      };
+
       queryClient.invalidateQueries({
         queryKey: groupQueryKeys.channels(variables.groupId),
       });
 
-      // Optimistically update the store
       queryClient.setQueryData<Channel[]>(
         groupQueryKeys.channels(variables.groupId),
         (oldChannels) => {
           const updated = [...(oldChannels || []), newChannel];
-          setChannels(variables.groupId, updated); // Update Zustand store
+          setChannels(variables.groupId, updated);
           return updated;
-        }
+        },
       );
     },
   });

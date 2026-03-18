@@ -1,6 +1,5 @@
 import React from "react";
 import { MessageCircle, Plus } from "lucide-react";
-import { Header, Paragraph } from "monopollis";
 import { updateURL } from "../../utils/urlRouting";
 
 interface Conversation {
@@ -24,69 +23,46 @@ export const DirectMessagesList: React.FC<DirectMessagesListProps> = ({
   onStartDM,
 }) => {
   return (
-    <div className="border-t border-orange-300/20">
+    <div data-testid="dm-list">
       {!isCollapsed && (
-        <div className="p-2 border-b border-orange-300/10">
-          <Header size="sm" className="px-2 text-orange-300/80">
-            Direct Messages
-          </Header>
+        <div>
+          <h3>Direct Messages</h3>
         </div>
       )}
-      <div
-        className={`max-h-48 overflow-y-auto ${
-          isCollapsed ? "p-2 space-y-1" : ""
-        }`}
-      >
+      <div>
         {conversations.length === 0 ? (
           !isCollapsed && (
-            <div className="p-4 text-center">
-              <Paragraph size="sm" className="text-orange-300/50">
-                No direct messages yet.
-              </Paragraph>
+            <div>
+              <p>No direct messages yet.</p>
             </div>
           )
         ) : (
-          <div className={isCollapsed ? "space-y-1" : "py-1"}>
+          <div>
             {conversations.map((conv) => (
               <button
                 key={conv.id}
+                data-testid={`dm-item-${conv.id}`}
                 onClick={() => {
                   onSelectConversation(conv.id);
                   updateURL(`/c/${conv.id}`);
                 }}
-                className={`flex items-center gap-2 hover:bg-orange-300/10 transition-colors rounded-md ${
-                  isCollapsed
-                    ? "w-9 h-9 justify-center text-orange-300/80 mx-auto"
-                    : "w-full px-4 py-2 text-left text-orange-300/80"
-                } ${
-                  selectedConversationId === conv.id
-                    ? "bg-orange-300/20 text-orange-300"
-                    : ""
-                }`}
                 title={isCollapsed ? conv.user2_identifier : undefined}
+                aria-label={`Direct message with ${conv.user2_identifier}`}
               >
-                <MessageCircle className="w-4 h-4 flex-shrink-0" />
-                {!isCollapsed && (
-                  <span className="font-mono text-sm truncate">
-                    {conv.user2_identifier}
-                  </span>
-                )}
+                <MessageCircle aria-hidden="true" />
+                {!isCollapsed && <span>{conv.user2_identifier}</span>}
               </button>
             ))}
           </div>
         )}
         {onStartDM && (
           <button
+            data-testid="start-dm-button"
             onClick={onStartDM}
-            className={`flex items-center gap-2 hover:bg-orange-300/10 transition-colors text-orange-300/70 text-sm rounded-md ${
-              isCollapsed
-                ? "w-9 h-9 justify-center mx-auto"
-                : "w-full px-4 py-2 justify-start"
-            }`}
             aria-label="Start direct message"
           >
-            <Plus className="w-4 h-4 flex-shrink-0" />
-            {!isCollapsed && <span className="font-mono">Start DM</span>}
+            <Plus aria-hidden="true" />
+            {!isCollapsed && <span>Start DM</span>}
           </button>
         )}
       </div>

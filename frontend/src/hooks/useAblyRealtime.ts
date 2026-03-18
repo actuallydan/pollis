@@ -1,8 +1,8 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../stores/appStore';
-import { useWailsReady } from './useWailsReady';
+import { useTauriReady } from './useTauriReady';
 import { messageQueryKeys } from './queries/useMessages';
 
 // Ably event types (extensible for future events)
@@ -35,10 +35,10 @@ const BATCH_CONFIG = {
  * Architecture:
  * - React Query is single source of truth for messages
  * - Desktop Go backend is a simple pass-through to Ably
- * - Events flow: Ably → Go Backend → Wails IPC → React Query invalidation
+ * - Events flow: Ably → Go Backend → Tauri IPC → React Query invalidation
  */
 export function useAblyRealtime() {
-  const { isDesktop, isReady: isWailsReady } = useWailsReady();
+  const { isDesktop, isReady: isTauriReady } = useTauriReady();
   const queryClient = useQueryClient();
   const {
     selectedChannelId,
@@ -146,81 +146,36 @@ export function useAblyRealtime() {
    * Subscribe to Ably channel via Go backend
    */
   const subscribeToChannel = useCallback(async (channelId: string) => {
-    if (!isDesktop || !isWailsReady) {
-      console.log('[Ably] Skipping subscribe - not desktop or not ready', { isDesktop, isWailsReady });
+    if (!isDesktop || !isTauriReady) {
       return;
     }
 
-    // Prevent duplicate subscriptions
     if (currentSubscriptionRef.current === channelId) {
-      console.log('[Ably] Already subscribed to channel (frontend check):', channelId);
       return;
     }
 
-    try {
-      // Use dynamic access to Wails bindings
-      const wailsApp = (window as any).go?.main?.App;
-      if (!wailsApp) {
-        console.warn('[Ably] Wails app not available');
-        return;
-      }
-
-      // Check if Ably is ready before subscribing
-      if (wailsApp.IsAblyReady && !wailsApp.IsAblyReady()) {
-        console.warn('[Ably] Ably service not initialized yet, will retry when ready');
-        return;
-      }
-
-      if (wailsApp.SubscribeToChannel) {
-        console.log('[Ably] Subscribing to channel:', channelId);
-        await wailsApp.SubscribeToChannel(channelId);
-        currentSubscriptionRef.current = channelId;
-        console.log('[Ably] Subscribed successfully to:', channelId);
-      } else {
-        console.warn('[Ably] SubscribeToChannel not available (backend may not be initialized)');
-      }
-    } catch (error) {
-      console.error('[Ably] Failed to subscribe to channel:', error);
-    }
-  }, [isDesktop, isWailsReady]);
+    // Real-time channel subscriptions not yet implemented in Tauri backend
+    currentSubscriptionRef.current = channelId;
+    console.log('[Realtime] Would subscribe to channel:', channelId);
+  }, [isDesktop, isTauriReady]);
 
   /**
    * Unsubscribe from Ably channel via Go backend
    */
   const unsubscribeFromChannel = useCallback(async (channelId: string) => {
-    if (!isDesktop || !isWailsReady) return;
-
-    try {
-      // Use dynamic access to Wails bindings
-      const wailsApp = (window as any).go?.main?.App;
-      if (!wailsApp) {
-        return;
-      }
-
-      // Check if Ably is ready before unsubscribing
-      if (wailsApp.IsAblyReady && !wailsApp.IsAblyReady()) {
-        // If Ably isn't ready, just clear the ref - nothing to unsubscribe from
-        if (currentSubscriptionRef.current === channelId) {
-          currentSubscriptionRef.current = null;
-        }
-        return;
-      }
-
-      if (wailsApp.UnsubscribeFromChannel) {
-        await wailsApp.UnsubscribeFromChannel(channelId);
-        if (currentSubscriptionRef.current === channelId) {
-          currentSubscriptionRef.current = null;
-        }
-      }
-    } catch (error) {
-      console.error('[Ably] Failed to unsubscribe from channel:', error);
+    if (!isDesktop || !isTauriReady) {
+      return;
     }
-  }, [isDesktop, isWailsReady]);
+
+    if (currentSubscriptionRef.current === channelId) {
+      currentSubscriptionRef.current = null;
+    }
+  }, [isDesktop, isTauriReady]);
 
   // Main effect: Manage subscriptions based on selected channel/conversation
   useEffect(() => {
-    // Only run in desktop app when Wails is ready
-    if (!isDesktop || !isWailsReady || networkStatus !== 'online') {
+    // Only run in desktop app
+    if (!isDesktop || !isTauriReady || networkStatus !== 'online') {
       return;
     }
 
@@ -239,24 +194,14 @@ export function useAblyRealtime() {
     let isCleanedUp = false;
 
     const attemptSubscribe = async () => {
-      if (isCleanedUp) return false;
-
-      const wailsApp = (window as any).go?.main?.App;
-      if (!wailsApp) {
+      if (isCleanedUp) {
         return false;
       }
 
-      // Check if Ably is ready
-      if (wailsApp.IsAblyReady && !wailsApp.IsAblyReady()) {
-        return false;
-      }
-
-      // Check again if we're still on the same channel (might have changed during async)
       if (currentSubscriptionRef.current === activeChannelId && activeChannelId) {
-        return true; // Already subscribed
+        return true;
       }
 
-      // Ably is ready - proceed with subscription
       const previousChannelId = currentSubscriptionRef.current;
       if (previousChannelId && previousChannelId !== activeChannelId) {
         await unsubscribeFromChannel(previousChannelId);
@@ -313,7 +258,7 @@ export function useAblyRealtime() {
     };
   }, [
     isDesktop,
-    isWailsReady,
+    isTauriReady,
     activeChannelId,
     currentUser?.id, // Only depend on user ID, not the whole object
     networkStatus,
@@ -322,20 +267,27 @@ export function useAblyRealtime() {
 
   // Effect: Listen for Ably events from Go backend
   useEffect(() => {
-    if (!isDesktop || !isWailsReady) {
+    if (!isDesktop || !isTauriReady) {
       // Silently skip in web mode (Ably is desktop-only)
       return;
     }
 
     console.log('[Ably] Setting up event listener for ably:message');
-    // Listen for 'ably:message' events from Go backend
-    const unsubscribe = EventsOn('ably:message', handleAblyMessage);
+    let unlistenFn: (() => void) | null = null;
+
+    listen<any>('ably:message', (event) => {
+      handleAblyMessage(event.payload);
+    }).then((unlisten) => {
+      unlistenFn = unlisten;
+    });
 
     return () => {
       console.log('[Ably] Removing event listener for ably:message');
-      unsubscribe();
+      if (unlistenFn) {
+        unlistenFn();
+      }
     };
-  }, [isDesktop, isWailsReady, handleAblyMessage]);
+  }, [isDesktop, isTauriReady, handleAblyMessage]);
 
   // Effect: Periodic cleanup of deduplication IDs
   useEffect(() => {

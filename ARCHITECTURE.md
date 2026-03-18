@@ -2,356 +2,163 @@
 
 **Signal's End-to-End Encryption + Slack's Group Features**
 
-## Core Philosophy
+## Stack
 
-Pollis is a privacy-first group messaging app that combines Signal's security model with Slack's organizational features.
-
-### Key Principles
-
-1. **End-to-End Encryption**: All message content encrypted using Signal Protocol
-2. **Zero-Knowledge Server**: Server never sees message plaintext
-3. **Network-First for Metadata**: Groups, channels, users fetched from remote DB
-4. **Local-Only for Secrets**: Messages and keys never leave device
+- **Desktop**: Tauri 2 (Rust backend + React/TypeScript frontend)
+- **Auth**: Email OTP via `request_otp` / `verify_otp` Tauri commands; session persisted in OS keystore via `keyring` crate
+- **Remote DB**: Turso (libSQL) via `libsql` crate — public metadata only
+- **Local DB**: SQLite via `rusqlite` — encrypted messages and crypto state
+- **Encryption**: Signal Protocol (Ed25519 identity keys, X3DH, Double Ratchet)
+- **File storage**: Cloudflare R2 via `reqwest`
+- **Config**: `dotenvy` loads `.env.development` in dev; secrets encrypted with SOPS+age in `secrets.enc.env`
 
 ---
 
-## Data Storage Architecture
+## Core Principles
 
-### Remote Database (Turso/libSQL)
+1. **End-to-End Encryption**: All message content encrypted using Signal Protocol before leaving the device
+2. **Zero-Knowledge Server**: Turso never stores message plaintext
+3. **Direct to Turso**: Desktop app connects directly to Turso (1 hop) for all CRUD — no middleman server
+4. **Local-Only for Secrets**: Messages and private keys never leave the device unencrypted
 
-**Purpose**: Coordinate connections, manage groups/channels, store public metadata
+---
 
-**Stores**:
-- Users (id, clerk_id, username, email, phone, avatar_url)
-- Groups (id, slug, name, description, created_by)
-- Channels (id, group_id, slug, name, description, channel_type)
-- Group membership (group_id, user_id, role, joined_at)
-- Public keys for key exchange (identity keys, prekeys)
-- Key exchange messages (for establishing sessions)
-- Message envelopes (for offline delivery, encrypted)
+## Data Storage
 
-**Never Stores**:
-- Message plaintext
-- Private keys
-- Decrypted content
+### Remote Database (Turso)
 
-### Local Database (SQLite)
+Stores public metadata:
+- Users (id, username, email, phone, avatar_url)
+- Groups, channels, membership
+- Public keys for X3DH key exchange (identity keys, signed prekeys, one-time prekeys)
+- Message envelopes (encrypted, for offline delivery)
 
-**Purpose**: Store encrypted messages and cryptographic state
+Never stores: message plaintext, private keys.
 
-**Stores**:
-- Messages (ciphertext, nonce, metadata)
-- Private keys (encrypted at rest)
-- Session state (Signal protocol sessions)
-- Message queue (for offline sending)
+### Local Database (SQLite via rusqlite)
 
-**Never Stores**:
-- Decrypted message content (only in memory)
-- User profiles, groups, channels (fetched from remote)
+Stores secrets:
+- Encrypted messages (ciphertext, nonce, metadata)
+- Signal protocol session state
+- Message queue (pending outgoing messages)
+
+Never stores: user profiles, groups, channels — those are fetched from remote.
+
+### OS Keystore (keyring crate)
+
+- Ed25519 identity key pair
+- Session token after OTP verification
+
+---
+
+## Tauri Commands
+
+Registered in `src-tauri/src/lib.rs`, implemented in `src-tauri/src/commands/`:
+
+| Module | Commands |
+|---|---|
+| auth | `initialize_identity`, `get_identity`, `request_otp`, `verify_otp`, `get_session`, `logout` |
+| user | `get_user_profile`, `update_user_profile`, `search_user_by_username` |
+| groups | `list_user_groups`, `list_group_channels`, `create_group`, `create_channel`, `invite_to_group` |
+| messages | `list_messages`, `send_message`, `poll_pending_messages` |
+| signal | `get_prekey_bundle`, `rotate_signed_prekey`, `replenish_one_time_prekeys` |
+| livekit | `get_livekit_token` |
+| r2 | `upload_file`, `download_file` |
 
 ---
 
 ## Frontend Data Flow
 
-### Network-First with React Query
-
-All non-encrypted data is fetched from the remote DB using React Query:
+Frontend calls Tauri commands via `invoke()` from `@tauri-apps/api/core`. React Query wraps these calls for caching and state management.
 
 ```typescript
-// User profile data
-const { data: userData } = useUserProfile();
+// All backend calls use invoke()
+import { invoke } from "@tauri-apps/api/core";
 
-// Groups the user belongs to
-const { data: groups } = useUserGroups();
-
-// Channels in a group
-const { data: channels } = useGroupChannels(groupId);
-
-// Messages (encrypted, from local DB)
-const { data: messages } = useChannelMessages(channelId);
+// Wrapped in React Query hooks (frontend/src/hooks/queries/)
+useUserProfile()         // invoke("get_user_profile")
+useUserGroups()          // invoke("list_user_groups")
+useGroupChannels(id)     // invoke("list_group_channels", { groupId })
+useChannelMessages(id)   // invoke("list_messages", { channelId })
 ```
 
-### Benefits
-
-- Automatic caching and deduplication
-- Automatic refetching on window focus
-- Built-in loading/error states
-- Optimistic updates
-- Cache invalidation on mutations
-
-### In-Memory Cache
-
-Zustand store provides:
-- Current user reference (just ID + ClerkID)
-- UI state (selected group, channel, conversation)
-- Temporary data for current session
+**Zustand** holds only UI state: selected group/channel, current user reference, temporary session data.
 
 ---
 
 ## Authentication Flow
 
 ```
-User Login
+User enters email
     ↓
-Clerk OAuth (Google/GitHub/Email)
+invoke("request_otp") → Turso: send OTP email
     ↓
-Desktop App receives Clerk token
+User enters OTP code
     ↓
-Backend: RegisterUser(userID, clerkID, username, email, phone)
+invoke("verify_otp") → Rust: verify OTP, create session
     ↓
-Turso: Store user metadata
+Session token stored in OS keystore (keyring)
     ↓
-Desktop: Create local DB for encrypted messages
+invoke("initialize_identity") → Ed25519 key pair in keystore
     ↓
-Frontend: Fetch user data via useUserProfile()
-    ↓
-Ready to use app
+App ready
 ```
 
 ---
 
 ## Message Encryption Flow
 
-### Sending a Message
+**Sending**:
+1. User types message
+2. Rust command encrypts with Signal protocol using session key
+3. Store encrypted ciphertext in local SQLite
+4. Write encrypted envelope to Turso for recipient delivery
 
-```
-1. User types message in UI
-2. Frontend: Encrypt with Signal protocol
-   - Get session key for conversation
-   - Encrypt plaintext → ciphertext + nonce
-3. Store locally in messages table (encrypted)
-4. Send ciphertext to server via gRPC
-5. Server: Store in message_envelope for delivery
-6. Recipients: Fetch envelope, decrypt locally
-```
-
-### Key Exchange (X3DH)
-
-```
-1. Alice wants to message Bob
-2. Alice → Server: "Get Bob's prekey bundle"
-3. Server → Alice: {identity_key, signed_prekey, one_time_prekey}
-4. Alice: Derive shared secret using X3DH
-5. Alice: Create session, encrypt first message
-6. Alice → Server: Send encrypted message
-7. Bob: Receive, derive shared secret, decrypt
-8. Both: Now have established session
-```
+**Key Exchange (X3DH)**:
+1. Alice calls `get_prekey_bundle(bob_id)` → fetches Bob's public keys from Turso
+2. Derives shared secret using X3DH
+3. Creates session, encrypts first message
+4. Both parties establish Double Ratchet session
 
 ---
 
-## Type Safety
+## Project Structure
 
-### TypeScript Types Match Server Schema
-
-All TypeScript interfaces in `/frontend/src/types/index.ts` are documented with:
-- Where data is stored (Remote vs Local)
-- Which React Query hook fetches it
-- Security notes (encrypted, never persisted, etc.)
-
-### Example
-
-```typescript
-export interface Message {
-  // Stored in: Local DB (encrypted)
-  // Fetched via: useChannelMessages()
-  // CRITICAL: Encrypted content NEVER leaves device in plaintext
-  id: string;
-  ciphertext: Uint8Array; // Signal protocol encrypted
-  nonce: Uint8Array;
-  content_decrypted?: string; // In-memory only, never persisted
-  // ...
-}
 ```
-
----
-
-## Database Schemas
-
-### Remote Schema (Turso)
-
-See: `/server/internal/database/migrations/`
-
-Key tables:
-- `users` - User accounts (id, clerk_id, username, email, phone, avatar_url)
-- `groups` - Groups/organizations
-- `channel` - Text/voice channels within groups
-- `group_member` - Group membership (user_id is ULID, not identifier!)
-- `identity_key`, `signed_prekey`, `one_time_prekey` - Public keys for X3DH
-- `message_envelope` - Encrypted message envelopes for delivery
-
-### Local Schema (Desktop)
-
-See: `/internal/database/migrations/`
-
-Key tables:
-- `message` - Encrypted messages (ciphertext, nonce, metadata)
-- `identity_keys` - Private keys (encrypted at rest)
-- `sessions` - Signal protocol session state
-- `message_queue` - Pending outgoing messages
-
-**Note**: Local schema should NOT have users, groups, channels tables. Those are fetched from remote.
-
----
-
-## Migration Strategy
-
-### Applying Migrations
-
-Migrations run automatically on server startup:
-
-```go
-// server/internal/database/libsql.go
-func (db *DB) migrate() error {
-  // Reads migrations/*.sql files
-  // Tracks applied migrations in schema_migrations table
-  // Runs pending migrations in order
-}
-```
-
-### Adding a Migration
-
-1. Create new file: `003_description.sql` in migrations directory
-2. Write SQL (CREATE, ALTER, etc.)
-3. Restart server - migration runs automatically
-4. Verify in schema_migrations table
-
-### Resetting Database
-
-```bash
-# Nuke and rebuild remote DB (no data preserved)
-cd server
-go run cmd/reset_schema.go
-```
-
----
-
-## React Query Hooks
-
-All data fetching uses React Query hooks in `/frontend/src/hooks/queries/`:
-
-### User Hooks (`useUserProfile.ts`)
-- `useUserProfile()` - Fetch username, email, phone, avatar
-- `useUpdateProfile()` - Update user profile
-- `useUpdateAvatar()` - Update avatar URL
-
-### Group Hooks (`useGroups.ts`)
-- `useUserGroups()` - Fetch user's groups
-- `useGroupChannels(groupId)` - Fetch channels in a group
-- `useCreateGroup()` - Create new group
-- `useJoinGroup()` - Join existing group
-- `useCreateChannel()` - Create new channel
-
-### Message Hooks (`useMessages.ts`)
-- `useChannelMessages(channelId)` - Fetch messages for channel
-- `useConversationMessages(conversationId)` - Fetch DM messages
-- `useSendMessage()` - Send new message
-- `useCreateOrGetDMConversation()` - Start DM with user
-
----
-
-## Current Status
-
-### Completed
-
-- React Query integration for all remote data
-- Network-first data fetching
-- Automatic cache invalidation
-- Username/avatar update flow (network-first)
-- Type safety documentation
-- Migration system working
-
-### 🚧 In Progress
-
-- Apply avatar_url migration to remote DB (restart server)
-- Clean up local DB schema (remove unnecessary tables)
-- Generate TypeScript types from Go models (optional)
-
-### 📋 Future Work
-
-- Offline resilience (queue operations, sync on reconnect)
-- Optimistic updates for messages
-- Background sync
-- IndexedDB cache for web version
-- React Query DevTools integration
-
----
-
-## Development Workflow
-
-### Starting the App
-
-```bash
-# Start server (runs migrations automatically)
-pnpm dev
-
-# Or just Wails app (includes server)
-pnpm dev:wails
-```
-
-### Making Schema Changes
-
-1. Create migration file in appropriate directory
-2. Restart server to apply
-3. Update Go models if needed
-4. Update TypeScript types to match
-5. Update React Query hooks if needed
-
-### Testing
-
-```bash
-# Run server tests
-cd server
-go test ./...
-
-# Run frontend tests (if any)
-cd frontend
-pnpm test
+src-tauri/              # Rust backend
+  src/
+    commands/           # Tauri command handlers (auth, user, groups, messages, signal, r2, livekit)
+    config.rs           # Config loaded from env vars
+    db.rs               # Turso (libsql) + local SQLite setup
+    keystore.rs         # OS keystore via keyring crate
+    signal/             # Signal protocol implementation
+    state.rs            # AppState (shared across commands)
+    lib.rs              # Tauri setup, command registration
+frontend/               # React app (Vite, TypeScript, TailwindCSS)
+  src/
+    hooks/queries/      # React Query hooks
+    types/              # TypeScript types
+    components/         # React components
+    pages/              # Route pages
+    services/           # Any non-Tauri service helpers
+website/                # Next.js marketing site (Vercel)
 ```
 
 ---
 
 ## Security Model
 
-### Threat Model
+**Trusted**: User's device, local SQLite (encrypted at rest), Tauri app code, OS keystore
 
-**Trusted**:
-- User's device
-- User's local database (encrypted at rest)
-- Desktop app code
+**Untrusted**: Network, Turso database, server operators
 
-**Untrusted**:
-- Network
-- Remote server
-- Server operators
-- Other users (except for identity verification)
+**Turso can see**: User metadata, group membership, message metadata (sender, timestamp, size), connection patterns, encrypted ciphertext
 
-### Security Guarantees
+**Turso cannot see**: Message plaintext, private keys (never leave device)
 
-1. **End-to-End Encryption**: Only sender and recipients can read messages
-2. **Forward Secrecy**: Compromised long-term keys don't decrypt old messages
-3. **Post-Compromise Security**: Compromised session keys eventually heal
-4. **Deniable Authentication**: Can't prove who sent a message
-5. **Zero-Knowledge Server**: Server can't read message content
+### Guarantees
 
-### What Server Can See
-
-- User exists (ID, username, email, phone, avatar)
-- Group membership
-- Message metadata (sender, recipient, timestamp, size)
-- Connection patterns (who talks to whom, when)
-- Message content (encrypted)
-- Private keys (never leave device)
-
----
-
-## Summary
-
-Pollis is architected as:
-- **Frontend**: React + TypeScript + React Query + Zustand
-- **Desktop**: Wails (Go backend embedded in desktop app)
-- **Server**: gRPC server with Turso (libSQL) database
-- **Encryption**: Signal Protocol (X3DH + Double Ratchet)
-- **Storage**: Remote for metadata, local for secrets
-
-This gives you **Signal's security** (e2e encryption, zero-knowledge server) with **Slack's features** (groups, channels, rich UX).
+- **End-to-End Encryption**: Only sender and recipients can decrypt
+- **Forward Secrecy**: Compromised long-term keys don't decrypt old messages
+- **Post-Compromise Security**: Compromised session keys eventually heal
+- **Zero-Knowledge**: Database operators cannot read message content

@@ -1,131 +1,80 @@
 # Pollis
 
-A desktop messaging app with end-to-end encryption. Think Slack, but nobody (including me) can read your messages. Built with Wails so it's a native app on macOS/Linux/Windows with a Go backend and React frontend.
+A desktop messaging app with end-to-end encryption. Think Slack, but nobody (including me) can read your messages. Built with Tauri 2 — native app on macOS/Linux/Windows with a Rust backend and React frontend.
 
 ![Pollis App](readme/app.png)
 
 ## How it works
 
-The desktop app runs locally with a Wails frontend (React/TypeScript) talking to a Go backend. Messages are encrypted using the Signal protocol before they leave your machine. There's a gRPC server for coordinating connections and signaling, but it never sees unencrypted content.
-
-
-## Product-Service Architecture
-```
-*--------------------------------------------*
-|                                            |
-|           *--------------------*           |
-|           |                    |           |
-|           |      Local DB      |           |
-|           |     (Messages)     |           |
-|           |                    |           |
-|           *--------------------*           |
-|                     | |                    |
-|   *------------------------------------*   |
-|   |                                    |   |
-|   |    Desktop App  *-------------*    |   |
-|   |                 |             |    |   |
-|   |      Go         |   Client    |    |   |
-|   |                 |             |    |   |
-|   |                 *-------------*    |   |
-|   |                                    |   |
-|   *------------------------------------*   |
-|     gRPC |   https|    wss|   https|       |
-|          |        |       |        |       |
-|   *------------------------------------*   |
-|   |                                    |   |
-|   |  *----*  *----*  *-----*  *-----*  |   |
-|   |  |    |  |    |  |     |  |     |  |   |
-|   |  | VPS|  | DB |  |Ably |  |CF R2|  |   |
-|   |  |    |  |turso  sockets  |     |  |   |
-|   |  *----*  *----*  *-----*  *-----*  |   |
-|   |     |               |              |   |
-|   |     |_______________|              |   |
-|   |                                    |   |
-|   |                                    |   |
-|   *------------------------------------*   |
-|                                            |
-*--------------------------------------------*
-
-```
+The desktop app runs locally with a React frontend talking to a Rust (Tauri) backend. Messages are encrypted using the Signal protocol before they leave your machine. The backend connects directly to Turso (libSQL) for group/channel metadata, and stores encrypted messages in a local SQLite database.
 
 **Stack:**
-- Desktop: Wails v2 (Go + React)
-- Local storage: libSQL/SQLite
-- Server: gRPC for signaling
-- Remote DB: Turso (libSQL)
+- Desktop: Tauri 2 (Rust + React/TypeScript)
+- Local storage: SQLite via rusqlite
+- Remote DB: Turso (libSQL) — direct connection, no middleman server
+- Auth: Email OTP, session in OS keystore
+- Encryption: Signal Protocol (Ed25519, X3DH, Double Ratchet)
 
 ## Getting Started
 
 ### What you need
 
-**Everyone needs:**
-- Go 1.24+
 - Node.js 18+
 - pnpm 10.25+
-- `protoc` (Protocol Buffers compiler)
-- protoc plugins:
-  ```bash
-  go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-  go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-  ```
-
-**macOS:**
-```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
-# or if you prefer homebrew for protoc:
-brew install protobuf
-```
-
-**Linux:**
-```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
-# you'll also need some system deps, check: https://wails.io/docs/gettingstarted/installation#linux
-```
+- Rust (stable, via rustup)
+- Tauri v2 system dependencies — see [tauri.app/start/prerequisites](https://tauri.app/start/prerequisites/)
+- An age key for decrypting secrets (ask the project owner)
 
 ### Setup
 
 ```bash
-# install deps
+# Install JS dependencies
 pnpm install
 
-# generate protobuf code
-pnpm proto
-
-# set up your database (you need this)
-cp .env.example .env.local
-# edit .env.local and add your Turso credentials (free at https://turso.tech)
+# Decrypt secrets → .env.development
+pnpm secrets:decrypt
 ```
 
-### Running it
+### Running
 
 ```bash
-# run everything (server + desktop app)
+# Run the desktop app
 pnpm dev
 
-# just the frontend in a browser
+# Run frontend in browser only (no Tauri commands available)
 pnpm dev:frontend
-
-# just the server
-pnpm dev:server
 ```
+
+### Testing with two users
+
+Run two app instances pointing at different home directories so each gets its own OS keystore, local DB, and session:
+
+```bash
+# Terminal 1 — user A
+pnpm dev
+
+# Terminal 2 — user B
+HOME=/tmp/pollis-user2 pnpm dev
+```
+
+Sign into different email accounts in each window. Both hit the same Turso database, so anything one user writes the other can read (manually refresh until realtime is wired up).
 
 ### Building
 
 ```bash
-# build for whatever platform you're on
-pnpm build:app
+# Build for current platform
+pnpm build
 
-# or use make for specific platforms
-make build-macos    # universal binary (Intel + Apple Silicon)
-make build-linux    # amd64
-make build-windows  # amd64
+# Platform-specific
+pnpm build:linux    # amd64
+pnpm build:macos    # universal binary (Intel + Apple Silicon)
+pnpm build:windows  # amd64
 ```
 
 ## Project layout
 
 ```
-frontend/    # React app
-server/      # gRPC server
-internal/    # Desktop app Go code
-pkg/proto/   # Shared protobuf definitions
+src-tauri/   # Rust backend (Tauri commands, DB, crypto)
+frontend/    # React app (Vite, TypeScript, TailwindCSS)
+website/     # Next.js marketing site
 ```

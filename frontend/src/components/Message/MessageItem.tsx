@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Pin, Reply, MoreVertical, Download, Image as ImageIcon, File as FileIcon } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
-import { Paragraph, Badge } from "monopollis";
 import { getFileDownloadUrl } from "../../services/r2-upload";
 import type { Message, MessageAttachment } from "../../types";
 
@@ -25,7 +24,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   const { currentUser } = useAppStore();
   const isOwnMessage = message.sender_id === currentUser?.id;
 
-  // Find reply-to message if exists
   const replyToMessage = message.reply_to_message_id
     ? allMessages.find((m) => m.id === message.reply_to_message_id)
     : null;
@@ -50,113 +48,74 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     message.content_decrypted ??
     (message as any).content ??
     (message.ciphertext ? "[Encrypted message]" : "[No content]");
+
   const statusBadge = message.status && message.status !== "sent" && (
-    <Badge
-      variant={message.status === "failed" ? "error" : "warning"}
-      size="sm"
-      className="ml-2"
-    >
-      {message.status}
-    </Badge>
+    <span data-testid="message-status">{message.status}</span>
   );
 
   return (
     <div
-      className={`px-4 py-3 hover:bg-orange-300/5 transition-colors group ${
-        isOwnMessage ? "bg-orange-300/5" : ""
-      }`}
+      data-testid={`message-${message.id}`}
+      aria-label={`Message from ${authorUsername}`}
     >
-      {/* Reply preview */}
       {replyToMessage && (
         <button
+          data-testid={`reply-preview-${message.reply_to_message_id}`}
           onClick={() => onScrollToReply?.(message.reply_to_message_id!)}
-          className="mb-2 ml-8 pl-3 border-l-2 border-orange-300/30 text-left w-full hover:bg-orange-300/10 rounded px-2 py-1 transition-colors"
         >
-          <Paragraph size="sm" className="text-orange-300/70 font-mono mb-0.5">
-            Replying to {authorUsername}
-          </Paragraph>
-          <Paragraph size="sm" className="text-orange-300/50 truncate">
-            {replyToMessage.content_decrypted?.substring(0, 80) ||
-              "[Encrypted]"}
-            ...
-          </Paragraph>
+          <p>Replying to {authorUsername}</p>
+          <p>{replyToMessage.content_decrypted?.substring(0, 80) || "[Encrypted]"}...</p>
         </button>
       )}
 
-      <div className="flex items-start gap-3">
-        {/* Avatar placeholder */}
-        <div className="w-8 h-8 rounded-full bg-orange-300/20 flex items-center justify-center flex-shrink-0">
-          <span className="text-xs font-mono text-orange-300">
-            {authorUsername.charAt(0).toUpperCase()}
-          </span>
+      <div>
+        <div>
+          <span>{authorUsername.charAt(0).toUpperCase()}</span>
         </div>
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <Paragraph
-              size="base"
-              className="font-mono font-semibold text-orange-300"
-            >
-              {authorUsername}
-            </Paragraph>
-            <Paragraph size="sm" className="text-orange-300/50 font-mono">
-              {formatTimestamp(message.created_at)}
-            </Paragraph>
-            {message.is_pinned && (
-              <Pin className="w-3 h-3 text-orange-300/70 flex-shrink-0" />
-            )}
+        <div>
+          <div>
+            <p data-testid="message-author">{authorUsername}</p>
+            <p data-testid="message-timestamp">{formatTimestamp(message.created_at)}</p>
+            {message.is_pinned && <Pin aria-hidden="true" />}
             {statusBadge}
           </div>
 
-          <Paragraph
-            size="base"
-            className="text-orange-300/90 whitespace-pre-wrap break-words"
-          >
-            {content}
-          </Paragraph>
+          <p data-testid="message-content">{content}</p>
 
-          {/* File attachments */}
           {message.attachments && message.attachments.length > 0 && (
-            <div className="mt-2 space-y-2">
+            <div>
               {message.attachments.map((attachment) => (
                 <AttachmentDisplay key={attachment.id} attachment={attachment} />
               ))}
             </div>
           )}
 
-          {/* Thread indicator */}
           {message.thread_id && message.thread_id !== message.id && (
-            <button className="mt-2 text-xs text-orange-300/70 hover:text-orange-300 font-mono">
-              View thread →
-            </button>
+            <button>View thread →</button>
           )}
         </div>
 
-        {/* Actions */}
-        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 flex-shrink-0">
+        <div>
           <button
+            data-testid="reply-button"
             onClick={() => onReply?.(message.id)}
-            className="p-1.5 text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-colors"
             aria-label="Reply"
           >
-            <Reply className="w-4 h-4" />
+            <Reply aria-hidden="true" />
           </button>
           <button
+            data-testid="pin-button"
             onClick={() => onPin?.(message.id)}
-            className="p-1.5 text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-colors"
             aria-label={message.is_pinned ? "Unpin" : "Pin"}
           >
-            <Pin
-              className={`w-4 h-4 ${
-                message.is_pinned ? "text-orange-300" : ""
-              }`}
-            />
+            <Pin aria-hidden="true" />
           </button>
           <button
-            className="p-1.5 text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-colors"
+            data-testid="message-more-button"
             aria-label="More options"
           >
-            <MoreVertical className="w-4 h-4" />
+            <MoreVertical aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -164,7 +123,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   );
 };
 
-// Component to display file attachments
 const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
   attachment,
 }) => {
@@ -176,7 +134,9 @@ const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
 
   useEffect(() => {
     const loadDownloadUrl = async () => {
-      if (downloadUrl) return; // Already loaded
+      if (downloadUrl) {
+        return;
+      }
       setIsLoading(true);
       try {
         const url = await getFileDownloadUrl(attachment.object_key);
@@ -189,7 +149,7 @@ const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
       }
     };
 
-    if (isImage || attachment.content_type.startsWith("image/")) {
+    if (isImage) {
       loadDownloadUrl();
     }
   }, [attachment.object_key, attachment.content_type, isImage, downloadUrl]);
@@ -208,7 +168,6 @@ const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
       try {
         const url = await getFileDownloadUrl(attachment.object_key);
         setDownloadUrl(url);
-        // Trigger download
         const link = document.createElement("a");
         link.href = url;
         link.download = attachment.filename;
@@ -221,7 +180,6 @@ const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
         setIsLoading(false);
       }
     } else if (downloadUrl) {
-      // Trigger download
       const link = document.createElement("a");
       link.href = downloadUrl;
       link.download = attachment.filename;
@@ -233,50 +191,40 @@ const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
 
   if (isImage && downloadUrl) {
     return (
-      <div className="mt-2">
+      <div>
         <img
           src={downloadUrl}
           alt={attachment.filename}
-          className="max-w-md max-h-96 rounded border border-orange-300/20 cursor-pointer hover:border-orange-300/40 transition-colors"
           onClick={handleDownload}
         />
-        <div className="mt-1 flex items-center gap-2 text-xs text-orange-300/70 font-mono">
+        <div>
           <span>{attachment.filename}</span>
-          <span className="text-orange-300/50">({formatFileSize(attachment.file_size)})</span>
+          <span>({formatFileSize(attachment.file_size)})</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 bg-orange-300/5 border border-orange-300/20 rounded">
+    <div data-testid={`attachment-${attachment.id}`}>
       {isImage ? (
-        <ImageIcon className="w-4 h-4 text-orange-300/70 flex-shrink-0" />
+        <ImageIcon aria-hidden="true" />
       ) : (
-        <FileIcon className="w-4 h-4 text-orange-300/70 flex-shrink-0" />
+        <FileIcon aria-hidden="true" />
       )}
-      <div className="flex-1 min-w-0">
-        <div className="text-sm text-orange-300/90 font-mono truncate">
-          {attachment.filename}
-        </div>
-        <div className="text-xs text-orange-300/50 font-mono">
-          {formatFileSize(attachment.file_size)}
-        </div>
+      <div>
+        <div>{attachment.filename}</div>
+        <div>{formatFileSize(attachment.file_size)}</div>
       </div>
       {error ? (
-        <span className="text-xs text-red-400 font-mono">{error}</span>
+        <span>{error}</span>
       ) : (
         <button
           onClick={handleDownload}
           disabled={isLoading}
-          className="p-1.5 text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-colors disabled:opacity-50"
           aria-label={`Download ${attachment.filename}`}
         >
-          {isLoading ? (
-            <div className="w-4 h-4 border-2 border-orange-300/30 border-t-orange-300 rounded-full animate-spin" />
-          ) : (
-            <Download className="w-4 h-4" />
-          )}
+          {isLoading ? "Loading..." : <Download aria-hidden="true" />}
         </button>
       )}
     </div>

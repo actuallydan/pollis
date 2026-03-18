@@ -4,7 +4,6 @@ import { ChannelHeader } from "./ChannelHeader";
 import { MessageList } from "../Message/MessageList";
 import { ReplyPreview } from "../Message/ReplyPreview";
 import { MessageQueue } from "../Message/MessageQueue";
-import { ChatInput, type Attachment } from "monopollis";
 import { useMessages, useSendMessage } from "../../hooks/queries";
 
 export const MainContent: React.FC = () => {
@@ -22,7 +21,7 @@ export const MainContent: React.FC = () => {
   );
   const sendMessageMutation = useSendMessage();
 
-  const handleSend = async (messageText: string, _attachments: Attachment[]) => {
+  const handleSend = async (messageText: string) => {
     if (!messageText.trim()) {
       return;
     }
@@ -49,7 +48,6 @@ export const MainContent: React.FC = () => {
 
   const handleReply = (messageId: string) => {
     setReplyToMessageId(messageId);
-    // Focus the input after selecting reply
     setTimeout(() => {
       const textarea = document.querySelector(
         'textarea[aria-label="Message input"]'
@@ -63,33 +61,28 @@ export const MainContent: React.FC = () => {
   };
 
   const handleScrollToMessage = (messageId: string) => {
-    // The MessageList component handles scrolling internally
     console.log("Scroll to message:", messageId);
   };
 
   const getAuthorUsername = (authorId: string): string => {
-    // TODO: Get username from service or cache
-    // For now, return a placeholder
     return authorId === currentUser?.id ? "You" : "User";
   };
 
   if (!selectedChannelId && !selectedConversationId) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-black">
-        <div className="text-center">
-          <p className="text-orange-300/80 font-mono text-base">
-            Select a channel or conversation to start messaging
-          </p>
-        </div>
+      <div data-testid="main-content">
+        <p data-testid="empty-channel-message">
+          Select a channel or conversation to start messaging
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-black overflow-hidden min-w-0">
+    <div data-testid="main-content" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
       <ChannelHeader />
 
-      <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
         <MessageList
           messages={messages}
           onReply={handleReply}
@@ -109,11 +102,32 @@ export const MainContent: React.FC = () => {
 
       <MessageQueue />
 
-      <ChatInput
-        onSend={handleSend}
-        placeholder="Type a message..."
-        disabled={false}
-      />
+      <form
+        data-testid="message-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const textarea = e.currentTarget.querySelector("textarea") as HTMLTextAreaElement;
+          const val = textarea.value;
+          if (val.trim()) {
+            handleSend(val);
+            textarea.value = "";
+          }
+        }}
+      >
+        <textarea
+          data-testid="message-input"
+          placeholder="Type a message..."
+          aria-label="Message input"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              const form = e.currentTarget.closest("form") as HTMLFormElement;
+              form?.requestSubmit();
+            }
+          }}
+        />
+        <button type="submit" data-testid="message-send-button">Send</button>
+      </form>
     </div>
   );
 };

@@ -38,21 +38,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     dmConversations,
   } = useAppStore();
 
-  // Fetch user profile from network (network-first with automatic refetching)
   const { data: userProfile } = useUserProfile();
   const { data: avatarDownloadUrl } = useUserAvatar();
 
-  // Use network data if available, fallback to store
   const username = userProfile?.username || storeUsername;
 
-  // Update store when network data changes
   useEffect(() => {
     if (userProfile?.username && userProfile.username !== storeUsername) {
       setStoreUsername(userProfile.username);
     }
   }, [userProfile?.username, storeUsername, setStoreUsername]);
 
-  // Update store when avatar URL loads from React Query
   useEffect(() => {
     if (avatarDownloadUrl && avatarDownloadUrl !== userAvatarUrl) {
       setUserAvatarUrl(avatarDownloadUrl);
@@ -79,10 +75,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      if (!isResizingRef.current) return;
+      if (!isResizingRef.current) {
+        return;
+      }
       const delta = e.clientX - startXRef.current;
       let next = startWidthRef.current + delta;
-      if (next <= minSnap) next = collapsedWidth;
+      if (next <= minSnap) {
+        next = collapsedWidth;
+      }
       next = Math.max(collapsedWidth, Math.min(maxWidth, next));
       setSidebarWidth(next);
     };
@@ -125,7 +125,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <div
-      className="h-full bg-black border-r border-orange-300/20 flex flex-col relative"
+      data-testid="sidebar"
       style={{ width: `${newWidth}px` }}
     >
       <SidebarActions
@@ -163,10 +163,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         onLogout={onLogout}
       />
 
-      {/* Resize handle */}
       <div
+        data-testid="sidebar-resize-handle"
         onMouseDown={handleMouseDown}
-        className="absolute top-0 right-0 h-full w-1 cursor-col-resize bg-orange-300/10 hover:bg-orange-300/30"
         aria-label="Resize sidebar"
       />
     </div>

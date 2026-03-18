@@ -1,70 +1,46 @@
 import React from "react";
 import { Minus, Square, X } from "lucide-react";
-import { checkIsDesktop } from "../../hooks/useWailsReady";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import logo from "../../assets/images/LogoBigMono.svg";
 
 interface TitleBarProps {
   title?: string;
 }
 
-// Access Wails runtime through window object to avoid build-time import issues
-const getRuntime = () => {
-  if (typeof window === "undefined") return null;
-  return (window as any).runtime;
-};
-
 export const TitleBar: React.FC<TitleBarProps> = ({ title = "Pollis" }) => {
-  const isDesktop = checkIsDesktop();
-
-  if (!isDesktop) {
-    return null; // No custom title bar in browser
-  }
-
-  // Detect platform for button positioning
   const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
 
-  // On macOS, use native titlebar (no custom titlebar needed)
   if (isMac) {
     return null;
   }
 
-  const handleMinimize = () => {
+  const handleMinimize = async () => {
     try {
-      const runtime = getRuntime();
-      if (runtime?.WindowMinimise) {
-        runtime.WindowMinimise();
-      }
+      await getCurrentWindow().minimize();
     } catch (error) {
       console.error("Failed to minimize window:", error);
     }
   };
 
-  const handleMaximize = () => {
+  const handleMaximize = async () => {
     try {
-      const runtime = getRuntime();
-      if (runtime?.WindowToggleMaximise) {
-        runtime.WindowToggleMaximise();
-      }
+      await getCurrentWindow().toggleMaximize();
     } catch (error) {
       console.error("Failed to toggle maximize:", error);
     }
   };
 
-  const handleClose = () => {
+  const handleClose = async () => {
     try {
-      const runtime = getRuntime();
-      if (runtime?.Quit) {
-        runtime.Quit();
-      }
+      await getCurrentWindow().close();
     } catch (error) {
       console.error("Failed to close window:", error);
     }
   };
 
-  // Windows/Linux: Custom titlebar with logo/title on left, controls on right
   return (
     <div
-      className="h-10 bg-black/80 border-b border-orange-300/20 flex items-center select-none w-full titlebar-drag"
+      data-testid="title-bar"
       style={
         {
           backdropFilter: "blur(10px)",
@@ -72,31 +48,31 @@ export const TitleBar: React.FC<TitleBarProps> = ({ title = "Pollis" }) => {
         } as React.CSSProperties
       }
     >
-      <div className="flex items-center gap-2 pl-3 flex-1 titlebar-drag">
-        <img src={logo} alt="Pollis" className="h-4 w-4" />
-        <div className="text-orange-300 text-xs font-medium">{title}</div>
+      <div data-testid="title-bar-left">
+        <img src={logo} alt="Pollis" />
+        <div data-testid="title-bar-title">{title}</div>
       </div>
-      <div className="flex items-center gap-1 pr-2 titlebar-no-drag">
+      <div data-testid="title-bar-controls">
         <button
+          data-testid="title-bar-minimize"
           onClick={handleMinimize}
-          className="w-10 h-10 flex items-center justify-center text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-colors"
           aria-label="Minimize"
         >
-          <Minus className="w-4 h-4" />
+          <Minus aria-hidden="true" />
         </button>
         <button
+          data-testid="title-bar-maximize"
           onClick={handleMaximize}
-          className="w-10 h-10 flex items-center justify-center text-orange-300/70 hover:text-orange-300 hover:bg-orange-300/10 rounded transition-colors"
           aria-label="Maximize"
         >
-          <Square className="w-3 h-3" />
+          <Square aria-hidden="true" />
         </button>
         <button
+          data-testid="title-bar-close"
           onClick={handleClose}
-          className="w-10 h-10 flex items-center justify-center text-orange-300/70 hover:text-orange-300 hover:bg-red-500/20 hover:text-red-400 rounded transition-colors"
           aria-label="Close"
         >
-          <X className="w-4 h-4" />
+          <X aria-hidden="true" />
         </button>
       </div>
     </div>

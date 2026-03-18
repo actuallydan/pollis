@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useMemo, useState } from "react";
 import { VariableSizeList as List } from "react-window";
 import { MessageItem } from "./MessageItem";
-import { Paragraph } from "monopollis";
 import type { Message } from "../../types";
 
 interface MessageListProps {
@@ -36,7 +35,9 @@ const ListItem: React.FC<ListItemProps> = ({ index, style, data }) => {
     }
   }, [index, data, message]);
 
-  if (!message) return null;
+  if (!message) {
+    return null;
+  }
 
   const authorUsername = data.getAuthorUsername
     ? data.getAuthorUsername(message.sender_id)
@@ -70,14 +71,12 @@ export const MessageList: React.FC<MessageListProps> = ({
   const [containerWidth, setContainerWidth] = useState(800);
   const itemHeightsRef = useRef<Map<number, number>>(new Map());
 
-  // Update dimensions function
   const updateDimensions = React.useCallback(() => {
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const height = rect.height;
       const width = rect.width;
-      
-      // Only update if dimensions are valid
+
       if (height > 0 && width > 0) {
         setContainerHeight((prevHeight) => {
           if (prevHeight !== height) return height;
@@ -91,24 +90,21 @@ export const MessageList: React.FC<MessageListProps> = ({
     }
   }, []);
 
-  // Set up container ref callback to measure immediately on mount
   const setContainerRef = React.useCallback((node: HTMLDivElement | null) => {
     if (node) {
       containerRef.current = node;
-      
-      // Measure immediately
+
       const rect = node.getBoundingClientRect();
       if (rect.height > 0 && rect.width > 0) {
         setContainerHeight(rect.height);
         setContainerWidth(rect.width);
       }
-      
-      // Set up ResizeObserver
+
       if (typeof ResizeObserver !== "undefined") {
         if (resizeObserverRef.current) {
           resizeObserverRef.current.disconnect();
         }
-        
+
         resizeObserverRef.current = new ResizeObserver((entries) => {
           for (const entry of entries) {
             const { height, width } = entry.contentRect;
@@ -128,21 +124,16 @@ export const MessageList: React.FC<MessageListProps> = ({
     }
   }, []);
 
-  // Calculate container dimensions on mount and resize
   useEffect(() => {
-    // Initial measurement with multiple attempts to catch layout
     const measure = () => {
       updateDimensions();
     };
 
-    // Try immediately
     measure();
-    
-    // Try after layout (requestAnimationFrame)
+
     const rafId1 = requestAnimationFrame(() => {
       measure();
-      
-      // Try again after a microtask
+
       const rafId2 = requestAnimationFrame(() => {
         measure();
       });
@@ -157,14 +148,12 @@ export const MessageList: React.FC<MessageListProps> = ({
     };
   }, [updateDimensions]);
 
-  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (listRef.current && messages.length > 0) {
       listRef.current.scrollToItem(messages.length - 1, "end");
     }
   }, [messages.length]);
 
-  // Scroll to specific message
   const scrollToMessage = (messageId: string) => {
     const index = messages.findIndex((m) => m.id === messageId);
     if (index !== -1 && listRef.current) {
@@ -173,12 +162,10 @@ export const MessageList: React.FC<MessageListProps> = ({
     onScrollToMessage?.(messageId);
   };
 
-  // Get item size (with caching)
   const getItemSize = (index: number): number => {
     return itemHeightsRef.current.get(index) || 100;
   };
 
-  // Set item size when measured
   const setItemSize = (index: number, size: number) => {
     if (itemHeightsRef.current.get(index) !== size) {
       itemHeightsRef.current.set(index, size);
@@ -202,21 +189,17 @@ export const MessageList: React.FC<MessageListProps> = ({
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <Paragraph size="base" className="text-orange-300/70 font-mono">
-            No messages yet. Start the conversation!
-          </Paragraph>
-        </div>
+      <div data-testid="empty-messages">
+        <p>No messages yet. Start the conversation!</p>
       </div>
     );
   }
 
   return (
-    <div 
-      ref={setContainerRef} 
-      className="flex-1 overflow-hidden h-full w-full"
-      style={{ minHeight: 0 }}
+    <div
+      data-testid="message-list"
+      ref={setContainerRef}
+      style={{ flex: 1, overflow: "hidden", height: "100%", width: "100%", minHeight: 0 }}
     >
       {containerHeight > 0 && containerWidth > 0 ? (
         <List
@@ -226,16 +209,13 @@ export const MessageList: React.FC<MessageListProps> = ({
           itemCount={messages.length}
           itemSize={getItemSize}
           itemData={itemData}
-          className="scrollbar-thin scrollbar-thumb-orange-300/20 scrollbar-track-transparent"
           estimatedItemSize={100}
         >
           {ListItem}
         </List>
       ) : (
-        <div className="h-full w-full flex items-center justify-center">
-          <Paragraph size="base" className="text-orange-300/70 font-mono">
-            Loading messages...
-          </Paragraph>
+        <div data-testid="loading-messages">
+          <p>Loading messages...</p>
         </div>
       )}
     </div>

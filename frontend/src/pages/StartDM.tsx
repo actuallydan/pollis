@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
-import { Button, TextInput, Header, Paragraph } from "monopollis";
 import { useCreateOrGetDMConversation } from "../hooks/queries";
 import { updateURL } from "../utils/urlRouting";
 
@@ -13,7 +12,6 @@ export const StartDM: React.FC = () => {
   const [identifier, setIdentifier] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  // Use React Query mutation for creating/getting DM conversation
   const createDMMutation = useCreateOrGetDMConversation();
 
   const handleBack = () => {
@@ -22,29 +20,20 @@ export const StartDM: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!identifier.trim()) {
       setError("User identifier is required");
       return;
     }
-
     if (!currentUser) {
       setError("User not found");
       return;
     }
-
     setError(null);
-
     try {
       const conversation = await createDMMutation.mutateAsync(identifier.trim());
-
       setSelectedConversationId(conversation.id);
-
-      // Navigate to the conversation
       updateURL(`/c/${conversation.id}`);
       window.dispatchEvent(new PopStateEvent("popstate"));
-
-      // Reset form
       setIdentifier("");
     } catch (err) {
       setError(
@@ -54,58 +43,50 @@ export const StartDM: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-black overflow-hidden">
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-xl mx-auto p-8">
-          <button
-            onClick={handleBack}
-            className="flex items-center gap-2 text-orange-300/70 hover:text-orange-300 mb-6 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </button>
+    <div data-testid="start-dm-page">
+      <button
+        data-testid="start-dm-back-button"
+        onClick={handleBack}
+        aria-label="Back"
+      >
+        <ArrowLeft aria-hidden="true" />
+        Back
+      </button>
 
-          <Header size="xl" className="mb-2">
-            Start Direct Message
-          </Header>
-          <Paragraph size="base" className="mb-8 text-orange-300/70">
-            Enter a username, email, or phone number to start a conversation.
-          </Paragraph>
+      <h1>Start Direct Message</h1>
+      <p>Enter a username, email, or phone number to start a conversation.</p>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <TextInput
-              id="identifier"
-              label="User Identifier"
-              value={identifier}
-              onChange={setIdentifier}
-              placeholder="username, email, or phone"
-              required
-              disabled={createDMMutation.isPending}
-              description="Username, email address, or phone number"
-            />
+      <form data-testid="start-dm-form" onSubmit={handleSubmit}>
+        <label htmlFor="dm-identifier">User Identifier</label>
+        <input
+          id="dm-identifier"
+          data-testid="dm-identifier-input"
+          type="text"
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
+          placeholder="username, email, or phone"
+          required
+          disabled={createDMMutation.isPending}
+        />
+        <p>Username, email address, or phone number</p>
 
-            {(error || createDMMutation.error) && (
-              <div className="p-4 bg-red-900/20 border border-red-300/30 rounded">
-                <Paragraph size="sm" className="text-red-300">
-                  {error ||
-                    (createDMMutation.error instanceof Error
-                      ? createDMMutation.error.message
-                      : "Failed to start conversation")}
-                </Paragraph>
-              </div>
-            )}
+        {(error || createDMMutation.error) && (
+          <p data-testid="start-dm-error">
+            {error ||
+              (createDMMutation.error instanceof Error
+                ? createDMMutation.error.message
+                : "Failed to start conversation")}
+          </p>
+        )}
 
-            <Button
-              type="submit"
-              isLoading={createDMMutation.isPending}
-              loadingText="Starting..."
-              className="w-full"
-            >
-              Start Conversation
-            </Button>
-          </form>
-        </div>
-      </div>
+        <button
+          data-testid="start-dm-submit-button"
+          type="submit"
+          disabled={createDMMutation.isPending}
+        >
+          {createDMMutation.isPending ? "Starting..." : "Start Conversation"}
+        </button>
+      </form>
     </div>
   );
 };

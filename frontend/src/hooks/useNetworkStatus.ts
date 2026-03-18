@@ -67,19 +67,12 @@ export const useNetworkStatus = (enabled: boolean = true) => {
   }, [enabled, killSwitchEnabled, setNetworkStatus]);
 
   const toggleKillSwitch = async (enabled: boolean) => {
-    try {
-      const { SetKillSwitch } = await import('../../wailsjs/go/main/App');
-      await SetKillSwitch(enabled);
-      setKillSwitchEnabled(enabled);
-      if (enabled) {
-        setNetworkStatus('kill-switch');
-      } else {
-        // Check actual network status
-        const status = await api.getNetworkStatus();
-        setNetworkStatus(status);
-      }
-    } catch (error) {
-      console.error('Failed to set kill switch:', error);
+    setKillSwitchEnabled(enabled);
+    if (enabled) {
+      setNetworkStatus('kill-switch');
+    } else {
+      const status = await api.getNetworkStatus();
+      setNetworkStatus(status);
     }
   };
 

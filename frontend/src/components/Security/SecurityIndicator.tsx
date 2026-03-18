@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   Shield,
 } from "lucide-react";
-import { Badge } from "monopollis";
 
 type IndicatorKind =
   | "encrypted"
@@ -15,54 +14,29 @@ type IndicatorKind =
   | "unverified"
   | "group-shield";
 
-type BadgeVariant = "default" | "success" | "warning" | "error";
-
 interface SecurityIndicatorProps {
   kind: IndicatorKind;
   label?: string;
 }
 
+const kindConfig: Record<IndicatorKind, { icon: React.ReactNode; text: string }> = {
+  encrypted: { icon: <Lock aria-hidden="true" />, text: "Encrypted" },
+  verified: { icon: <ShieldCheck aria-hidden="true" />, text: "Verified" },
+  warning: { icon: <AlertTriangle aria-hidden="true" />, text: "Warning" },
+  unverified: { icon: <ShieldAlert aria-hidden="true" />, text: "Unverified" },
+  "group-shield": { icon: <Shield aria-hidden="true" />, text: "Group protected" },
+};
+
 export const SecurityIndicator: React.FC<SecurityIndicatorProps> = ({
   kind,
   label,
 }) => {
-  const config: Record<
-    IndicatorKind,
-    { icon: React.ReactNode; variant: BadgeVariant; text: string }
-  > = {
-    encrypted: {
-      icon: <Lock className="w-3 h-3" />,
-      variant: "default",
-      text: "Encrypted",
-    },
-    verified: {
-      icon: <ShieldCheck className="w-3 h-3" />,
-      variant: "success",
-      text: "Verified",
-    },
-    warning: {
-      icon: <AlertTriangle className="w-3 h-3" />,
-      variant: "warning",
-      text: "Warning",
-    },
-    unverified: {
-      icon: <ShieldAlert className="w-3 h-3" />,
-      variant: "error",
-      text: "Unverified",
-    },
-    "group-shield": {
-      icon: <Shield className="w-3 h-3" />,
-      variant: "default",
-      text: "Group protected",
-    },
-  };
-
-  const data = config[kind];
+  const data = kindConfig[kind];
 
   return (
-    <Badge variant={data.variant} size="sm" className="flex items-center gap-1">
+    <span data-testid="security-indicator">
       {data.icon}
       {label || data.text}
-    </Badge>
+    </span>
   );
 };
