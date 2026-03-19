@@ -4,6 +4,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@fontsource/atkinson-hyperlegible";
 import "./index.css";
 import App from "./App";
+import { useAppStore } from "./stores/appStore";
+
+// Expose Zustand store for Playwright tests so page.evaluate() can set state
+if (import.meta.env.VITE_PLAYWRIGHT === 'true') {
+  (window as any).__pollisStore = useAppStore;
+}
 
 const container = document.getElementById("root");
 

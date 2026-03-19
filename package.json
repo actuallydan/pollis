@@ -14,9 +14,12 @@
     "secrets:decrypt": "sops --decrypt --input-type dotenv --output-type dotenv secrets.enc.env > .env.development",
     "secrets:encrypt": "sops --encrypt --filename-override secrets.enc.env --input-type dotenv --output-type dotenv .env.development > secrets.enc.env",
     "secrets:edit": "sops --filename-override secrets.enc.env --input-type dotenv --output-type dotenv secrets.enc.env",
-    "db:push": "cargo run --manifest-path src-tauri/Cargo.toml --bin migrate"
+    "db:push": "cargo run --manifest-path src-tauri/Cargo.toml --bin migrate",
+    "test:e2e": "playwright test",
+    "test:e2e:interactive": "playwright test --ui"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.0",
     "@tauri-apps/cli": "^2"
   },
   "packageManager": "pnpm@10.25.0",
