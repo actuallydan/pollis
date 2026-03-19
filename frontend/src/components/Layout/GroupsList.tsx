@@ -1,8 +1,10 @@
 import React from "react";
-import { Hash, Plus, Settings } from "lucide-react";
-import { updateURL, deriveSlug } from "../../utils/urlRouting";
-import { Channel } from "../../types";
-import { Link } from "@tanstack/react-router";
+import { Hash, Plus } from "lucide-react";
+import { deriveSlug } from "../../utils/urlRouting";
+import { useRouter } from "@tanstack/react-router";
+import type { Channel } from "../../types";
+import { TreeView } from "./TreeView";
+import type { TreeNode } from "./TreeView";
 
 interface Group {
   id: string;
@@ -11,7 +13,7 @@ interface Group {
   icon_url?: string;
 }
 
-type ChannelPartial = Pick<Channel, "id" | "name">
+type ChannelPartial = Pick<Channel, "id" | "name">;
 
 interface GroupsListProps {
   groups: Group[];
@@ -34,101 +36,124 @@ export const GroupsList: React.FC<GroupsListProps> = ({
   onSelectChannel,
   onCreateChannel,
 }) => {
-  const groupChannels = selectedGroupId ? channels[selectedGroupId] || [] : [];
+  const router = useRouter();
+
+  const treeData: TreeNode[] = groups.map((group) => {
+    const groupChannels = channels[group.id] || [];
+
+    const channelNodes: TreeNode[] = groupChannels.map((channel) => ({
+      id: channel.id,
+      label: channel.name,
+      testId: `channel-item-${channel.id}`,
+      hideAction: true,
+      data: { type: "channel", channel, group },
+    }));
+
+    const newChannelNode: TreeNode = {
+      id: `${group.id}__new-channel`,
+      label: "New Channel",
+      testId: "create-channel-button",
+      hideAction: true,
+      data: { type: "new-channel", group },
+    };
+
+    return {
+      id: group.id,
+      label: group.name,
+      testId: `group-item-${group.id}`,
+      data: { type: "group", group },
+      children: [newChannelNode, ...channelNodes],
+    };
+  });
+
+  const handleNodeClick = (node: TreeNode) => {
+    if (node.data?.type === "group") {
+      const group = node.data.group as Group;
+      onSelectGroup(group.id);
+      router.navigate({ to: "/g/$groupSlug", params: { groupSlug: group.slug } });
+    } else if (node.data?.type === "channel") {
+      const { channel, group } = node.data as { channel: ChannelPartial; group: Group };
+      onSelectChannel(channel.id);
+      router.navigate({
+        to: "/g/$groupSlug/$channelSlug",
+        params: { groupSlug: group.slug, channelSlug: deriveSlug(channel.name) },
+      });
+    } else if (node.data?.type === "new-channel") {
+      const group = node.data.group as Group;
+      onSelectGroup(group.id);
+      onCreateChannel?.();
+    }
+  };
+
+  const handleNodeAction = (node: TreeNode) => {
+    if (node.data?.type === "group") {
+      const group = node.data.group as Group;
+      router.navigate({ to: "/g/$groupSlug/settings", params: { groupSlug: group.slug } });
+    }
+  };
+
+  // Collapsed: show group initials stacked on the right edge
+  if (isCollapsed) {
+    return (
+      <div data-testid="groups-list" className="flex-1 overflow-y-auto min-h-0 py-1">
+        {groups.map((group) => {
+          const isSelected = selectedGroupId === group.id;
+          return (
+            <button
+              key={group.id}
+              data-testid={`group-item-${group.id}`}
+              onClick={() => {
+                onSelectGroup(group.id);
+                router.navigate({ to: "/g/$groupSlug", params: { groupSlug: group.slug } });
+              }}
+              title={group.name}
+              aria-label={`Group ${group.name}`}
+              className="sidebar-item w-full justify-end"
+            >
+              <div
+                className="w-6 h-6 rounded flex items-center justify-center text-2xs font-mono font-bold flex-shrink-0"
+                style={{
+                  background: isSelected ? "var(--c-active)" : "var(--c-hover)",
+                  color: isSelected ? "var(--c-accent)" : "var(--c-text-dim)",
+                  border: isSelected
+                    ? "1px solid var(--c-border-active)"
+                    : "1px solid var(--c-border)",
+                }}
+              >
+                {group.name.charAt(0).toUpperCase()}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const selectedId = selectedChannelId || selectedGroupId;
 
   return (
-    <div data-testid="groups-list">
+    <div data-testid="groups-list" className="flex-1 overflow-y-auto min-h-0 py-1 px-1">
       {groups.length === 0 ? (
-        !isCollapsed && (
-          <div>
-            <p>No groups yet. Create one to get started.</p>
-          </div>
-        )
+        <p className="px-3 py-2 text-xs" style={{ color: "var(--c-text-muted)" }}>
+          No groups yet.
+        </p>
       ) : (
-        <div>
-          {groups.map((group) => (
-            <div key={group.id}>
-              <button
-                data-testid={`group-item-${group.id}`}
-                onClick={() => {
-                  onSelectGroup(group.id);
-                  updateURL(`/g/${group.slug}`);
-                }}
-                title={isCollapsed ? group.name : undefined}
-                aria-label={`Group ${group.name}`}
-              >
-                {isCollapsed ? (
-                  <div>
-                    {group.icon_url ? (
-                      <img src={group.icon_url} alt={group.name} />
-                    ) : (
-                      <span>{group.name.charAt(0).toUpperCase()}</span>
-                    )}
-                  </div>
-                ) : (
-                  <div>
-                    {group.icon_url ? (
-                      <img src={group.icon_url} alt={group.name} />
-                    ) : (
-                      <div>
-                        <span>{group.name.charAt(0).toUpperCase()}</span>
-                      </div>
-                    )}
-                    <h3>{group.name}</h3>
-                    <Link
-                      to="/g/$groupSlug/settings"
-                      params={{ groupSlug: group.slug }}
-                      onClick={(e) => e.stopPropagation()}
-                      data-testid={`group-settings-link-${group.id}`}
-                      aria-label={`Settings for ${group.name}`}
-                    >
-                      <Settings aria-hidden="true" />
-                    </Link>
-                  </div>
-                )}
-              </button>
-
-              {selectedGroupId === group.id && !isCollapsed && (
-                <div>
-                  {onCreateChannel && (
-                    <button
-                      data-testid="create-channel-button"
-                      onClick={onCreateChannel}
-                      aria-label="Create channel"
-                    >
-                      <Plus aria-hidden="true" />
-                      <span>Create Channel</span>
-                    </button>
-                  )}
-
-                  {groupChannels.length === 0 ? (
-                    <div>
-                      <p>No channels. Create one?</p>
-                    </div>
-                  ) : (
-                    groupChannels.map((channel) => {
-                      const channelSlug = deriveSlug(channel.name);
-                      return (
-                        <button
-                          key={channel.id}
-                          data-testid={`channel-item-${channel.id}`}
-                          onClick={() => {
-                            onSelectChannel(channel.id);
-                            updateURL(`/g/${group.slug}/${channelSlug}`);
-                          }}
-                          aria-label={`Channel ${channel.name}`}
-                        >
-                          <Hash aria-hidden="true" />
-                          <span>{channel.name}</span>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+        <TreeView
+          data={treeData}
+          selectedId={selectedId}
+          onNodeClick={handleNodeClick}
+          onNodeAction={handleNodeAction}
+          getNodeIcon={(node) => {
+            if (node.data?.type === "channel") {
+              return Hash as any;
+            }
+            if (node.data?.type === "new-channel") {
+              return Plus as any;
+            }
+            return undefined;
+          }}
+          defaultExpandedIds={selectedGroupId ? [selectedGroupId] : []}
+        />
       )}
     </div>
   );

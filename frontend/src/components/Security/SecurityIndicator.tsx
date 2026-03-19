@@ -19,24 +19,28 @@ interface SecurityIndicatorProps {
   label?: string;
 }
 
-const kindConfig: Record<IndicatorKind, { icon: React.ReactNode; text: string }> = {
-  encrypted: { icon: <Lock aria-hidden="true" />, text: "Encrypted" },
-  verified: { icon: <ShieldCheck aria-hidden="true" />, text: "Verified" },
-  warning: { icon: <AlertTriangle aria-hidden="true" />, text: "Warning" },
-  unverified: { icon: <ShieldAlert aria-hidden="true" />, text: "Unverified" },
-  "group-shield": { icon: <Shield aria-hidden="true" />, text: "Group protected" },
+const kindConfig: Record<IndicatorKind, { icon: React.ReactElement; text: string; color: string }> = {
+  encrypted: { icon: <Lock size={14} aria-hidden="true" />, text: "Encrypted", color: 'var(--c-accent)' },
+  verified: { icon: <ShieldCheck size={14} aria-hidden="true" />, text: "Verified", color: 'var(--c-accent)' },
+  warning: { icon: <AlertTriangle size={14} aria-hidden="true" />, text: "Warning", color: '#f0b429' },
+  unverified: { icon: <ShieldAlert size={14} aria-hidden="true" />, text: "Unverified", color: '#ff6b6b' },
+  "group-shield": { icon: <Shield size={14} aria-hidden="true" />, text: "Group protected", color: 'var(--c-accent-dim)' },
 };
 
 export const SecurityIndicator: React.FC<SecurityIndicatorProps> = ({
   kind,
   label,
 }) => {
-  const data = kindConfig[kind];
+  const { icon, text, color } = kindConfig[kind];
 
   return (
-    <span data-testid="security-indicator">
-      {data.icon}
-      {label || data.text}
+    <span
+      data-testid="security-indicator"
+      className="inline-flex items-center gap-1 text-2xs font-mono"
+      style={{ color }}
+    >
+      {icon}
+      {label || text}
     </span>
   );
 };

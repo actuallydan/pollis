@@ -75,6 +75,8 @@ export async function searchUserByUsername(username: string): Promise<UserProfil
 
 // ── Groups ─────────────────────────────────────────────────────────────────
 
+import { deriveSlug } from '../utils/urlRouting';
+
 type RawGroup = { id: string; name: string; description?: string; owner_id: string; created_at: string };
 type RawChannel = { id: string; group_id: string; name: string; description?: string };
 
@@ -82,7 +84,7 @@ function toGroup(g: RawGroup): Group {
   const ts = new Date(g.created_at).getTime();
   return {
     id: g.id,
-    slug: '',
+    slug: deriveSlug(g.name),
     name: g.name,
     description: g.description || '',
     created_by: g.owner_id,
@@ -103,6 +105,20 @@ function toChannel(c: RawChannel): Channel {
     created_at: 0,
     updated_at: 0,
   };
+}
+
+type RawGroupWithChannels = RawGroup & { channels: RawChannel[] };
+
+export interface GroupWithChannels extends Group {
+  channels: Channel[];
+}
+
+export async function listUserGroupsWithChannels(userId: string): Promise<GroupWithChannels[]> {
+  const groups = await invoke<RawGroupWithChannels[]>('list_user_groups_with_channels', { userId });
+  return (groups || []).map((g) => ({
+    ...toGroup(g),
+    channels: (g.channels || []).map(toChannel),
+  }));
 }
 
 export async function listUserGroups(userId: string): Promise<Group[]> {

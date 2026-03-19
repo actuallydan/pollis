@@ -49,10 +49,16 @@ export const EmailOTPAuth: React.FC<EmailOTPAuthProps> = ({ onSuccess }) => {
 
   if (step === 'otp') {
     return (
-      <div data-testid="otp-form-container">
-        <p>Enter the 6-digit code sent to {email}</p>
-        {error && <p data-testid="auth-error">{error}</p>}
-        <form data-testid="otp-form" onSubmit={handleVerifyOTP}>
+      <div data-testid="otp-form-container" className="flex flex-col gap-4">
+        <p className="text-xs font-mono" style={{ color: 'var(--c-text-dim)' }}>
+          Code sent to <span style={{ color: 'var(--c-accent)' }}>{email}</span>
+        </p>
+        {error && (
+          <p data-testid="auth-error" className="text-xs font-mono" style={{ color: '#ff6b6b' }}>
+            {error}
+          </p>
+        )}
+        <form data-testid="otp-form" onSubmit={handleVerifyOTP} className="flex flex-col gap-3">
           <input
             data-testid="otp-input"
             type="text"
@@ -63,42 +69,64 @@ export const EmailOTPAuth: React.FC<EmailOTPAuthProps> = ({ onSuccess }) => {
             placeholder="000000"
             autoComplete="one-time-code"
             autoFocus
+            className="pollis-input text-center font-mono tracking-widest text-base"
           />
-          <button data-testid="verify-otp-button" type="submit" disabled={isLoading}>
-            {isLoading ? 'Verifying...' : 'Verify'}
+          <button
+            data-testid="verify-otp-button"
+            type="submit"
+            disabled={isLoading}
+            className="btn-primary w-full py-2"
+          >
+            {isLoading ? 'Verifying…' : 'Verify'}
           </button>
         </form>
         <button
           data-testid="back-to-email-button"
-          onClick={() => {
-            setStep('email');
-            setOtp('');
-            setError(null);
-          }}
+          onClick={() => { setStep('email'); setOtp(''); setError(null); }}
+          className="text-xs font-mono text-center"
+          style={{ color: 'var(--c-text-muted)' }}
         >
-          Back
+          ← Back
         </button>
       </div>
     );
   }
 
   return (
-    <div data-testid="email-form-container">
-      {error && <p data-testid="auth-error">{error}</p>}
-      <form data-testid="email-form" onSubmit={handleRequestOTP}>
-        <label htmlFor="email-input">Email address</label>
-        <input
-          id="email-input"
-          data-testid="email-input"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@example.com"
-          autoComplete="email"
-          autoFocus
-        />
-        <button data-testid="send-otp-button" type="submit" disabled={isLoading}>
-          {isLoading ? 'Sending...' : 'Send Code'}
+    <div data-testid="email-form-container" className="flex flex-col gap-4">
+      {error && (
+        <p data-testid="auth-error" className="text-xs font-mono" style={{ color: '#ff6b6b' }}>
+          {error}
+        </p>
+      )}
+      <form data-testid="email-form" onSubmit={handleRequestOTP} className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="email-input"
+            className="text-2xs font-mono uppercase tracking-widest"
+            style={{ color: 'var(--c-text-muted)' }}
+          >
+            Email
+          </label>
+          <input
+            id="email-input"
+            data-testid="email-input"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            autoComplete="email"
+            autoFocus
+            className="pollis-input"
+          />
+        </div>
+        <button
+          data-testid="send-otp-button"
+          type="submit"
+          disabled={isLoading}
+          className="btn-primary w-full py-2"
+        >
+          {isLoading ? 'Sending…' : 'Continue'}
         </button>
       </form>
     </div>

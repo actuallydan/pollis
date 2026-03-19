@@ -23,25 +23,31 @@ export const ReplyPreview: React.FC<ReplyPreviewProps> = ({
   const snippet = content.length > 100 ? content.substring(0, 100) + '...' : content;
 
   return (
-    <div data-testid="reply-preview">
-      <div>
-        <div>
-          <p>Replying to message</p>
-        </div>
+    <div
+      data-testid="reply-preview"
+      className="flex items-center gap-2 px-4 py-1.5 flex-shrink-0"
+      style={{ borderTop: '1px solid var(--c-border)', background: 'var(--c-surface)' }}
+    >
+      <div className="flex-1 min-w-0">
+        <span className="text-2xs font-mono uppercase tracking-widest" style={{ color: 'var(--c-text-muted)' }}>
+          replying to
+        </span>
         <button
           data-testid="reply-preview-scroll-button"
           onClick={() => onScrollToMessage?.(messageId)}
           aria-label="Scroll to replied message"
+          className="block w-full text-left"
         >
-          <p>{snippet}</p>
+          <p className="text-xs font-mono truncate" style={{ color: 'var(--c-accent-dim)' }}>{snippet}</p>
         </button>
       </div>
       <button
         data-testid="dismiss-reply-button"
         onClick={onDismiss}
         aria-label="Dismiss reply"
+        className="icon-btn-sm flex-shrink-0"
       >
-        <X aria-hidden="true" />
+        <X size={17} aria-hidden="true" />
       </button>
     </div>
   );

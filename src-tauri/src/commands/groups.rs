@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use std::sync::Arc;
-use uuid::Uuid;
+use ulid::Ulid;
 
 use crate::error::{Error, Result};
 use crate::state::AppState;
@@ -35,6 +35,72 @@ pub struct Channel {
     pub group_id: String,
     pub name: String,
     pub description: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GroupWithChannels {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub owner_id: String,
+    pub created_at: String,
+    pub channels: Vec<Channel>,
+}
+
+#[tauri::command]
+pub async fn list_user_groups_with_channels(
+    user_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<GroupWithChannels>> {
+    let conn = state.remote_db.conn().await?;
+
+    let mut rows = conn.query(
+        "SELECT g.id, g.name, g.description, g.owner_id, g.created_at,
+                c.id, c.group_id, c.name, c.description
+         FROM groups g
+         JOIN group_member gm ON gm.group_id = g.id
+         LEFT JOIN channels c ON c.group_id = g.id
+         WHERE gm.user_id = ?1
+         ORDER BY g.created_at, c.name",
+        libsql::params![user_id],
+    ).await?;
+
+    let mut groups: Vec<GroupWithChannels> = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let group_id: String = row.get(0)?;
+        let channel_id: Option<String> = row.get(5)?;
+
+        if let Some(existing) = groups.iter_mut().find(|g| g.id == group_id) {
+            if let Some(cid) = channel_id {
+                existing.channels.push(Channel {
+                    id: cid,
+                    group_id: row.get(6)?,
+                    name: row.get(7)?,
+                    description: row.get(8)?,
+                });
+            }
+        } else {
+            let mut channels = Vec::new();
+            if let Some(cid) = channel_id {
+                channels.push(Channel {
+                    id: cid,
+                    group_id: row.get(6)?,
+                    name: row.get(7)?,
+                    description: row.get(8)?,
+                });
+            }
+            groups.push(GroupWithChannels {
+                id: group_id,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                owner_id: row.get(3)?,
+                created_at: row.get(4)?,
+                channels,
+            });
+        }
+    }
+
+    Ok(groups)
 }
 
 #[tauri::command]
@@ -99,7 +165,7 @@ pub async fn create_group(
     state: State<'_, Arc<AppState>>,
 ) -> Result<Group> {
     let conn = state.remote_db.conn().await?;
-    let id = Uuid::new_v4().to_string();
+    let id = Ulid::new().to_string();
     let now = chrono::Utc::now().to_rfc3339();
 
     conn.execute(
@@ -123,7 +189,7 @@ pub async fn create_channel(
     state: State<'_, Arc<AppState>>,
 ) -> Result<Channel> {
     let conn = state.remote_db.conn().await?;
-    let id = Uuid::new_v4().to_string();
+    let id = Ulid::new().to_string();
 
     conn.execute(
         "INSERT INTO channels (id, group_id, name, description) VALUES (?1, ?2, ?3, ?4)",

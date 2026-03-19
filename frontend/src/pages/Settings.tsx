@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { ArrowLeft, Upload, User } from "lucide-react";
+import { Upload, User } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
 import { uploadAvatar } from "../services/r2-upload";
 import { updateURL } from "../utils/urlRouting";
@@ -25,11 +25,7 @@ export const Settings: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
-    return () => {
-      if (preview) {
-        URL.revokeObjectURL(preview);
-      }
-    };
+    return () => { if (preview) { URL.revokeObjectURL(preview); } };
   }, [preview]);
 
   useEffect(() => {
@@ -40,73 +36,51 @@ export const Settings: React.FC = () => {
     }
   }, [userData]);
 
-  useEffect(() => {
-    setCurrentAvatarUrl(avatarDownloadUrl || null);
-  }, [avatarDownloadUrl]);
+  useEffect(() => { setCurrentAvatarUrl(avatarDownloadUrl || null); }, [avatarDownloadUrl]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) {
       setSelectedFile(null);
-      if (preview) {
-        URL.revokeObjectURL(preview);
-      }
+      if (preview) { URL.revokeObjectURL(preview); }
       setPreview(null);
       setUploadError(null);
       return;
     }
     setSelectedFile(file);
     setUploadError(null);
-    if (preview) {
-      URL.revokeObjectURL(preview);
-    }
-    if (file.type.startsWith("image/")) {
-      setPreview(URL.createObjectURL(file));
-    }
+    if (preview) { URL.revokeObjectURL(preview); }
+    if (file.type.startsWith("image/")) { setPreview(URL.createObjectURL(file)); }
   };
 
   const handleAvatarUpload = useCallback(async () => {
-    if (!selectedFile || !currentUser) {
-      return;
-    }
+    if (!selectedFile || !currentUser) { return; }
     setUploadError(null);
     try {
-      const oldAvatarKey = userData?.avatar_url;
       const optimizedFile = await resizeImage(selectedFile);
       const response = await uploadAvatar(currentUser.id, "", optimizedFile);
       await updateAvatarMutation.mutateAsync(response.object_key);
-      // Old avatar cleanup not implemented (no delete_file command)
       setSelectedFile(null);
-      if (preview) {
-        URL.revokeObjectURL(preview);
-      }
+      if (preview) { URL.revokeObjectURL(preview); }
       setPreview(null);
       setFileInputKey((prev) => prev + 1);
       setSaveSuccess(true);
     } catch (error) {
-      console.error("Failed to upload avatar:", error);
-      setUploadError(
-        error instanceof Error ? error.message : "Failed to upload avatar"
-      );
+      setUploadError(error instanceof Error ? error.message : "Failed to upload avatar");
     }
-  }, [selectedFile, currentUser, userData?.avatar_url, preview, updateAvatarMutation]);
+  }, [selectedFile, currentUser, preview, updateAvatarMutation]);
 
   useEffect(() => {
     if (saveSuccess) {
-      const timer = setTimeout(() => setSaveSuccess(false), 3000);
-      return () => clearTimeout(timer);
+      const t = setTimeout(() => setSaveSuccess(false), 3000);
+      return () => clearTimeout(t);
     }
   }, [saveSuccess]);
 
   const handleSave = async () => {
-    if (!currentUser) {
-      return;
-    }
+    if (!currentUser) { return; }
     try {
-      await updateProfileMutation.mutateAsync({
-        username: username.trim(),
-        phone: phone.trim() || undefined,
-      });
+      await updateProfileMutation.mutateAsync({ username: username.trim(), phone: phone.trim() || undefined });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
@@ -114,137 +88,163 @@ export const Settings: React.FC = () => {
     }
   };
 
-  const handleBack = () => {
-    updateURL("/");
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  };
-
   if (!currentUser) {
     return (
-      <div data-testid="settings-no-user">
-        <p>Please sign in to access settings</p>
+      <div data-testid="settings-no-user" className="flex items-center justify-center flex-1" style={{ background: 'var(--c-bg)' }}>
+        <p className="text-xs font-mono" style={{ color: 'var(--c-text-muted)' }}>Please sign in</p>
       </div>
     );
   }
 
   return (
-    <div data-testid="settings-page">
-      <div data-testid="settings-header">
-        <button
-          data-testid="settings-back-button"
-          onClick={handleBack}
-          aria-label="Back"
-        >
-          <ArrowLeft aria-hidden="true" />
-        </button>
-        <h1>Settings</h1>
-      </div>
+    <div
+      data-testid="settings-page"
+      className="flex-1 flex flex-col overflow-auto"
+      style={{ background: 'var(--c-bg)' }}
+    >
+      <div data-testid="settings-content" className="flex-1 flex justify-center overflow-auto px-6 py-8">
+        <div className="w-full max-w-md flex flex-col gap-8">
 
-      <div data-testid="settings-content">
-        <div>
-          <h2>Account Information</h2>
+          {/* Account */}
+          <section className="flex flex-col gap-4">
+            <h2 className="section-label px-0 border-b pb-1" style={{ borderColor: 'var(--c-border)' }}>
+              Account
+            </h2>
 
-          {isLoading ? (
-            <span data-testid="settings-loading">Loading...</span>
-          ) : (
-            <div>
-              <label htmlFor="settings-username">Username</label>
-              <input
-                id="settings-username"
-                data-testid="settings-username-input"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="username"
-              />
+            {isLoading ? (
+              <span data-testid="settings-loading" className="text-xs font-mono" style={{ color: 'var(--c-text-muted)' }}>
+                Loading…
+              </span>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="settings-username" className="section-label px-0">Username</label>
+                  <input
+                    id="settings-username"
+                    data-testid="settings-username-input"
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="username"
+                    className="pollis-input font-mono"
+                  />
+                </div>
 
-              <label htmlFor="settings-email">Email</label>
-              <input
-                id="settings-email"
-                data-testid="settings-email-input"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="your@email.com"
-              />
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="settings-email" className="section-label px-0">Email</label>
+                  <input
+                    id="settings-email"
+                    data-testid="settings-email-input"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="pollis-input"
+                  />
+                </div>
 
-              <label htmlFor="settings-phone">Phone</label>
-              <input
-                id="settings-phone"
-                data-testid="settings-phone-input"
-                type="text"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+1234567890"
-              />
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="settings-phone" className="section-label px-0">Phone</label>
+                  <input
+                    id="settings-phone"
+                    data-testid="settings-phone-input"
+                    type="text"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+1 555 000 0000"
+                    className="pollis-input font-mono"
+                  />
+                </div>
+              </div>
+            )}
 
-            </div>
-          )}
+            {updateProfileMutation.error && (
+              <p data-testid="settings-save-error" className="text-xs font-mono" style={{ color: '#ff6b6b' }}>
+                {updateProfileMutation.error instanceof Error
+                  ? updateProfileMutation.error.message
+                  : "Failed to save"}
+              </p>
+            )}
 
-          {updateProfileMutation.error && (
-            <p data-testid="settings-save-error">
-              {updateProfileMutation.error instanceof Error
-                ? updateProfileMutation.error.message
-                : "Failed to save settings"}
-            </p>
-          )}
+            {saveSuccess && (
+              <p data-testid="settings-save-success" className="text-xs font-mono" style={{ color: 'var(--c-accent-dim)' }}>
+                Saved.
+              </p>
+            )}
 
-          {saveSuccess && (
-            <p data-testid="settings-save-success">Settings saved successfully!</p>
-          )}
+            <button
+              data-testid="settings-save-button"
+              onClick={handleSave}
+              disabled={updateProfileMutation.isPending}
+              className="btn-primary self-start"
+            >
+              {updateProfileMutation.isPending ? "Saving…" : "Save Changes"}
+            </button>
+          </section>
 
-          <button
-            data-testid="settings-save-button"
-            onClick={handleSave}
-            disabled={updateProfileMutation.isPending}
-          >
-            {updateProfileMutation.isPending ? "Saving..." : "Save Changes"}
-          </button>
-        </div>
+          {/* Avatar */}
+          <section className="flex flex-col gap-4">
+            <h2 className="section-label px-0 border-b pb-1" style={{ borderColor: 'var(--c-border)' }}>
+              Avatar
+            </h2>
 
-        <div>
-          <h2>Profile</h2>
+            <div className="flex items-center gap-4">
+              {/* Preview */}
+              <div
+                data-testid="avatar-preview-container"
+                className="w-14 h-14 rounded-panel overflow-hidden flex items-center justify-center flex-shrink-0"
+                style={{ border: '1px solid var(--c-border)', background: 'var(--c-surface-high)' }}
+              >
+                {preview ? (
+                  <img data-testid="avatar-new-preview" src={preview} alt="Preview" className="w-full h-full object-cover" />
+                ) : currentAvatarUrl ? (
+                  <img
+                    data-testid="avatar-current"
+                    src={currentAvatarUrl}
+                    alt="Avatar"
+                    className="w-full h-full object-cover"
+                    onError={() => setCurrentAvatarUrl(null)}
+                  />
+                ) : (
+                  <User data-testid="avatar-placeholder" size={22} aria-hidden="true" style={{ color: 'var(--c-text-muted)' }} />
+                )}
+              </div>
 
-          <div>
-            <p>Avatar</p>
-            <div data-testid="avatar-preview-container">
-              {preview ? (
-                <img
-                  data-testid="avatar-new-preview"
-                  src={preview}
-                  alt="Avatar preview"
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="settings-avatar-input"
+                  className="btn-ghost cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <Upload size={17} aria-hidden="true" />
+                  Choose image
+                </label>
+                <input
+                  key={fileInputKey}
+                  id="settings-avatar-input"
+                  data-testid="settings-avatar-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  disabled={updateAvatarMutation.isPending}
+                  aria-label="Select avatar image"
+                  className="sr-only"
                 />
-              ) : currentAvatarUrl ? (
-                <img
-                  data-testid="avatar-current"
-                  src={currentAvatarUrl}
-                  alt="Current avatar"
-                  onError={() => setCurrentAvatarUrl(null)}
-                />
-              ) : (
-                <User data-testid="avatar-placeholder" aria-hidden="true" />
-              )}
+                <p className="text-2xs font-mono" style={{ color: 'var(--c-text-muted)' }}>
+                  PNG, JPG, GIF — max 5MB
+                </p>
+              </div>
             </div>
-
-            <label htmlFor="settings-avatar-input">Select Avatar Image</label>
-            <input
-              key={fileInputKey}
-              id="settings-avatar-input"
-              data-testid="settings-avatar-input"
-              type="file"
-              accept="image/*"
-              onChange={handleFileChange}
-              disabled={updateAvatarMutation.isPending}
-              aria-label="Select avatar image"
-            />
-            <p>Supported formats: PNG, JPG, GIF. Max size: 5MB.</p>
 
             {uploadError && (
-              <p data-testid="avatar-upload-error">{uploadError}</p>
+              <p data-testid="avatar-upload-error" className="text-xs font-mono" style={{ color: '#ff6b6b' }}>
+                {uploadError}
+              </p>
             )}
 
             {saveSuccess && !selectedFile && (
-              <p data-testid="avatar-upload-success">Avatar uploaded successfully!</p>
+              <p data-testid="avatar-upload-success" className="text-xs font-mono" style={{ color: 'var(--c-accent-dim)' }}>
+                Avatar updated.
+              </p>
             )}
 
             {selectedFile && (
@@ -252,12 +252,14 @@ export const Settings: React.FC = () => {
                 data-testid="upload-avatar-button"
                 onClick={handleAvatarUpload}
                 disabled={updateAvatarMutation.isPending}
+                className="btn-primary self-start flex items-center gap-1.5"
               >
-                <Upload aria-hidden="true" />
-                {updateAvatarMutation.isPending ? "Uploading..." : "Upload Avatar"}
+                <Upload size={17} aria-hidden="true" />
+                {updateAvatarMutation.isPending ? "Uploading…" : "Upload Avatar"}
               </button>
             )}
-          </div>
+          </section>
+
         </div>
       </div>
     </div>

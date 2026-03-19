@@ -140,15 +140,13 @@ fn sigv4_headers(
         "AWS4-HMAC-SHA256 Credential={access_key}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}"
     );
 
-    let mut headers = vec![
+    // Content-Type is set directly on the request by the caller — do NOT
+    // include it here or it will be applied twice, corrupting the signature.
+    let headers = vec![
         ("Authorization".to_string(), authorization),
         ("x-amz-date".to_string(), datetime),
         ("x-amz-content-sha256".to_string(), payload_hash),
     ];
-
-    if !content_type.is_empty() {
-        headers.push(("Content-Type".to_string(), content_type.to_string()));
-    }
 
     Ok(headers)
 }

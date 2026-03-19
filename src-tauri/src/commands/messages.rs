@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use std::sync::Arc;
-use uuid::Uuid;
+use ulid::Ulid;
 
 use crate::error::Result;
 use crate::state::AppState;
@@ -191,7 +191,7 @@ async fn distribute_sender_key_to_group_members(
             Err(_) => continue,
         };
 
-        let dist_id = Uuid::new_v4().to_string();
+        let dist_id = Ulid::new().to_string();
         let _ = conn.execute(
             "INSERT OR REPLACE INTO sender_key_dist
              (id, channel_id, sender_id, recipient_id, encrypted_state, ephemeral_key, spk_id)
@@ -271,7 +271,7 @@ async fn distribute_sender_key_to_dm_members(
             Err(_) => continue,
         };
 
-        let dist_id = Uuid::new_v4().to_string();
+        let dist_id = Ulid::new().to_string();
         let _ = conn.execute(
             "INSERT OR REPLACE INTO sender_key_dist
              (id, channel_id, sender_id, recipient_id, encrypted_state, ephemeral_key, spk_id)
@@ -299,7 +299,7 @@ pub async fn send_message(
     reply_to_id: Option<String>,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Message> {
-    let id = Uuid::new_v4().to_string();
+    let id = Ulid::new().to_string();
     let now = chrono::Utc::now().to_rfc3339();
 
     // Encrypt the message using sender's SenderKeyState

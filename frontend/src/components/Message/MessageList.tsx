@@ -189,8 +189,14 @@ export const MessageList: React.FC<MessageListProps> = ({
 
   if (messages.length === 0) {
     return (
-      <div data-testid="empty-messages">
-        <p>No messages yet. Start the conversation!</p>
+      <div
+        data-testid="empty-messages"
+        className="flex-1 flex items-center justify-center"
+        style={{ background: 'var(--c-bg)' }}
+      >
+        <p className="text-xs font-mono" style={{ color: 'var(--c-text-muted)' }}>
+          No messages yet. Start the conversation.
+        </p>
       </div>
     );
   }
@@ -199,7 +205,7 @@ export const MessageList: React.FC<MessageListProps> = ({
     <div
       data-testid="message-list"
       ref={setContainerRef}
-      style={{ flex: 1, overflow: "hidden", height: "100%", width: "100%", minHeight: 0 }}
+      style={{ flex: 1, overflow: "hidden", height: "100%", width: "100%", minHeight: 0, background: 'var(--c-bg)' }}
     >
       {containerHeight > 0 && containerWidth > 0 ? (
         <List
@@ -214,8 +220,11 @@ export const MessageList: React.FC<MessageListProps> = ({
           {ListItem}
         </List>
       ) : (
-        <div data-testid="loading-messages">
-          <p>Loading messages...</p>
+        <div
+          data-testid="loading-messages"
+          className="flex items-center justify-center h-full"
+        >
+          <p className="text-xs font-mono" style={{ color: 'var(--c-text-muted)' }}>Loading…</p>
         </div>
       )}
     </div>

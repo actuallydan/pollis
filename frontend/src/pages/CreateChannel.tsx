@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { ArrowLeft } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
 import { invoke } from "@tauri-apps/api/core";
 import { deriveSlug, updateURL } from "../utils/urlRouting";
@@ -15,15 +14,6 @@ export const CreateChannel: React.FC = () => {
 
   const currentGroup = groups.find((g) => g.id === selectedGroupId);
 
-  const handleBack = () => {
-    if (currentGroup) {
-      updateURL(`/g/${currentGroup.slug}`);
-    } else {
-      updateURL("/");
-    }
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -38,12 +28,11 @@ export const CreateChannel: React.FC = () => {
     const groupChannels = selectedGroupId ? channels[selectedGroupId] || [] : [];
     const channelSlugLower = finalSlug.toLowerCase();
     const duplicateExists = groupChannels.some((ch) => {
-      const existingSlug =
-        (ch as any).slug?.toLowerCase() ?? deriveSlug(ch.name).toLowerCase();
+      const existingSlug = (ch as any).slug?.toLowerCase() ?? deriveSlug(ch.name).toLowerCase();
       return existingSlug === channelSlugLower;
     });
     if (duplicateExists) {
-      setError(`A channel with slug "${finalSlug}" already exists in this group`);
+      setError(`A channel named "${finalSlug}" already exists`);
       return;
     }
     if (!currentUser) {
@@ -78,10 +67,6 @@ export const CreateChannel: React.FC = () => {
         updateURL(`/g/${currentGroup.slug}/${finalSlug}`);
         window.dispatchEvent(new PopStateEvent("popstate"));
       }
-      setName("");
-      setSlug("");
-      setSlugEdited(false);
-      setDescription("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create channel");
     } finally {
@@ -91,22 +76,20 @@ export const CreateChannel: React.FC = () => {
 
   if (!currentUser) {
     return (
-      <div data-testid="create-channel-no-user">
-        <p>Please sign in to create a channel</p>
+      <div data-testid="create-channel-no-user" className="flex items-center justify-center flex-1" style={{ background: 'var(--c-bg)' }}>
+        <p className="text-xs font-mono" style={{ color: 'var(--c-text-muted)' }}>Please sign in</p>
       </div>
     );
   }
 
   if (!selectedGroupId || !currentGroup) {
     return (
-      <div data-testid="create-channel-no-group">
-        <p>Please select a group first</p>
+      <div data-testid="create-channel-no-group" className="flex flex-col items-center justify-center flex-1 gap-3" style={{ background: 'var(--c-bg)' }}>
+        <p className="text-xs font-mono" style={{ color: 'var(--c-text-muted)' }}>Select a group first</p>
         <button
           data-testid="create-channel-go-home-button"
-          onClick={() => {
-            updateURL("/");
-            window.dispatchEvent(new PopStateEvent("popstate"));
-          }}
+          onClick={() => { updateURL("/"); window.dispatchEvent(new PopStateEvent("popstate")); }}
+          className="btn-ghost"
         >
           Go Home
         </button>
@@ -115,77 +98,77 @@ export const CreateChannel: React.FC = () => {
   }
 
   return (
-    <div data-testid="create-channel-page">
-      <div data-testid="create-channel-header">
-        <button
-          data-testid="create-channel-back-button"
-          onClick={handleBack}
-          aria-label="Back"
+    <div
+      data-testid="create-channel-page"
+      className="flex-1 flex flex-col overflow-auto"
+      style={{ background: 'var(--c-bg)' }}
+    >
+      <div data-testid="create-channel-content" className="flex-1 flex justify-center overflow-auto px-6 py-8">
+        <form
+          data-testid="create-channel-form"
+          onSubmit={handleSubmit}
+          className="w-full max-w-md flex flex-col gap-5"
         >
-          <ArrowLeft aria-hidden="true" />
-        </button>
-        <h1>Create Channel</h1>
-      </div>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="create-channel-name" className="section-label px-0">Channel Name</label>
+            <input
+              id="create-channel-name"
+              data-testid="create-channel-name-input"
+              type="text"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (!slugEdited) { setSlug(deriveSlug(e.target.value)); }
+              }}
+              placeholder="general"
+              required
+              disabled={isLoading}
+              className="pollis-input"
+            />
+          </div>
 
-      <div data-testid="create-channel-content">
-        <p>Create a new channel in {currentGroup.name}.</p>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="create-channel-slug" className="section-label px-0">Slug</label>
+            <input
+              id="create-channel-slug"
+              data-testid="create-channel-slug-input"
+              type="text"
+              value={slug}
+              onChange={(e) => { setSlug(e.target.value.toLowerCase()); setSlugEdited(true); }}
+              placeholder="general"
+              required
+              disabled={isLoading}
+              className="pollis-input font-mono"
+            />
+          </div>
 
-        <form data-testid="create-channel-form" onSubmit={handleSubmit}>
-          <label htmlFor="create-channel-name">Channel Name</label>
-          <input
-            id="create-channel-name"
-            data-testid="create-channel-name-input"
-            type="text"
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              if (!slugEdited) {
-                setSlug(deriveSlug(e.target.value));
-              }
-            }}
-            placeholder="General"
-            required
-            disabled={isLoading}
-          />
-          <p>The display name for the channel</p>
-
-          <label htmlFor="create-channel-slug">Channel Slug</label>
-          <input
-            id="create-channel-slug"
-            data-testid="create-channel-slug-input"
-            type="text"
-            value={slug}
-            onChange={(e) => {
-              setSlug(e.target.value.toLowerCase());
-              setSlugEdited(true);
-            }}
-            placeholder="general"
-            required
-            disabled={isLoading}
-          />
-          <p>Lowercase, letters/numbers/hyphens. Auto-generates from name.</p>
-
-          <label htmlFor="create-channel-description">Description</label>
-          <textarea
-            id="create-channel-description"
-            data-testid="create-channel-description-input"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Channel description..."
-            disabled={isLoading}
-          />
-          <p>Optional description for the channel</p>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="create-channel-description" className="section-label px-0">Description</label>
+            <textarea
+              id="create-channel-description"
+              data-testid="create-channel-description-input"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional description…"
+              disabled={isLoading}
+              rows={2}
+              className="pollis-textarea"
+            />
+          </div>
 
           {error && (
-            <p data-testid="create-channel-error">{error}</p>
+            <p data-testid="create-channel-error" className="text-xs font-mono" style={{ color: '#ff6b6b' }}>
+              {error}
+            </p>
           )}
 
           <button
             data-testid="create-channel-submit-button"
             type="submit"
             disabled={isLoading}
+            className="btn-primary py-2"
           >
-            {isLoading ? "Creating..." : "Create Channel"}
+            {isLoading ? "Creating…" : "Create Channel"}
           </button>
         </form>
       </div>

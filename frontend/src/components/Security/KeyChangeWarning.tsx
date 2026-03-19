@@ -22,44 +22,47 @@ export const KeyChangeWarning: React.FC<KeyChangeWarningProps> = ({
   onCancel,
 }) => {
   return (
-    <div data-testid="key-change-warning">
-      <ShieldAlert aria-hidden="true" />
-      <div>
-        <h3>
-          Identity key changed for {contactName}
-          <span>Re-verify required</span>
-        </h3>
-        <p>
-          This could mean a reinstall or a new device. Verify the new safety
-          number with {contactName} before continuing.
-        </p>
+    <div
+      data-testid="key-change-warning"
+      className="flex flex-col gap-4 p-4 rounded-panel"
+      style={{ border: '1px solid #f0b429', background: 'rgba(240,180,41,0.06)' }}
+    >
+      <div className="flex items-start gap-3">
+        <ShieldAlert size={19} aria-hidden="true" style={{ color: '#f0b429', flexShrink: 0, marginTop: 2 }} />
+        <div className="flex flex-col gap-1">
+          <h3 className="text-sm font-mono font-medium" style={{ color: '#f0b429' }}>
+            Identity key changed — {contactName}
+          </h3>
+          <p className="text-xs font-mono" style={{ color: 'var(--c-text-dim)' }}>
+            This could mean a reinstall or new device. Verify the new safety number with {contactName} before continuing.
+          </p>
+        </div>
+      </div>
 
-        <div>
-          {oldFingerprint && (
-            <div>
-              <p>Previous fingerprint</p>
-              <p>{formatFingerprint(oldFingerprint)}</p>
-            </div>
-          )}
-          <div>
-            <p>New fingerprint</p>
-            <p>{formatFingerprint(newFingerprint)}</p>
+      <div className="flex flex-col gap-2 pl-7">
+        {oldFingerprint && (
+          <div className="flex flex-col gap-0.5">
+            <p className="text-2xs font-mono uppercase tracking-widest" style={{ color: 'var(--c-text-muted)' }}>Previous</p>
+            <p className="text-xs font-mono line-through" style={{ color: 'var(--c-text-muted)' }}>{formatFingerprint(oldFingerprint)}</p>
           </div>
+        )}
+        <div className="flex flex-col gap-0.5">
+          <p className="text-2xs font-mono uppercase tracking-widest" style={{ color: 'var(--c-text-muted)' }}>New</p>
+          <p className="text-xs font-mono" style={{ color: '#f0b429' }}>{formatFingerprint(newFingerprint)}</p>
         </div>
+      </div>
 
-        <div>
-          <button data-testid="reverify-button" onClick={onReverify}>
-            <ShieldCheck aria-hidden="true" />
-            Re-verify now
-          </button>
-          <button data-testid="continue-anyway-button" onClick={onContinue}>
-            Continue anyway
-          </button>
-          <button data-testid="cancel-key-warning-button" onClick={onCancel}>
-            <XCircle aria-hidden="true" />
-            Cancel
-          </button>
-        </div>
+      <div className="flex items-center gap-2 pl-7">
+        <button data-testid="reverify-button" onClick={onReverify} className="btn-primary flex items-center gap-1.5">
+          <ShieldCheck size={17} aria-hidden="true" />
+          Re-verify
+        </button>
+        <button data-testid="continue-anyway-button" onClick={onContinue} className="btn-ghost">
+          Continue anyway
+        </button>
+        <button data-testid="cancel-key-warning-button" onClick={onCancel} className="icon-btn-sm ml-auto">
+          <XCircle size={19} aria-hidden="true" />
+        </button>
       </div>
     </div>
   );

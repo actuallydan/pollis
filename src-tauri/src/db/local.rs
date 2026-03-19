@@ -3,7 +3,7 @@ use crate::error::Result;
 
 // Bump this string whenever local_schema.sql changes.
 // On mismatch the old DB file is deleted and recreated from scratch.
-const LOCAL_SCHEMA_VERSION: &str = "1";
+const LOCAL_SCHEMA_VERSION: &str = "2";
 const SCHEMA: &str = include_str!("migrations/local_schema.sql");
 
 pub struct LocalDb {

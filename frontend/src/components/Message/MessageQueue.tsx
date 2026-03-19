@@ -36,81 +36,86 @@ export const MessageQueue: React.FC = () => {
   };
 
   return (
-    <div data-testid="message-queue">
-      <div>
-        <h3>Message Queue</h3>
-      </div>
+    <div
+      data-testid="message-queue"
+      className="flex flex-col gap-1 px-4 py-2 flex-shrink-0"
+      style={{ borderTop: '1px solid var(--c-border)', background: 'var(--c-surface)' }}
+    >
+      <span className="text-2xs font-mono uppercase tracking-widest" style={{ color: 'var(--c-text-muted)' }}>
+        Queue
+      </span>
 
-      <div>
-        {pendingMessages.length > 0 && (
-          <div>
-            {pendingMessages.map((item) => {
-              const content = getMessageContent(item.message_id);
-              const snippet = content.length > 60 ? content.substring(0, 60) + '...' : content;
+      <div className="flex flex-col gap-1">
+        {pendingMessages.map((item) => {
+          const content = getMessageContent(item.message_id);
+          const snippet = content.length > 60 ? content.substring(0, 60) + '...' : content;
 
-              return (
-                <div key={item.id} data-testid={`queue-item-${item.id}`}>
-                  <div>
-                    {item.status === 'sending' ? (
-                      <Send aria-hidden="true" />
-                    ) : (
-                      <Clock aria-hidden="true" />
-                    )}
-                  </div>
-                  <div>
-                    <span data-testid="queue-item-status">{item.status}</span>
-                    <p>{snippet}</p>
-                  </div>
-                  <button
-                    data-testid={`cancel-queue-item-${item.id}`}
-                    onClick={() => handleCancel(item.id, item.message_id)}
-                    aria-label="Cancel message"
-                  >
-                    <X aria-hidden="true" />
-                    Cancel
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
+          return (
+            <div
+              key={item.id}
+              data-testid={`queue-item-${item.id}`}
+              className="flex items-center gap-2"
+            >
+              {item.status === 'sending' ? (
+                <Send size={14} aria-hidden="true" style={{ color: 'var(--c-accent)' }} />
+              ) : (
+                <Clock size={14} aria-hidden="true" style={{ color: 'var(--c-text-muted)' }} />
+              )}
+              <span
+                data-testid="queue-item-status"
+                className="text-2xs font-mono"
+                style={{ color: 'var(--c-text-muted)' }}
+              >
+                {item.status}
+              </span>
+              <p className="text-xs font-mono flex-1 truncate" style={{ color: 'var(--c-text-dim)' }}>{snippet}</p>
+              <button
+                data-testid={`cancel-queue-item-${item.id}`}
+                onClick={() => handleCancel(item.id, item.message_id)}
+                aria-label="Cancel message"
+                className="icon-btn-sm"
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            </div>
+          );
+        })}
 
-        {failedMessages.length > 0 && (
-          <div>
-            {failedMessages.map((item) => {
-              const content = getMessageContent(item.message_id);
-              const snippet = content.length > 60 ? content.substring(0, 60) + '...' : content;
+        {failedMessages.map((item) => {
+          const content = getMessageContent(item.message_id);
+          const snippet = content.length > 60 ? content.substring(0, 60) + '...' : content;
 
-              return (
-                <div key={item.id} data-testid={`queue-item-failed-${item.id}`}>
-                  <div>
-                    <AlertCircle aria-hidden="true" />
-                  </div>
-                  <div>
-                    <span>Failed (retry {item.retry_count})</span>
-                    <p>{snippet}</p>
-                  </div>
-                  <div>
-                    <button
-                      data-testid={`retry-queue-item-${item.id}`}
-                      onClick={() => handleRetry(item.id)}
-                    >
-                      Retry
-                    </button>
-                    <button
-                      data-testid={`cancel-queue-item-${item.id}`}
-                      onClick={() => handleCancel(item.id, item.message_id)}
-                      aria-label="Cancel message"
-                    >
-                      <X aria-hidden="true" />
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+          return (
+            <div
+              key={item.id}
+              data-testid={`queue-item-failed-${item.id}`}
+              className="flex items-center gap-2"
+            >
+              <AlertCircle size={14} aria-hidden="true" style={{ color: '#ff6b6b' }} />
+              <span className="text-2xs font-mono" style={{ color: '#ff6b6b' }}>
+                failed ×{item.retry_count}
+              </span>
+              <p className="text-xs font-mono flex-1 truncate" style={{ color: 'var(--c-text-dim)' }}>{snippet}</p>
+              <div className="flex items-center gap-1">
+                <button
+                  data-testid={`retry-queue-item-${item.id}`}
+                  onClick={() => handleRetry(item.id)}
+                  className="btn-ghost py-0 px-1 text-2xs"
+                >
+                  retry
+                </button>
+                <button
+                  data-testid={`cancel-queue-item-${item.id}`}
+                  onClick={() => handleCancel(item.id, item.message_id)}
+                  aria-label="Cancel message"
+                  className="icon-btn-sm"
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

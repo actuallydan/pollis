@@ -110,3 +110,10 @@ CREATE INDEX idx_dm_member_user     ON dm_channel_member(user_id);
 CREATE INDEX idx_sender_key_channel ON sender_key_dist(channel_id, sender_id);
 CREATE INDEX idx_sender_key_recip   ON sender_key_dist(recipient_id, channel_id);
 CREATE INDEX idx_x3dh_init_recip    ON x3dh_init(recipient_id, sender_id);
+
+-- User preferences (stored as JSON: accent_color, font_size, etc.)
+CREATE TABLE user_preferences (
+    user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    preferences TEXT NOT NULL DEFAULT '{}',
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);

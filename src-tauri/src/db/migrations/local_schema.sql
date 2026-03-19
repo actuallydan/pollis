@@ -72,3 +72,10 @@ CREATE TABLE IF NOT EXISTS dm_conversation (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- User preferences (offline mirror of remote user_preferences)
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id     TEXT PRIMARY KEY,
+    preferences TEXT NOT NULL DEFAULT '{}',
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+

@@ -41,38 +41,51 @@ export const TitleBar: React.FC<TitleBarProps> = ({ title = "Pollis" }) => {
   return (
     <div
       data-testid="title-bar"
-      style={
-        {
-          backdropFilter: "blur(10px)",
-          WebkitBackdropFilter: "blur(10px)",
-        } as React.CSSProperties
-      }
+      className="flex items-center justify-between px-3 flex-shrink-0"
+      style={{
+        height: 32,
+        background: 'var(--c-surface)',
+        borderBottom: '1px solid var(--c-border)',
+        WebkitAppRegion: 'drag',
+      } as React.CSSProperties}
     >
-      <div data-testid="title-bar-left">
-        <img src={logo} alt="Pollis" />
-        <div data-testid="title-bar-title">{title}</div>
+      <div data-testid="title-bar-left" className="flex items-center gap-2">
+        <img src={logo} alt="Pollis" style={{ width: 14, height: 14, opacity: 0.7 }} />
+        <span data-testid="title-bar-title" className="text-xs font-mono" style={{ color: 'var(--c-text-muted)' }}>
+          {title}
+        </span>
       </div>
-      <div data-testid="title-bar-controls">
+      <div
+        data-testid="title-bar-controls"
+        className="flex items-center gap-1"
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      >
         <button
           data-testid="title-bar-minimize"
           onClick={handleMinimize}
           aria-label="Minimize"
+          className="icon-btn-sm"
         >
-          <Minus aria-hidden="true" />
+          <Minus size={12} aria-hidden="true" />
         </button>
         <button
           data-testid="title-bar-maximize"
           onClick={handleMaximize}
           aria-label="Maximize"
+          className="icon-btn-sm"
         >
-          <Square aria-hidden="true" />
+          <Square size={12} aria-hidden="true" />
         </button>
         <button
           data-testid="title-bar-close"
           onClick={handleClose}
           aria-label="Close"
+          className="icon-btn-sm"
+          style={{ color: 'var(--c-text-muted)' }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#ff6b6b'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--c-text-muted)'; }}
         >
-          <X aria-hidden="true" />
+          <X size={12} aria-hidden="true" />
         </button>
       </div>
     </div>

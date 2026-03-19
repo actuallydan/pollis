@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { ArrowLeft } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
 import { useCreateOrGetDMConversation } from "../hooks/queries";
 import { updateURL } from "../utils/urlRouting";
@@ -13,10 +12,6 @@ export const StartDM: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const createDMMutation = useCreateOrGetDMConversation();
-
-  const handleBack = () => {
-    window.history.back();
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,50 +38,51 @@ export const StartDM: React.FC = () => {
   };
 
   return (
-    <div data-testid="start-dm-page">
-      <button
-        data-testid="start-dm-back-button"
-        onClick={handleBack}
-        aria-label="Back"
-      >
-        <ArrowLeft aria-hidden="true" />
-        Back
-      </button>
-
-      <h1>Start Direct Message</h1>
-      <p>Enter a username, email, or phone number to start a conversation.</p>
-
-      <form data-testid="start-dm-form" onSubmit={handleSubmit}>
-        <label htmlFor="dm-identifier">User Identifier</label>
-        <input
-          id="dm-identifier"
-          data-testid="dm-identifier-input"
-          type="text"
-          value={identifier}
-          onChange={(e) => setIdentifier(e.target.value)}
-          placeholder="username, email, or phone"
-          required
-          disabled={createDMMutation.isPending}
-        />
-        <p>Username, email address, or phone number</p>
-
-        {(error || createDMMutation.error) && (
-          <p data-testid="start-dm-error">
-            {error ||
-              (createDMMutation.error instanceof Error
-                ? createDMMutation.error.message
-                : "Failed to start conversation")}
-          </p>
-        )}
-
-        <button
-          data-testid="start-dm-submit-button"
-          type="submit"
-          disabled={createDMMutation.isPending}
+    <div
+      data-testid="start-dm-page"
+      className="flex-1 flex flex-col overflow-auto"
+      style={{ background: 'var(--c-bg)' }}
+    >
+      <div className="flex-1 flex justify-center overflow-auto px-6 py-8">
+        <form
+          data-testid="start-dm-form"
+          onSubmit={handleSubmit}
+          className="w-full max-w-md flex flex-col gap-5"
         >
-          {createDMMutation.isPending ? "Starting..." : "Start Conversation"}
-        </button>
-      </form>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="dm-identifier" className="section-label px-0">Username or Email</label>
+            <input
+              id="dm-identifier"
+              data-testid="dm-identifier-input"
+              type="text"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder="username, email, or phone"
+              required
+              disabled={createDMMutation.isPending}
+              className="pollis-input"
+            />
+          </div>
+
+          {(error || createDMMutation.error) && (
+            <p data-testid="start-dm-error" className="text-xs font-mono" style={{ color: '#ff6b6b' }}>
+              {error ||
+                (createDMMutation.error instanceof Error
+                  ? createDMMutation.error.message
+                  : "Failed to start conversation")}
+            </p>
+          )}
+
+          <button
+            data-testid="start-dm-submit-button"
+            type="submit"
+            disabled={createDMMutation.isPending}
+            className="btn-primary self-start py-2"
+          >
+            {createDMMutation.isPending ? "Starting…" : "Start Conversation"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 };

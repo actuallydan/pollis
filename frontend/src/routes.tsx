@@ -77,10 +77,11 @@ const groupSettingsRoute = createRoute({
   component: GroupSettings,
 });
 
-// Channel route (nested under group)
+// Channel route — sibling of groupRoute with full explicit path so
+// MainContent doesn't need to render <Outlet /> for nested routes.
 const channelRoute = createRoute({
-  getParentRoute: () => groupRoute,
-  path: '/$channelSlug',
+  getParentRoute: () => rootRoute,
+  path: '/g/$groupSlug/$channelSlug',
   component: MainContent,
 });
 
@@ -100,9 +101,8 @@ const routeTree = rootRoute.addChildren([
   searchGroupRoute,
   startDMRoute,
   groupSettingsRoute,
-  groupRoute.addChildren([
-    channelRoute,
-  ]),
+  groupRoute,
+  channelRoute,
   dmRoute,
 ]);
 

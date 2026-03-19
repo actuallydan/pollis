@@ -85,8 +85,18 @@ function MainApp() {
 
   if (appState === "initializing") {
     return (
-      <div data-testid="loading-screen">
-        <span data-testid="loading-spinner">Loading...</span>
+      <div
+        data-testid="loading-screen"
+        className="flex items-center justify-center h-full w-full"
+        style={{ background: 'var(--c-bg)' }}
+      >
+        <span
+          data-testid="loading-spinner"
+          className="text-xs font-mono"
+          style={{ color: 'var(--c-text-muted)' }}
+        >
+          initializing…
+        </span>
       </div>
     );
   }
@@ -104,16 +114,40 @@ function MainApp() {
       {/* <TitleBar /> */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {appState === "loading" && (
-          <div data-testid="loading-screen">
-            <span data-testid="loading-spinner">Loading...</span>
+          <div
+            data-testid="loading-screen"
+            className="flex items-center justify-center h-full"
+            style={{ background: 'var(--c-bg)' }}
+          >
+            <span
+              data-testid="loading-spinner"
+              className="text-xs font-mono"
+              style={{ color: 'var(--c-text-muted)' }}
+            >
+              loading…
+            </span>
           </div>
         )}
 
         {appState === "email-auth" && (
-          <div data-testid="auth-screen">
-            <h1>Welcome to Pollis</h1>
-            <p>Sign in or create an account to continue</p>
-            <EmailOTPAuth onSuccess={handleAuthSuccess} />
+          <div
+            data-testid="auth-screen"
+            className="flex items-center justify-center h-full w-full"
+            style={{ background: 'var(--c-bg)' }}
+          >
+            <div
+              className="panel w-full max-w-sm p-8 flex flex-col gap-5"
+            >
+              <div>
+                <h1 className="text-base font-mono font-bold" style={{ color: 'var(--c-accent)' }}>
+                  Pollis.
+                </h1>
+                <p className="text-xs mt-1" style={{ color: 'var(--c-text-muted)' }}>
+                  Sign in to continue
+                </p>
+              </div>
+              <EmailOTPAuth onSuccess={handleAuthSuccess} />
+            </div>
           </div>
         )}
 

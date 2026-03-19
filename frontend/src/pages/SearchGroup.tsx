@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ArrowLeft, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
 import { useJoinGroup } from "../hooks/queries";
 import { updateURL } from "../utils/urlRouting";
@@ -12,10 +12,6 @@ export const SearchGroup: React.FC = () => {
   const [foundGroup, setFoundGroup] = useState<any>(null);
 
   const joinGroupMutation = useJoinGroup();
-
-  const handleBack = () => {
-    window.history.back();
-  };
 
   const handleSearch = async () => {
     if (!slug.trim()) {
@@ -52,63 +48,82 @@ export const SearchGroup: React.FC = () => {
   };
 
   return (
-    <div data-testid="search-group-page">
-      <button
-        data-testid="search-group-back-button"
-        onClick={handleBack}
-        aria-label="Back"
-      >
-        <ArrowLeft aria-hidden="true" />
-        Back
-      </button>
+    <div
+      data-testid="search-group-page"
+      className="flex-1 flex flex-col overflow-auto"
+      style={{ background: 'var(--c-bg)' }}
+    >
+      <div className="flex-1 flex justify-center overflow-auto px-6 py-8">
+        <div className="w-full max-w-md flex flex-col gap-6">
 
-      <h1>Search Group</h1>
-      <p>Search for a group by its slug to join.</p>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="search-group-slug" className="section-label px-0">Group Slug</label>
+              <div className="flex gap-2">
+                <input
+                  id="search-group-slug"
+                  data-testid="search-group-slug-input"
+                  type="text"
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { handleSearch(); } }}
+                  placeholder="my-group"
+                  disabled={isSearching}
+                  className="pollis-input font-mono flex-1"
+                />
+                <button
+                  data-testid="search-group-button"
+                  onClick={handleSearch}
+                  disabled={!slug.trim() || isSearching}
+                  className="btn-primary flex items-center gap-1.5"
+                >
+                  <Search size={17} aria-hidden="true" />
+                  {isSearching ? "Searching…" : "Search"}
+                </button>
+              </div>
+            </div>
+          </div>
 
-      <div>
-        <label htmlFor="search-group-slug">Group Slug</label>
-        <input
-          id="search-group-slug"
-          data-testid="search-group-slug-input"
-          type="text"
-          value={slug}
-          onChange={(e) => setSlug(e.target.value)}
-          placeholder="my-group"
-          disabled={isSearching}
-        />
-        <button
-          data-testid="search-group-button"
-          onClick={handleSearch}
-          disabled={!slug.trim() || isSearching}
-        >
-          <Search aria-hidden="true" />
-          {isSearching ? "Searching..." : "Search"}
-        </button>
-      </div>
+          {foundGroup && (
+            <div
+              data-testid="search-group-result"
+              className="flex flex-col gap-3 p-4 rounded-panel"
+              style={{ border: '1px solid var(--c-border)', background: 'var(--c-surface)' }}
+            >
+              <div className="flex flex-col gap-0.5">
+                <h2 className="text-sm font-mono font-medium" style={{ color: 'var(--c-accent)' }}>
+                  {foundGroup.name}
+                </h2>
+                <p className="text-xs font-mono" style={{ color: 'var(--c-text-muted)' }}>
+                  /g/{foundGroup.slug}
+                </p>
+                {foundGroup.description && (
+                  <p className="text-xs font-mono mt-1" style={{ color: 'var(--c-text-dim)' }}>
+                    {foundGroup.description}
+                  </p>
+                )}
+              </div>
+              <button
+                data-testid="join-group-button"
+                onClick={handleJoin}
+                disabled={joinGroupMutation.isPending}
+                className="btn-primary self-start"
+              >
+                {joinGroupMutation.isPending ? "Joining…" : "Join Group"}
+              </button>
+            </div>
+          )}
 
-      {foundGroup && (
-        <div data-testid="search-group-result">
-          <h2>{foundGroup.name}</h2>
-          <p>Slug: {foundGroup.slug}</p>
-          {foundGroup.description && <p>{foundGroup.description}</p>}
-          <button
-            data-testid="join-group-button"
-            onClick={handleJoin}
-            disabled={joinGroupMutation.isPending}
-          >
-            {joinGroupMutation.isPending ? "Joining..." : "Join Group"}
-          </button>
+          {(searchError || joinGroupMutation.error) && (
+            <p data-testid="search-group-error" className="text-xs font-mono" style={{ color: '#ff6b6b' }}>
+              {searchError ||
+                (joinGroupMutation.error instanceof Error
+                  ? joinGroupMutation.error.message
+                  : "Failed to join group")}
+            </p>
+          )}
         </div>
-      )}
-
-      {(searchError || joinGroupMutation.error) && (
-        <p data-testid="search-group-error">
-          {searchError ||
-            (joinGroupMutation.error instanceof Error
-              ? joinGroupMutation.error.message
-              : "Failed to join group")}
-        </p>
-      )}
+      </div>
     </div>
   );
 };

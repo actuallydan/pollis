@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use std::sync::Arc;
-use uuid::Uuid;
+use ulid::Ulid;
 
 use crate::error::{Error, Result};
 use crate::state::AppState;
@@ -127,7 +127,7 @@ async fn distribute_all_keys_to_new_member(
             Err(_) => continue,
         };
 
-        let dist_id = Uuid::new_v4().to_string();
+        let dist_id = Ulid::new().to_string();
         let _ = conn.execute(
             "INSERT OR REPLACE INTO sender_key_dist
              (id, channel_id, sender_id, recipient_id, encrypted_state, ephemeral_key, spk_id)
@@ -154,7 +154,7 @@ pub async fn create_dm_channel(
     state: State<'_, Arc<AppState>>,
 ) -> Result<DmChannel> {
     let conn = state.remote_db.conn().await?;
-    let id = Uuid::new_v4().to_string();
+    let id = Ulid::new().to_string();
     let now = chrono::Utc::now().to_rfc3339();
 
     conn.execute(
@@ -231,7 +231,7 @@ pub async fn create_dm_channel(
                         &ik_arr,
                         &spk_arr,
                     ) {
-                        let dist_id = Uuid::new_v4().to_string();
+                        let dist_id = Ulid::new().to_string();
                         let _ = remote_conn.execute(
                             "INSERT OR REPLACE INTO sender_key_dist
                              (id, channel_id, sender_id, recipient_id, encrypted_state, ephemeral_key, spk_id)
@@ -395,7 +395,7 @@ pub async fn add_user_to_dm_channel(
             &ik_bytes,
             &spk_bytes,
         ) {
-            let dist_id = Uuid::new_v4().to_string();
+            let dist_id = Ulid::new().to_string();
             let _ = conn.execute(
                 "INSERT OR REPLACE INTO sender_key_dist
                  (id, channel_id, sender_id, recipient_id, encrypted_state, ephemeral_key, spk_id)

@@ -1,15 +1,34 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import * as api from "../../services/api";
+import type { GroupWithChannels } from "../../services/api";
 import { useAppStore } from "../../stores/appStore";
 import type { Group, Channel } from "../../types";
 
 export const groupQueryKeys = {
   all: ["groups"] as const,
   userGroups: (userId: string | null) => ["groups", "user", userId] as const,
+  userGroupsWithChannels: (userId: string | null) => ["groups", "with-channels", userId] as const,
   group: (groupId: string) => ["groups", groupId] as const,
   channels: (groupId: string) => ["groups", groupId, "channels"] as const,
 };
+
+export function useUserGroupsWithChannels() {
+  const currentUser = useAppStore((state) => state.currentUser);
+
+  return useQuery({
+    queryKey: groupQueryKeys.userGroupsWithChannels(currentUser?.id ?? null),
+    queryFn: async (): Promise<GroupWithChannels[]> => {
+      if (!currentUser) {
+        throw new Error("No current user");
+      }
+      return await api.listUserGroupsWithChannels(currentUser.id);
+    },
+    enabled: !!currentUser,
+    staleTime: 1000 * 60,
+    refetchOnWindowFocus: true,
+  });
+}
 
 export function useUserGroups() {
   const currentUser = useAppStore((state) => state.currentUser);

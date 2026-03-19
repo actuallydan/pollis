@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { ArrowLeft } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
 import { invoke } from "@tauri-apps/api/core";
 import { deriveSlug, updateURL } from "../utils/urlRouting";
@@ -12,11 +11,6 @@ export const CreateGroup: React.FC = () => {
   const [description, setDescription] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const handleBack = () => {
-    updateURL("/");
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,10 +47,6 @@ export const CreateGroup: React.FC = () => {
       setSelectedGroupId(groupData.id);
       updateURL(`/g/${groupData.slug}`);
       window.dispatchEvent(new PopStateEvent("popstate"));
-      setName("");
-      setSlug("");
-      setSlugEdited(false);
-      setDescription("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create group");
     } finally {
@@ -66,84 +56,88 @@ export const CreateGroup: React.FC = () => {
 
   if (!currentUser) {
     return (
-      <div data-testid="create-group-no-user">
-        <p>Please sign in to create a group</p>
+      <div data-testid="create-group-no-user" className="flex items-center justify-center flex-1" style={{ background: 'var(--c-bg)' }}>
+        <p className="text-xs font-mono" style={{ color: 'var(--c-text-muted)' }}>Please sign in</p>
       </div>
     );
   }
 
   return (
-    <div data-testid="create-group-page">
-      <div data-testid="create-group-header">
-        <button
-          data-testid="create-group-back-button"
-          onClick={handleBack}
-          aria-label="Back"
+    <div
+      data-testid="create-group-page"
+      className="flex-1 flex flex-col overflow-auto"
+      style={{ background: 'var(--c-bg)' }}
+    >
+      {/* Form */}
+      <div data-testid="create-group-content" className="flex-1 flex justify-center overflow-auto px-6 py-8">
+        <form
+          data-testid="create-group-form"
+          onSubmit={handleSubmit}
+          className="w-full max-w-md flex flex-col gap-5"
         >
-          <ArrowLeft aria-hidden="true" />
-        </button>
-        <h1>Create Group</h1>
-      </div>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="create-group-name" className="section-label px-0">Group Name</label>
+            <input
+              id="create-group-name"
+              data-testid="create-group-name-input"
+              type="text"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (!slugEdited) { setSlug(deriveSlug(e.target.value)); }
+              }}
+              placeholder="Engineering"
+              required
+              disabled={isLoading}
+              className="pollis-input"
+            />
+          </div>
 
-      <div data-testid="create-group-content">
-        <p>Create a new group to organize your channels.</p>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="create-group-slug" className="section-label px-0">Slug</label>
+            <input
+              id="create-group-slug"
+              data-testid="create-group-slug-input"
+              type="text"
+              value={slug}
+              onChange={(e) => { setSlug(e.target.value.toLowerCase()); setSlugEdited(true); }}
+              placeholder="engineering"
+              required
+              disabled={isLoading}
+              className="pollis-input font-mono"
+            />
+            <p className="text-2xs font-mono" style={{ color: 'var(--c-text-muted)' }}>
+              Auto-generated from name. Letters, numbers, hyphens.
+            </p>
+          </div>
 
-        <form data-testid="create-group-form" onSubmit={handleSubmit}>
-          <label htmlFor="create-group-name">Group Name</label>
-          <input
-            id="create-group-name"
-            data-testid="create-group-name-input"
-            type="text"
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              if (!slugEdited) {
-                setSlug(deriveSlug(e.target.value));
-              }
-            }}
-            placeholder="My Group"
-            required
-            disabled={isLoading}
-          />
-          <p>The display name for the group</p>
-
-          <label htmlFor="create-group-slug">Group Slug</label>
-          <input
-            id="create-group-slug"
-            data-testid="create-group-slug-input"
-            type="text"
-            value={slug}
-            onChange={(e) => {
-              setSlug(e.target.value.toLowerCase());
-              setSlugEdited(true);
-            }}
-            placeholder="my-group"
-            required
-            disabled={isLoading}
-          />
-          <p>Lowercase, letters/numbers/hyphens. Auto-generates from name.</p>
-
-          <label htmlFor="create-group-description">Description</label>
-          <textarea
-            id="create-group-description"
-            data-testid="create-group-description-input"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Group description..."
-            disabled={isLoading}
-          />
-          <p>Optional description for the group</p>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="create-group-description" className="section-label px-0">Description</label>
+            <textarea
+              id="create-group-description"
+              data-testid="create-group-description-input"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional description…"
+              disabled={isLoading}
+              rows={3}
+              className="pollis-textarea"
+            />
+          </div>
 
           {error && (
-            <p data-testid="create-group-error">{error}</p>
+            <p data-testid="create-group-error" className="text-xs font-mono" style={{ color: '#ff6b6b' }}>
+              {error}
+            </p>
           )}
 
           <button
             data-testid="create-group-submit-button"
             type="submit"
             disabled={isLoading}
+            className="btn-primary py-2"
           >
-            {isLoading ? "Creating..." : "Create Group"}
+            {isLoading ? "Creating…" : "Create Group"}
           </button>
         </form>
       </div>

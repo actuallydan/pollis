@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::error::Result;
 use crate::keystore;
 use crate::state::AppState;
+use ulid::Ulid;
 use crate::signal::identity::{IdentityKey, generate_signed_prekey, generate_one_time_prekeys};
 
 const SESSION_KEY: &str = "session";
@@ -185,7 +186,7 @@ pub async fn verify_otp(
         });
         (id, uname)
     } else {
-        let user_id = uuid::Uuid::new_v4().to_string();
+        let user_id = Ulid::new().to_string();
         let default_username = email.split('@').next().unwrap_or("user").to_string();
         conn.execute(
             "INSERT INTO users (id, email, username) VALUES (?1, ?2, ?3)",

@@ -56,6 +56,61 @@ pub async fn update_user_profile(
 }
 
 #[tauri::command]
+pub async fn get_preferences(
+    user_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<String> {
+    // Try remote first
+    let conn = state.remote_db.conn().await?;
+    let mut rows = conn.query(
+        "SELECT preferences FROM user_preferences WHERE user_id = ?1",
+        libsql::params![user_id.clone()],
+    ).await?;
+    if let Some(row) = rows.next().await? {
+        let prefs: String = row.get(0)?;
+        return Ok(prefs);
+    }
+
+    // Fall back to local
+    let local_db = state.local_db.lock().await;
+    let conn = local_db.conn();
+    let prefs: Option<String> = conn
+        .query_row(
+            "SELECT preferences FROM user_preferences WHERE user_id = ?1",
+            rusqlite::params![user_id],
+            |row| row.get(0),
+        )
+        .ok();
+    Ok(prefs.unwrap_or_else(|| "{}".to_string()))
+}
+
+#[tauri::command]
+pub async fn save_preferences(
+    user_id: String,
+    preferences_json: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<()> {
+    // Write to remote
+    let conn = state.remote_db.conn().await?;
+    conn.execute(
+        "INSERT INTO user_preferences (user_id, preferences, updated_at) VALUES (?1, ?2, datetime('now'))
+         ON CONFLICT(user_id) DO UPDATE SET preferences = ?2, updated_at = datetime('now')",
+        libsql::params![user_id.clone(), preferences_json.clone()],
+    ).await?;
+
+    // Write to local (best-effort)
+    let local_db = state.local_db.lock().await;
+    let conn = local_db.conn();
+    let _ = conn.execute(
+        "INSERT INTO user_preferences (user_id, preferences, updated_at) VALUES (?1, ?2, datetime('now'))
+         ON CONFLICT(user_id) DO UPDATE SET preferences = ?2, updated_at = datetime('now')",
+        rusqlite::params![user_id, preferences_json],
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn search_user_by_username(
     username: String,
     state: State<'_, Arc<AppState>>,
