@@ -7,7 +7,9 @@ use crate::error::Result;
 use crate::keystore;
 use crate::state::AppState;
 use ulid::Ulid;
-use crate::signal::identity::{IdentityKey, generate_signed_prekey, generate_one_time_prekeys};
+use crate::signal::identity::{IdentityKey, generate_signed_prekey, generate_one_time_prekeys, load_x25519_secret};
+use x25519_dalek::{StaticSecret, PublicKey as X25519PublicKey};
+use rand::rngs::OsRng;
 
 const SESSION_KEY: &str = "session";
 
@@ -26,39 +28,69 @@ pub struct IdentityInfo {
 }
 
 /// Initialize Signal identity for the given user_id.
-/// On first call: generates Ed25519 IK, SPK, 100 OPKs and uploads to Turso.
-/// On subsequent calls: returns existing identity info.
+/// On first call: generates Ed25519 IK + X25519 IK, SPK, 100 OPKs and uploads to Turso.
+/// On subsequent calls: ensures X25519 identity key exists (migration) and returns info.
+///
+/// NOTE: users.identity_key stores the X25519 public key (not Ed25519).
+/// Ed25519 is used only for signing; X25519 is used for Diffie-Hellman key exchange.
 #[tauri::command]
 pub async fn initialize_identity(
     state: State<'_, Arc<AppState>>,
     user_id: String,
 ) -> Result<IdentityInfo> {
-    match IdentityKey::load().await? {
-        Some(identity) => {
-            let public_key = hex::encode(identity.public_key_bytes());
-            Ok(IdentityInfo { user_id, public_key, is_new: false })
+    let (identity, is_new_ed25519) = match IdentityKey::load().await? {
+        Some(ik) => (ik, false),
+        None => (IdentityKey::generate_and_store().await?, true),
+    };
+
+    // Ensure a dedicated X25519 identity key exists. This is separate from the
+    // Ed25519 signing key — it is used exclusively for DH-based key distribution.
+    let x25519_pub = match load_x25519_secret("x25519_ik_private").await {
+        Ok(secret) => X25519PublicKey::from(&secret),
+        Err(_) => {
+            let secret = StaticSecret::random_from_rng(OsRng);
+            let pub_key = X25519PublicKey::from(&secret);
+            keystore::store("x25519_ik_private", secret.as_bytes()).await?;
+            eprintln!("[identity] generated new X25519 identity key for user {user_id}");
+            pub_key
         }
-        None => {
-            let identity = IdentityKey::generate_and_store().await?;
-            let public_key_bytes = identity.public_key_bytes();
-            let public_key = hex::encode(public_key_bytes);
+    };
 
+    let x25519_pub_bytes: [u8; 32] = *x25519_pub.as_bytes();
+    let public_key = hex::encode(x25519_pub_bytes);
+
+    if is_new_ed25519 {
+        let (spk_pub, spk_sig) = generate_signed_prekey(1, &identity).await?;
+        let opks = generate_one_time_prekeys(1, 100).await?;
+        upload_initial_keys(&state, &user_id, &x25519_pub_bytes, 1, &spk_pub, &spk_sig, &opks).await?;
+        eprintln!("[identity] uploaded initial keys for new user {user_id}");
+    } else {
+        // Existing user: update identity_key to the X25519 public key in case it was
+        // previously set to an Ed25519 key (the old broken behaviour).
+        let conn = state.remote_db.conn().await?;
+        conn.execute(
+            "UPDATE users SET identity_key = ?1 WHERE id = ?2",
+            libsql::params![public_key.clone(), user_id.clone()],
+        ).await?;
+        eprintln!("[identity] ensured X25519 identity_key is uploaded for existing user {user_id}");
+
+        // Ensure an SPK exists in the remote DB. Existing users may have none if they
+        // went through the Ed25519→X25519 migration without an SPK upload.
+        let mut spk_rows = conn.query(
+            "SELECT key_id FROM signed_prekey WHERE user_id = ?1 ORDER BY key_id DESC LIMIT 1",
+            libsql::params![user_id.clone()],
+        ).await?;
+        if spk_rows.next().await?.is_none() {
             let (spk_pub, spk_sig) = generate_signed_prekey(1, &identity).await?;
-            let opks = generate_one_time_prekeys(1, 100).await?;
-
-            upload_initial_keys(
-                &state,
-                &user_id,
-                &public_key_bytes,
-                1,
-                &spk_pub,
-                &spk_sig,
-                &opks,
+            conn.execute(
+                "INSERT OR REPLACE INTO signed_prekey (user_id, key_id, public_key, signature) VALUES (?1, ?2, ?3, ?4)",
+                libsql::params![user_id.clone(), 1i64, hex::encode(&spk_pub), hex::encode(&spk_sig)],
             ).await?;
-
-            Ok(IdentityInfo { user_id, public_key, is_new: true })
+            eprintln!("[identity] uploaded missing SPK for existing user {user_id}");
         }
     }
+
+    Ok(IdentityInfo { user_id, public_key, is_new: is_new_ed25519 })
 }
 
 /// Check whether a Signal identity key exists locally.

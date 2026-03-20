@@ -199,19 +199,17 @@ pub async fn create_channel(
     Ok(Channel { id, group_id, name, description })
 }
 
-#[tauri::command]
-pub async fn invite_to_group(
-    group_id: String,
-    user_id: String,
-    state: State<'_, Arc<AppState>>,
+/// Internal helper: add a user directly to a group as a member.
+/// Used by invite acceptance and join request approval.
+async fn add_member_to_group(
+    conn: &libsql::Connection,
+    group_id: &str,
+    user_id: &str,
 ) -> Result<()> {
-    let conn = state.remote_db.conn().await?;
-
     conn.execute(
         "INSERT OR IGNORE INTO group_member (group_id, user_id, role) VALUES (?1, ?2, 'member')",
         libsql::params![group_id, user_id],
     ).await?;
-
     Ok(())
 }
 
@@ -547,6 +545,61 @@ pub async fn delete_channel(
     Ok(())
 }
 
+/// Mirrors the frontend `deriveSlug` in urlRouting.ts.
+fn derive_slug(name: &str) -> String {
+    let lower = name.to_lowercase();
+    let cleaned: String = lower
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || c.is_ascii_whitespace() || *c == '-')
+        .collect();
+    let with_hyphens = cleaned.split_ascii_whitespace().collect::<Vec<_>>().join("-");
+    let mut result = String::new();
+    let mut prev_hyphen = false;
+    for c in with_hyphens.chars() {
+        if c == '-' {
+            if !prev_hyphen {
+                result.push('-');
+            }
+            prev_hyphen = true;
+        } else {
+            result.push(c);
+            prev_hyphen = false;
+        }
+    }
+    result.trim_matches('-').to_string()
+}
+
+/// Find a group whose name derives to the given slug.
+/// Returns an error if no match is found.
+#[tauri::command]
+pub async fn search_group_by_slug(
+    slug: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Group> {
+    let conn = state.remote_db.conn().await?;
+    let target = slug.trim().to_lowercase();
+
+    let mut rows = conn.query(
+        "SELECT id, name, description, owner_id, created_at FROM groups",
+        libsql::params![],
+    ).await?;
+
+    while let Some(row) = rows.next().await? {
+        let name: String = row.get(1)?;
+        if derive_slug(&name) == target {
+            return Ok(Group {
+                id: row.get(0)?,
+                name,
+                description: row.get(2)?,
+                owner_id: row.get(3)?,
+                created_at: row.get(4)?,
+            });
+        }
+    }
+
+    Err(Error::Other(anyhow::anyhow!("No group found with slug '{}'", slug)))
+}
+
 #[tauri::command]
 pub async fn transfer_ownership(
     group_id: String,
@@ -597,6 +650,336 @@ pub async fn transfer_ownership(
     conn.execute(
         "UPDATE group_member SET role = 'owner' WHERE group_id = ?1 AND user_id = ?2",
         libsql::params![group_id, new_owner_id],
+    ).await?;
+
+    Ok(())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PendingInvite {
+    pub id: String,
+    pub group_id: String,
+    pub group_name: String,
+    pub inviter_id: String,
+    pub inviter_username: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JoinRequest {
+    pub id: String,
+    pub group_id: String,
+    pub requester_id: String,
+    pub requester_username: Option<String>,
+    pub created_at: String,
+}
+
+/// Invite a user (by username) to a group. Inviter must be a current member.
+#[tauri::command]
+pub async fn send_group_invite(
+    group_id: String,
+    inviter_id: String,
+    invitee_identifier: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<()> {
+    let conn = state.remote_db.conn().await?;
+
+    // Verify inviter is a member
+    let mut rows = conn.query(
+        "SELECT 1 FROM group_member WHERE group_id = ?1 AND user_id = ?2",
+        libsql::params![group_id.clone(), inviter_id.clone()],
+    ).await?;
+    if rows.next().await?.is_none() {
+        return Err(Error::Other(anyhow::anyhow!("you are not a member of this group")));
+    }
+
+    // Look up invitee by username
+    let mut user_rows = conn.query(
+        "SELECT id FROM users WHERE username = ?1",
+        libsql::params![invitee_identifier.clone()],
+    ).await?;
+    let invitee_id: String = if let Some(row) = user_rows.next().await? {
+        row.get(0)?
+    } else {
+        return Err(Error::Other(anyhow::anyhow!("user '{}' not found", invitee_identifier)));
+    };
+
+    // Check if invitee is already a member
+    let mut member_rows = conn.query(
+        "SELECT 1 FROM group_member WHERE group_id = ?1 AND user_id = ?2",
+        libsql::params![group_id.clone(), invitee_id.clone()],
+    ).await?;
+    if member_rows.next().await?.is_some() {
+        return Err(Error::Other(anyhow::anyhow!("that user is already a member of this group")));
+    }
+
+    // Check for existing pending invite
+    let mut existing = conn.query(
+        "SELECT 1 FROM group_invite WHERE group_id = ?1 AND invitee_id = ?2 AND status = 'pending'",
+        libsql::params![group_id.clone(), invitee_id.clone()],
+    ).await?;
+    if existing.next().await?.is_some() {
+        return Err(Error::Other(anyhow::anyhow!("a pending invite already exists for this user")));
+    }
+
+    let id = Ulid::new().to_string();
+    conn.execute(
+        "INSERT INTO group_invite (id, group_id, inviter_id, invitee_id) VALUES (?1, ?2, ?3, ?4)",
+        libsql::params![id, group_id, inviter_id, invitee_id],
+    ).await.map_err(|e| db_err(e.into(), "Invite"))?;
+
+    Ok(())
+}
+
+/// Get all pending invites for the given user.
+#[tauri::command]
+pub async fn get_pending_invites(
+    user_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<PendingInvite>> {
+    let conn = state.remote_db.conn().await?;
+
+    let mut rows = conn.query(
+        "SELECT gi.id, gi.group_id, g.name, gi.inviter_id, u.username, gi.created_at
+         FROM group_invite gi
+         JOIN groups g ON g.id = gi.group_id
+         LEFT JOIN users u ON u.id = gi.inviter_id
+         WHERE gi.invitee_id = ?1 AND gi.status = 'pending'
+         ORDER BY gi.created_at DESC",
+        libsql::params![user_id],
+    ).await?;
+
+    let mut invites = Vec::new();
+    while let Some(row) = rows.next().await? {
+        invites.push(PendingInvite {
+            id: row.get(0)?,
+            group_id: row.get(1)?,
+            group_name: row.get(2)?,
+            inviter_id: row.get(3)?,
+            inviter_username: row.get(4)?,
+            created_at: row.get(5)?,
+        });
+    }
+
+    Ok(invites)
+}
+
+/// Accept a pending invite. Adds the user to the group.
+#[tauri::command]
+pub async fn accept_group_invite(
+    invite_id: String,
+    user_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<()> {
+    let conn = state.remote_db.conn().await?;
+
+    let mut rows = conn.query(
+        "SELECT group_id FROM group_invite WHERE id = ?1 AND invitee_id = ?2 AND status = 'pending'",
+        libsql::params![invite_id.clone(), user_id.clone()],
+    ).await?;
+
+    let group_id: String = if let Some(row) = rows.next().await? {
+        row.get(0)?
+    } else {
+        return Err(Error::Other(anyhow::anyhow!("invite not found or already processed")));
+    };
+
+    add_member_to_group(&conn, &group_id, &user_id).await?;
+
+    conn.execute(
+        "UPDATE group_invite SET status = 'accepted' WHERE id = ?1",
+        libsql::params![invite_id],
+    ).await?;
+
+    Ok(())
+}
+
+/// Decline a pending invite.
+#[tauri::command]
+pub async fn decline_group_invite(
+    invite_id: String,
+    user_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<()> {
+    let conn = state.remote_db.conn().await?;
+
+    let mut rows = conn.query(
+        "SELECT 1 FROM group_invite WHERE id = ?1 AND invitee_id = ?2 AND status = 'pending'",
+        libsql::params![invite_id.clone(), user_id],
+    ).await?;
+
+    if rows.next().await?.is_none() {
+        return Err(Error::Other(anyhow::anyhow!("invite not found or already processed")));
+    }
+
+    conn.execute(
+        "UPDATE group_invite SET status = 'declined' WHERE id = ?1",
+        libsql::params![invite_id],
+    ).await?;
+
+    Ok(())
+}
+
+/// Request access to a group. Creates a pending join request.
+#[tauri::command]
+pub async fn request_group_access(
+    group_id: String,
+    requester_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<()> {
+    let conn = state.remote_db.conn().await?;
+
+    // Verify group exists
+    let mut rows = conn.query(
+        "SELECT 1 FROM groups WHERE id = ?1",
+        libsql::params![group_id.clone()],
+    ).await?;
+    if rows.next().await?.is_none() {
+        return Err(Error::Other(anyhow::anyhow!("group not found")));
+    }
+
+    // Check not already a member
+    let mut member_rows = conn.query(
+        "SELECT 1 FROM group_member WHERE group_id = ?1 AND user_id = ?2",
+        libsql::params![group_id.clone(), requester_id.clone()],
+    ).await?;
+    if member_rows.next().await?.is_some() {
+        return Err(Error::Other(anyhow::anyhow!("you are already a member of this group")));
+    }
+
+    // Check not already a pending request
+    let mut existing = conn.query(
+        "SELECT 1 FROM group_join_request WHERE group_id = ?1 AND requester_id = ?2 AND status = 'pending'",
+        libsql::params![group_id.clone(), requester_id.clone()],
+    ).await?;
+    if existing.next().await?.is_some() {
+        return Err(Error::Other(anyhow::anyhow!("you already have a pending request for this group")));
+    }
+
+    let id = Ulid::new().to_string();
+    conn.execute(
+        "INSERT INTO group_join_request (id, group_id, requester_id) VALUES (?1, ?2, ?3)",
+        libsql::params![id, group_id, requester_id],
+    ).await.map_err(|e| db_err(e.into(), "Join request"))?;
+
+    Ok(())
+}
+
+/// Get all pending join requests for a group. Requester must be a member.
+#[tauri::command]
+pub async fn get_group_join_requests(
+    group_id: String,
+    requester_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<JoinRequest>> {
+    let conn = state.remote_db.conn().await?;
+
+    // Verify caller is a member
+    let mut rows = conn.query(
+        "SELECT 1 FROM group_member WHERE group_id = ?1 AND user_id = ?2",
+        libsql::params![group_id.clone(), requester_id],
+    ).await?;
+    if rows.next().await?.is_none() {
+        return Err(Error::Other(anyhow::anyhow!("you are not a member of this group")));
+    }
+
+    let mut req_rows = conn.query(
+        "SELECT jr.id, jr.group_id, jr.requester_id, u.username, jr.created_at
+         FROM group_join_request jr
+         LEFT JOIN users u ON u.id = jr.requester_id
+         WHERE jr.group_id = ?1 AND jr.status = 'pending'
+         ORDER BY jr.created_at ASC",
+        libsql::params![group_id],
+    ).await?;
+
+    let mut requests = Vec::new();
+    while let Some(row) = req_rows.next().await? {
+        requests.push(JoinRequest {
+            id: row.get(0)?,
+            group_id: row.get(1)?,
+            requester_id: row.get(2)?,
+            requester_username: row.get(3)?,
+            created_at: row.get(4)?,
+        });
+    }
+
+    Ok(requests)
+}
+
+/// Approve a join request. Approver must be a group member. Adds the requester to the group.
+#[tauri::command]
+pub async fn approve_join_request(
+    request_id: String,
+    approver_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<()> {
+    let conn = state.remote_db.conn().await?;
+
+    let mut rows = conn.query(
+        "SELECT group_id, requester_id FROM group_join_request WHERE id = ?1 AND status = 'pending'",
+        libsql::params![request_id.clone()],
+    ).await?;
+
+    let (group_id, requester_id): (String, String) = if let Some(row) = rows.next().await? {
+        (row.get(0)?, row.get(1)?)
+    } else {
+        return Err(Error::Other(anyhow::anyhow!("join request not found or already processed")));
+    };
+
+    // Verify approver is a member
+    let mut member_rows = conn.query(
+        "SELECT 1 FROM group_member WHERE group_id = ?1 AND user_id = ?2",
+        libsql::params![group_id.clone(), approver_id.clone()],
+    ).await?;
+    if member_rows.next().await?.is_none() {
+        return Err(Error::Other(anyhow::anyhow!("you are not a member of this group")));
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+
+    add_member_to_group(&conn, &group_id, &requester_id).await?;
+
+    conn.execute(
+        "UPDATE group_join_request SET status = 'approved', reviewed_by = ?1, reviewed_at = ?2 WHERE id = ?3",
+        libsql::params![approver_id, now, request_id],
+    ).await?;
+
+    Ok(())
+}
+
+/// Reject a join request. Approver must be a group member.
+#[tauri::command]
+pub async fn reject_join_request(
+    request_id: String,
+    approver_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<()> {
+    let conn = state.remote_db.conn().await?;
+
+    let mut rows = conn.query(
+        "SELECT group_id FROM group_join_request WHERE id = ?1 AND status = 'pending'",
+        libsql::params![request_id.clone()],
+    ).await?;
+
+    let group_id: String = if let Some(row) = rows.next().await? {
+        row.get(0)?
+    } else {
+        return Err(Error::Other(anyhow::anyhow!("join request not found or already processed")));
+    };
+
+    // Verify approver is a member
+    let mut member_rows = conn.query(
+        "SELECT 1 FROM group_member WHERE group_id = ?1 AND user_id = ?2",
+        libsql::params![group_id, approver_id.clone()],
+    ).await?;
+    if member_rows.next().await?.is_none() {
+        return Err(Error::Other(anyhow::anyhow!("you are not a member of this group")));
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE group_join_request SET status = 'rejected', reviewed_by = ?1, reviewed_at = ?2 WHERE id = ?3",
+        libsql::params![approver_id, now, request_id],
     ).await?;
 
     Ok(())

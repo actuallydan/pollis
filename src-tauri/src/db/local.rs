@@ -239,6 +239,12 @@ mod tests {
 }
 
 fn dirs_path() -> std::path::PathBuf {
+    // POLLIS_DATA_DIR lets a second dev instance use a separate local DB
+    // without having to override $HOME (which breaks rustup/cargo).
+    if let Ok(dir) = std::env::var("POLLIS_DATA_DIR") {
+        return std::path::PathBuf::from(dir);
+    }
+
     #[cfg(target_os = "macos")]
     {
         let home = std::env::var("HOME").unwrap_or_default();

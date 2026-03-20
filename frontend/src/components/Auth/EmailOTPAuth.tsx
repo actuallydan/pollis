@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import * as api from '../../services/api';
 import type { User } from '../../types';
+import { Button } from '../ui/Button';
+import { InputOtp } from '../ui/InputOtp';
+import { TextInput } from '../ui/TextInput';
 
 interface EmailOTPAuthProps {
   onSuccess: (user: User) => void | Promise<void>;
@@ -30,8 +33,8 @@ export const EmailOTPAuth: React.FC<EmailOTPAuthProps> = ({ onSuccess }) => {
     }
   };
 
-  const handleVerifyOTP = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleVerifyOTP = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!otp.trim()) {
       return;
     }
@@ -58,32 +61,35 @@ export const EmailOTPAuth: React.FC<EmailOTPAuthProps> = ({ onSuccess }) => {
             {error}
           </p>
         )}
-        <form data-testid="otp-form" onSubmit={handleVerifyOTP} className="flex flex-col gap-3">
-          <input
-            data-testid="otp-input"
-            type="text"
-            inputMode="numeric"
-            maxLength={6}
-            value={otp}
-            onChange={(e) => setOtp(e.target.value)}
-            placeholder="000000"
-            autoComplete="one-time-code"
-            autoFocus
-            className="pollis-input text-center font-mono tracking-widest text-base"
-          />
-          <button
+        <form data-testid="otp-form" onSubmit={handleVerifyOTP} className="flex flex-col gap-4">
+          <div>
+            <label className="block text-xs font-mono font-medium mb-2" style={{ color: 'var(--c-text-dim)' }}>
+              Enter code
+            </label>
+            <InputOtp
+              value={otp}
+              onChange={setOtp}
+              disabled={isLoading}
+              autoFocus
+            />
+            {/* Preserve testid for E2E tests */}
+            <input data-testid="otp-input" type="hidden" value={otp} readOnly />
+          </div>
+          <Button
             data-testid="verify-otp-button"
             type="submit"
-            disabled={isLoading}
-            className="btn-primary w-full py-2"
+            isLoading={isLoading}
+            loadingText="Verifying…"
+            disabled={otp.length < 6}
+            className="w-full"
           >
-            {isLoading ? 'Verifying…' : 'Verify'}
-          </button>
+            Verify
+          </Button>
         </form>
         <button
           data-testid="back-to-email-button"
           onClick={() => { setStep('email'); setOtp(''); setError(null); }}
-          className="text-xs font-mono text-center"
+          className="inline-flex items-center gap-1 leading-none text-xs font-mono"
           style={{ color: 'var(--c-text-muted)' }}
         >
           ← Back
@@ -99,35 +105,30 @@ export const EmailOTPAuth: React.FC<EmailOTPAuthProps> = ({ onSuccess }) => {
           {error}
         </p>
       )}
-      <form data-testid="email-form" onSubmit={handleRequestOTP} className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="email-input"
-            className="text-2xs font-mono uppercase tracking-widest"
-            style={{ color: 'var(--c-text-muted)' }}
-          >
-            Email
-          </label>
-          <input
-            id="email-input"
-            data-testid="email-input"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            autoComplete="email"
-            autoFocus
-            className="pollis-input"
-          />
-        </div>
-        <button
+      <form data-testid="email-form" onSubmit={handleRequestOTP} className="flex flex-col gap-4">
+        <TextInput
+          id="email-input"
+          data-testid="email-input"
+          label="Email"
+          type="email"
+          value={email}
+          onChange={setEmail}
+          placeholder="you@example.com"
+          autoComplete="email"
+          autoFocus
+          disabled={isLoading}
+          required
+        />
+        <Button
           data-testid="send-otp-button"
           type="submit"
-          disabled={isLoading}
-          className="btn-primary w-full py-2"
+          isLoading={isLoading}
+          loadingText="Sending…"
+          disabled={!email.trim()}
+          className="w-full"
         >
-          {isLoading ? 'Sending…' : 'Continue'}
-        </button>
+          Continue
+        </Button>
       </form>
     </div>
   );

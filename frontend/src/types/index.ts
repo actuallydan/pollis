@@ -56,6 +56,7 @@ export interface Message {
   channel_id?: string; // NULL for direct messages
   conversation_id?: string; // ULID (required - channel or DM conversation)
   sender_id: string; // user_id
+  sender_username?: string; // resolved at fetch time from Turso JOIN
   ciphertext: Uint8Array; // encrypted content (Signal protocol)
   nonce: Uint8Array; // nonce for encryption
   content_decrypted?: string; // Decrypted content (client-side only, never persisted)

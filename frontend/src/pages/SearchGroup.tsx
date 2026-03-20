@@ -1,8 +1,11 @@
 import React, { useState } from "react";
-import { Search } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../stores/appStore";
-import { useJoinGroup } from "../hooks/queries";
-import { updateURL } from "../utils/urlRouting";
+import { useRequestGroupAccess } from "../hooks/queries";
+import { deriveSlug } from "../utils/urlRouting";
+import { TextInput } from "../components/ui/TextInput";
+import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
 
 export const SearchGroup: React.FC = () => {
   const currentUser = useAppStore((state) => state.currentUser);
@@ -10,8 +13,9 @@ export const SearchGroup: React.FC = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [foundGroup, setFoundGroup] = useState<any>(null);
+  const [requestSent, setRequestSent] = useState(false);
 
-  const joinGroupMutation = useJoinGroup();
+  const requestAccessMutation = useRequestGroupAccess();
 
   const handleSearch = async () => {
     if (!slug.trim()) {
@@ -21,8 +25,8 @@ export const SearchGroup: React.FC = () => {
     setIsSearching(true);
     setSearchError(null);
     setFoundGroup(null);
+    setRequestSent(false);
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
       const group = await invoke<{ id: string; name: string; description?: string }>('search_group_by_slug', { slug: slug.trim() });
       setFoundGroup(group);
     } catch (err) {
@@ -32,18 +36,15 @@ export const SearchGroup: React.FC = () => {
     }
   };
 
-  const handleJoin = async () => {
+  const handleRequestAccess = async () => {
     if (!foundGroup || !currentUser) {
       return;
     }
     try {
-      await joinGroupMutation.mutateAsync(foundGroup.slug);
-      updateURL(`/g/${foundGroup.slug}`);
-      window.dispatchEvent(new PopStateEvent("popstate"));
-      setSlug("");
-      setFoundGroup(null);
+      await requestAccessMutation.mutateAsync(foundGroup.id);
+      setRequestSent(true);
     } catch (err) {
-      console.error("Failed to join group:", err);
+      console.error("Failed to request access:", err);
     }
   };
 
@@ -57,45 +58,39 @@ export const SearchGroup: React.FC = () => {
         <div className="w-full max-w-md flex flex-col gap-6">
 
           <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="search-group-slug" className="section-label px-0">Group Slug</label>
-              <div className="flex gap-2">
-                <input
-                  id="search-group-slug"
-                  data-testid="search-group-slug-input"
-                  type="text"
-                  value={slug}
-                  onChange={(e) => setSlug(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { handleSearch(); } }}
-                  placeholder="my-group"
-                  disabled={isSearching}
-                  className="pollis-input font-mono flex-1"
-                />
-                <button
-                  data-testid="search-group-button"
-                  onClick={handleSearch}
-                  disabled={!slug.trim() || isSearching}
-                  className="btn-primary flex items-center gap-1.5"
-                >
-                  <Search size={17} aria-hidden="true" />
-                  {isSearching ? "Searching…" : "Search"}
-                </button>
-              </div>
-            </div>
+            <TextInput
+              label="Group Slug"
+              value={slug}
+              onChange={setSlug}
+              placeholder="my-group"
+              disabled={isSearching}
+              id="search-group-slug"
+            />
+            <input data-testid="search-group-slug-input" type="hidden" value={slug} readOnly />
+
+            <Button
+              data-testid="search-group-button"
+              onClick={handleSearch}
+              disabled={!slug.trim() || isSearching}
+              isLoading={isSearching}
+              loadingText="Searching…"
+            >
+              Search
+            </Button>
           </div>
 
-          {foundGroup && (
-            <div
+          {foundGroup && !requestSent && (
+            <Card
               data-testid="search-group-result"
-              className="flex flex-col gap-3 p-4 rounded-panel"
-              style={{ border: '1px solid var(--c-border)', background: 'var(--c-surface)' }}
+              className="flex flex-col gap-3"
+              padding="sm"
             >
               <div className="flex flex-col gap-0.5">
                 <h2 className="text-sm font-mono font-medium" style={{ color: 'var(--c-accent)' }}>
                   {foundGroup.name}
                 </h2>
                 <p className="text-xs font-mono" style={{ color: 'var(--c-text-muted)' }}>
-                  /g/{foundGroup.slug}
+                  /g/{deriveSlug(foundGroup.name)}
                 </p>
                 {foundGroup.description && (
                   <p className="text-xs font-mono mt-1" style={{ color: 'var(--c-text-dim)' }}>
@@ -103,23 +98,30 @@ export const SearchGroup: React.FC = () => {
                   </p>
                 )}
               </div>
-              <button
-                data-testid="join-group-button"
-                onClick={handleJoin}
-                disabled={joinGroupMutation.isPending}
-                className="btn-primary self-start"
+              <Button
+                data-testid="request-access-button"
+                onClick={handleRequestAccess}
+                disabled={requestAccessMutation.isPending}
+                isLoading={requestAccessMutation.isPending}
+                loadingText="Sending request…"
               >
-                {joinGroupMutation.isPending ? "Joining…" : "Join Group"}
-              </button>
-            </div>
+                Request Access
+              </Button>
+            </Card>
           )}
 
-          {(searchError || joinGroupMutation.error) && (
+          {requestSent && (
+            <p data-testid="request-sent-confirmation" className="text-xs font-mono" style={{ color: 'var(--c-accent-dim)' }}>
+              Request sent. A group member will review it shortly.
+            </p>
+          )}
+
+          {(searchError || requestAccessMutation.error) && (
             <p data-testid="search-group-error" className="text-xs font-mono" style={{ color: '#ff6b6b' }}>
               {searchError ||
-                (joinGroupMutation.error instanceof Error
-                  ? joinGroupMutation.error.message
-                  : "Failed to join group")}
+                (requestAccessMutation.error instanceof Error
+                  ? requestAccessMutation.error.message
+                  : "Failed to send request")}
             </p>
           )}
         </div>

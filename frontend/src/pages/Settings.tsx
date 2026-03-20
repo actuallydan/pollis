@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Upload, User } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
 import { uploadAvatar } from "../services/r2-upload";
-import { updateURL } from "../utils/urlRouting";
 import { resizeImage } from "../utils/imageProcessing";
 import { useUserProfile, useUpdateProfile, useUpdateAvatar, useUserAvatar } from "../hooks/queries";
+import { TextInput } from "../components/ui/TextInput";
+import { Button } from "../components/ui/Button";
 
 export const Settings: React.FC = () => {
   const { currentUser } = useAppStore();
@@ -107,7 +108,7 @@ export const Settings: React.FC = () => {
 
           {/* Account */}
           <section className="flex flex-col gap-4">
-            <h2 className="section-label px-0 border-b pb-1" style={{ borderColor: 'var(--c-border)' }}>
+            <h2 className="text-xs font-mono font-medium uppercase tracking-widest pb-1 border-b" style={{ color: 'var(--c-text-dim)', borderColor: 'var(--c-border)' }}>
               Account
             </h2>
 
@@ -117,44 +118,33 @@ export const Settings: React.FC = () => {
               </span>
             ) : (
               <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="settings-username" className="section-label px-0">Username</label>
-                  <input
-                    id="settings-username"
-                    data-testid="settings-username-input"
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="username"
-                    className="pollis-input font-mono"
-                  />
-                </div>
+                <TextInput
+                  label="Username"
+                  value={username}
+                  onChange={setUsername}
+                  placeholder="username"
+                  id="settings-username"
+                />
+                <input data-testid="settings-username-input" type="hidden" value={username} readOnly />
 
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="settings-email" className="section-label px-0">Email</label>
-                  <input
-                    id="settings-email"
-                    data-testid="settings-email-input"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="pollis-input"
-                  />
-                </div>
+                <TextInput
+                  label="Email"
+                  value={email}
+                  onChange={setEmail}
+                  type="email"
+                  placeholder="you@example.com"
+                  id="settings-email"
+                />
+                <input data-testid="settings-email-input" type="hidden" value={email} readOnly />
 
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="settings-phone" className="section-label px-0">Phone</label>
-                  <input
-                    id="settings-phone"
-                    data-testid="settings-phone-input"
-                    type="text"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+1 555 000 0000"
-                    className="pollis-input font-mono"
-                  />
-                </div>
+                <TextInput
+                  label="Phone"
+                  value={phone}
+                  onChange={setPhone}
+                  placeholder="+1 555 000 0000"
+                  id="settings-phone"
+                />
+                <input data-testid="settings-phone-input" type="hidden" value={phone} readOnly />
               </div>
             )}
 
@@ -172,27 +162,27 @@ export const Settings: React.FC = () => {
               </p>
             )}
 
-            <button
+            <Button
               data-testid="settings-save-button"
               onClick={handleSave}
               disabled={updateProfileMutation.isPending}
-              className="btn-primary self-start"
+              isLoading={updateProfileMutation.isPending}
+              loadingText="Saving…"
             >
-              {updateProfileMutation.isPending ? "Saving…" : "Save Changes"}
-            </button>
+              Save Changes
+            </Button>
           </section>
 
           {/* Avatar */}
           <section className="flex flex-col gap-4">
-            <h2 className="section-label px-0 border-b pb-1" style={{ borderColor: 'var(--c-border)' }}>
+            <h2 className="text-xs font-mono font-medium uppercase tracking-widest pb-1 border-b" style={{ color: 'var(--c-text-dim)', borderColor: 'var(--c-border)' }}>
               Avatar
             </h2>
 
             <div className="flex items-center gap-4">
-              {/* Preview */}
               <div
                 data-testid="avatar-preview-container"
-                className="w-14 h-14 rounded-panel overflow-hidden flex items-center justify-center flex-shrink-0"
+                className="w-14 h-14 overflow-hidden flex items-center justify-center flex-shrink-0"
                 style={{ border: '1px solid var(--c-border)', background: 'var(--c-surface-high)' }}
               >
                 {preview ? (
@@ -213,9 +203,10 @@ export const Settings: React.FC = () => {
               <div className="flex flex-col gap-2">
                 <label
                   htmlFor="settings-avatar-input"
-                  className="btn-ghost cursor-pointer inline-flex items-center gap-1.5"
+                  className="inline-flex items-center gap-1.5 text-xs font-mono cursor-pointer transition-colors"
+                  style={{ color: 'var(--c-accent)' }}
                 >
-                  <Upload size={17} aria-hidden="true" />
+                  <Upload size={14} aria-hidden="true" />
                   Choose image
                 </label>
                 <input
@@ -229,7 +220,7 @@ export const Settings: React.FC = () => {
                   aria-label="Select avatar image"
                   className="sr-only"
                 />
-                <p className="text-2xs font-mono" style={{ color: 'var(--c-text-muted)' }}>
+                <p className="text-xs font-mono" style={{ color: 'var(--c-text-muted)' }}>
                   PNG, JPG, GIF — max 5MB
                 </p>
               </div>
@@ -248,15 +239,15 @@ export const Settings: React.FC = () => {
             )}
 
             {selectedFile && (
-              <button
+              <Button
                 data-testid="upload-avatar-button"
                 onClick={handleAvatarUpload}
                 disabled={updateAvatarMutation.isPending}
-                className="btn-primary self-start flex items-center gap-1.5"
+                isLoading={updateAvatarMutation.isPending}
+                loadingText="Uploading…"
               >
-                <Upload size={17} aria-hidden="true" />
-                {updateAvatarMutation.isPending ? "Uploading…" : "Upload Avatar"}
-              </button>
+                Upload Avatar
+              </Button>
             )}
           </section>
 

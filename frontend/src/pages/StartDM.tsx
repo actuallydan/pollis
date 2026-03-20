@@ -1,9 +1,14 @@
 import React, { useState } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useCreateOrGetDMConversation } from "../hooks/queries";
-import { updateURL } from "../utils/urlRouting";
+import { TextInput } from "../components/ui/TextInput";
+import { Button } from "../components/ui/Button";
 
-export const StartDM: React.FC = () => {
+interface StartDMProps {
+  onSuccess?: (conversationId: string) => void;
+}
+
+export const StartDM: React.FC<StartDMProps> = ({ onSuccess }) => {
   const currentUser = useAppStore((state) => state.currentUser);
   const setSelectedConversationId = useAppStore(
     (state) => state.setSelectedConversationId
@@ -27,9 +32,8 @@ export const StartDM: React.FC = () => {
     try {
       const conversation = await createDMMutation.mutateAsync(identifier.trim());
       setSelectedConversationId(conversation.id);
-      updateURL(`/c/${conversation.id}`);
-      window.dispatchEvent(new PopStateEvent("popstate"));
       setIdentifier("");
+      onSuccess?.(conversation.id);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to start conversation"
@@ -49,20 +53,16 @@ export const StartDM: React.FC = () => {
           onSubmit={handleSubmit}
           className="w-full max-w-md flex flex-col gap-5"
         >
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="dm-identifier" className="section-label px-0">Username or Email</label>
-            <input
-              id="dm-identifier"
-              data-testid="dm-identifier-input"
-              type="text"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              placeholder="username, email, or phone"
-              required
-              disabled={createDMMutation.isPending}
-              className="pollis-input"
-            />
-          </div>
+          <TextInput
+            label="Username or Email"
+            value={identifier}
+            onChange={setIdentifier}
+            placeholder="username, email, or phone"
+            disabled={createDMMutation.isPending}
+            id="dm-identifier"
+            required
+          />
+          <input data-testid="dm-identifier-input" type="hidden" value={identifier} readOnly />
 
           {(error || createDMMutation.error) && (
             <p data-testid="start-dm-error" className="text-xs font-mono" style={{ color: '#ff6b6b' }}>
@@ -73,14 +73,14 @@ export const StartDM: React.FC = () => {
             </p>
           )}
 
-          <button
+          <Button
             data-testid="start-dm-submit-button"
             type="submit"
-            disabled={createDMMutation.isPending}
-            className="btn-primary self-start py-2"
+            isLoading={createDMMutation.isPending}
+            loadingText="Starting…"
           >
-            {createDMMutation.isPending ? "Starting…" : "Start Conversation"}
-          </button>
+            Start Conversation
+          </Button>
         </form>
       </div>
     </div>

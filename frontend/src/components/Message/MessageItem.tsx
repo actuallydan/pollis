@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Pin, Reply, MoreVertical, Download, Image as ImageIcon, File as FileIcon } from "lucide-react";
+import { Reply, Download, Image as ImageIcon, File as FileIcon } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
 import { getFileDownloadUrl } from "../../services/r2-upload";
 import type { Message, MessageAttachment } from "../../types";
@@ -15,15 +15,10 @@ interface MessageItemProps {
 
 const formatTimestamp = (timestamp: number): string => {
   const tsMs = timestamp < 1e12 ? timestamp * 1000 : timestamp;
-  const diffMs = Date.now() - tsMs;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-  if (diffMins < 1) return "now";
-  if (diffMins < 60) return `${diffMins}m`;
-  if (diffHours < 24) return `${diffHours}h`;
-  if (diffDays < 7) return `${diffDays}d`;
-  return new Date(tsMs).toLocaleDateString();
+  const d = new Date(tsMs);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
 };
 
 export const MessageItem: React.FC<MessageItemProps> = ({
@@ -31,7 +26,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   allMessages = [],
   authorUsername = "unknown",
   onReply,
-  onPin,
   onScrollToReply,
 }) => {
   const { currentUser } = useAppStore();
@@ -50,113 +44,84 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     <div
       data-testid={`message-${message.id}`}
       aria-label={`Message from ${authorUsername}`}
-      className="group relative px-4 py-1.5 hover:bg-[var(--c-hover)] transition-colors duration-75"
+      className="group relative px-3 py-1 mb-0.5 hover:bg-[var(--c-hover)] transition-colors duration-75"
     >
-      {/* Reply context */}
+      {/* Reply thread indicator */}
       {replyTo && (
         <button
           data-testid={`reply-preview-${message.reply_to_message_id}`}
           onClick={() => onScrollToReply?.(message.reply_to_message_id!)}
-          className="flex items-center gap-1.5 mb-1 pl-6 text-2xs hover:opacity-80 transition-opacity cursor-pointer"
-          style={{ color: 'var(--c-text-muted)' }}
+          className="flex items-center gap-1 text-xs font-mono mb-0.5 pl-16 opacity-60 hover:opacity-90 transition-opacity"
+          style={{ color: "var(--c-text-muted)" }}
         >
-          <Reply size={12} aria-hidden="true" style={{ transform: 'scaleX(-1)' }} />
-          <span>{authorUsername}</span>
-          <span className="truncate max-w-xs" style={{ color: 'var(--c-text-dim)' }}>
-            {replyTo.content_decrypted?.slice(0, 60) || "[encrypted]"}
+          <Reply size={10} style={{ transform: "scaleX(-1)" }} />
+          <span className="truncate max-w-xs">
+            {replyTo.content_decrypted?.slice(0, 50) || "[encrypted]"}
           </span>
         </button>
       )}
 
-      {/* Main message row */}
-      <div className="flex items-start gap-2.5">
-        {/* Avatar initial */}
-        <div
-          className="w-5 h-5 rounded flex-shrink-0 flex items-center justify-center text-2xs font-mono font-bold mt-0.5"
+      {/* IRC-style inline row: HH:MM  username  message */}
+      <div className="flex items-baseline gap-0 min-w-0">
+        <span
+          data-testid="message-timestamp"
+          className="flex-shrink-0 text-sm font-mono tabular-nums select-none w-12"
+          style={{ color: "var(--c-text-muted)" }}
+        >
+          {formatTimestamp(message.created_at)}
+        </span>
+
+        <span
+          data-testid="message-author"
+          className="flex-shrink-0 font-mono text-sm font-semibold mr-1"
           style={{
-            background: isOwn ? 'var(--c-active)' : 'var(--c-hover)',
-            color: isOwn ? 'var(--c-accent)' : 'var(--c-text-dim)',
-            border: '1px solid var(--c-border)',
+            color: isOwn ? "var(--c-accent)" : "var(--c-text-dim)",
           }}
         >
-          {authorUsername.charAt(0).toUpperCase()}
-        </div>
+          {authorUsername}
+        </span>
 
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2 mb-0.5">
-            <span
-              data-testid="message-author"
-              className="text-xs font-mono font-medium"
-              style={{ color: isOwn ? 'var(--c-accent)' : 'var(--c-accent-dim)' }}
-            >
-              {authorUsername}
+        <span
+          className="font-mono text-sm select-none mr-1 flex-shrink-0"
+          style={{ color: "var(--c-text-muted)" }}
+          aria-hidden="true"
+        >
+          {":"}
+        </span>
+
+        <span
+          data-testid="message-content"
+          className="font-mono text-sm break-words flex-1 min-w-0"
+          style={{ color: "var(--c-text)" }}
+        >
+          {content}
+          {message.status && message.status !== "sent" && (
+            <span className="ml-1 text-xs" style={{ color: "var(--c-text-muted)" }}>
+              [{message.status}]
             </span>
-            <span
-              data-testid="message-timestamp"
-              className="text-2xs font-mono"
-              style={{ color: 'var(--c-text-muted)' }}
-            >
-              {formatTimestamp(message.created_at)}
-            </span>
-            {message.is_pinned && (
-              <Pin size={12} aria-hidden="true" style={{ color: 'var(--c-text-muted)' }} />
-            )}
-            {message.status && message.status !== "sent" && (
-              <span
-                data-testid="message-status"
-                className="text-2xs font-mono"
-                style={{ color: 'var(--c-text-muted)' }}
-              >
-                {message.status}
-              </span>
-            )}
-          </div>
-
-          <p
-            data-testid="message-content"
-            className="text-xs leading-relaxed break-words"
-            style={{ color: 'var(--c-text-dim)' }}
-          >
-            {content}
-          </p>
-
-          {message.attachments && message.attachments.length > 0 && (
-            <div className="mt-1 flex flex-col gap-1">
-              {message.attachments.map((a) => (
-                <AttachmentDisplay key={a.id} attachment={a} />
-              ))}
-            </div>
           )}
-        </div>
+        </span>
 
-        {/* Hover actions */}
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-          <button
-            data-testid="reply-button"
-            onClick={() => onReply?.(message.id)}
-            aria-label="Reply"
-            className="icon-btn-sm"
-          >
-            <Reply size={17} aria-hidden="true" />
-          </button>
-          <button
-            data-testid="pin-button"
-            onClick={() => onPin?.(message.id)}
-            aria-label={message.is_pinned ? "Unpin" : "Pin"}
-            className="icon-btn-sm"
-          >
-            <Pin size={17} aria-hidden="true" />
-          </button>
-          <button
-            data-testid="message-more-button"
-            aria-label="More options"
-            className="icon-btn-sm"
-          >
-            <MoreVertical size={17} aria-hidden="true" />
-          </button>
-        </div>
+        {/* Reply button — only visible on hover */}
+        <button
+          data-testid="reply-button"
+          onClick={() => onReply?.(message.id)}
+          aria-label="Reply"
+          className="flex-shrink-0 ml-1 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+          style={{ color: "var(--c-text-muted)" }}
+        >
+          <Reply size={12} />
+        </button>
       </div>
+
+      {/* Attachments below the inline row */}
+      {message.attachments && message.attachments.length > 0 && (
+        <div className="mt-1 ml-11 flex flex-col gap-1">
+          {message.attachments.map((a) => (
+            <AttachmentDisplay key={a.id} attachment={a} />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -180,7 +145,7 @@ const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({ attach
   }, [attachment.object_key, isImage, downloadUrl]);
 
   const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return "0B";
+    if (bytes === 0) { return "0B"; }
     const sizes = ["B", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return `${parseFloat((bytes / Math.pow(1024, i)).toFixed(1))}${sizes[i]}`;
@@ -188,9 +153,7 @@ const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({ attach
 
   const handleDownload = async () => {
     const url = downloadUrl ?? await getFileDownloadUrl(attachment.object_key);
-    if (!downloadUrl) {
-      setDownloadUrl(url);
-    }
+    if (!downloadUrl) { setDownloadUrl(url); }
     const a = document.createElement("a");
     a.href = url;
     a.download = attachment.filename;
@@ -201,21 +164,11 @@ const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({ attach
 
   if (isImage && downloadUrl) {
     return (
-      <div
-        className="rounded overflow-hidden"
-        style={{ border: '1px solid var(--c-border)', maxWidth: 280 }}
-      >
-        <img src={downloadUrl} alt={attachment.filename} className="block max-w-full" />
-        <div
-          className="flex items-center justify-between px-2 py-1"
-          style={{ background: 'var(--c-surface-high)' }}
-        >
-          <span className="text-2xs font-mono truncate" style={{ color: 'var(--c-text-dim)' }}>
-            {attachment.filename}
-          </span>
-          <span className="text-2xs font-mono" style={{ color: 'var(--c-text-muted)' }}>
-            {formatFileSize(attachment.file_size)}
-          </span>
+      <div style={{ border: "1px solid var(--c-border)", maxWidth: 280, borderRadius: 4 }}>
+        <img src={downloadUrl} alt={attachment.filename} className="block max-w-full" style={{ borderRadius: "4px 4px 0 0" }} />
+        <div className="flex items-center justify-between px-2 py-1" style={{ background: "var(--c-surface-high)" }}>
+          <span className="text-xs font-mono truncate" style={{ color: "var(--c-text-dim)" }}>{attachment.filename}</span>
+          <span className="text-xs font-mono" style={{ color: "var(--c-text-muted)" }}>{formatFileSize(attachment.file_size)}</span>
         </div>
       </div>
     );
@@ -224,32 +177,23 @@ const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({ attach
   return (
     <div
       data-testid={`attachment-${attachment.id}`}
-      className="flex items-center gap-2 px-2.5 py-1.5 rounded"
-      style={{ border: '1px solid var(--c-border)', background: 'var(--c-surface-high)', maxWidth: 280 }}
+      className="flex items-center gap-2 px-2.5 py-1.5"
+      style={{ border: "1px solid var(--c-border)", background: "var(--c-surface-high)", maxWidth: 280, borderRadius: 4 }}
     >
       {isImage ? (
-        <ImageIcon size={19} aria-hidden="true" style={{ color: 'var(--c-text-dim)', flexShrink: 0 }} />
+        <ImageIcon size={16} aria-hidden="true" style={{ color: "var(--c-text-dim)", flexShrink: 0 }} />
       ) : (
-        <FileIcon size={19} aria-hidden="true" style={{ color: 'var(--c-text-dim)', flexShrink: 0 }} />
+        <FileIcon size={16} aria-hidden="true" style={{ color: "var(--c-text-dim)", flexShrink: 0 }} />
       )}
       <div className="flex-1 min-w-0">
-        <div className="text-xs font-mono truncate" style={{ color: 'var(--c-accent-dim)' }}>
-          {attachment.filename}
-        </div>
-        <div className="text-2xs font-mono" style={{ color: 'var(--c-text-muted)' }}>
-          {formatFileSize(attachment.file_size)}
-        </div>
+        <div className="text-xs font-mono truncate" style={{ color: "var(--c-accent-dim)" }}>{attachment.filename}</div>
+        <div className="text-xs font-mono" style={{ color: "var(--c-text-muted)" }}>{formatFileSize(attachment.file_size)}</div>
       </div>
       {error ? (
-        <span className="text-2xs" style={{ color: 'var(--c-text-muted)' }}>{error}</span>
+        <span className="text-xs" style={{ color: "var(--c-text-muted)" }}>{error}</span>
       ) : (
-        <button
-          onClick={handleDownload}
-          disabled={isLoading}
-          aria-label={`Download ${attachment.filename}`}
-          className="icon-btn-sm flex-shrink-0"
-        >
-          {isLoading ? "…" : <Download size={17} aria-hidden="true" />}
+        <button onClick={handleDownload} disabled={isLoading} aria-label={`Download ${attachment.filename}`} style={{ color: "var(--c-text-muted)" }}>
+          {isLoading ? "…" : <Download size={14} aria-hidden="true" />}
         </button>
       )}
     </div>

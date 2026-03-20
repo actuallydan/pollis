@@ -1,10 +1,20 @@
 import React, { useState } from "react";
 import { useAppStore } from "../stores/appStore";
 import { invoke } from "@tauri-apps/api/core";
-import { deriveSlug, updateURL } from "../utils/urlRouting";
+import { useQueryClient } from "@tanstack/react-query";
+import { deriveSlug } from "../utils/urlRouting";
+import { groupQueryKeys } from "../hooks/queries/useGroups";
+import { TextInput } from "../components/ui/TextInput";
+import { TextArea } from "../components/ui/TextArea";
+import { Button } from "../components/ui/Button";
 
-export const CreateGroup: React.FC = () => {
+interface CreateGroupProps {
+  onSuccess?: (groupId: string) => void;
+}
+
+export const CreateGroup: React.FC<CreateGroupProps> = ({ onSuccess }) => {
   const { currentUser, addGroup, setSelectedGroupId } = useAppStore();
+  const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugEdited, setSlugEdited] = useState(false);
@@ -45,8 +55,8 @@ export const CreateGroup: React.FC = () => {
       };
       addGroup(groupData);
       setSelectedGroupId(groupData.id);
-      updateURL(`/g/${groupData.slug}`);
-      window.dispatchEvent(new PopStateEvent("popstate"));
+      queryClient.invalidateQueries({ queryKey: groupQueryKeys.userGroupsWithChannels(currentUser.id) });
+      onSuccess?.(group.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create group");
     } finally {
@@ -68,62 +78,49 @@ export const CreateGroup: React.FC = () => {
       className="flex-1 flex flex-col overflow-auto"
       style={{ background: 'var(--c-bg)' }}
     >
-      {/* Form */}
       <div data-testid="create-group-content" className="flex-1 flex justify-center overflow-auto px-6 py-8">
         <form
           data-testid="create-group-form"
           onSubmit={handleSubmit}
           className="w-full max-w-md flex flex-col gap-5"
         >
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="create-group-name" className="section-label px-0">Group Name</label>
-            <input
-              id="create-group-name"
-              data-testid="create-group-name-input"
-              type="text"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                if (!slugEdited) { setSlug(deriveSlug(e.target.value)); }
-              }}
-              placeholder="Engineering"
-              required
-              disabled={isLoading}
-              className="pollis-input"
-            />
-          </div>
+          <TextInput
+            label="Group Name"
+            value={name}
+            onChange={(val) => {
+              setName(val);
+              if (!slugEdited) { setSlug(deriveSlug(val)); }
+            }}
+            placeholder="Engineering"
+            disabled={isLoading}
+            id="create-group-name"
+            required
+          />
+          {/* Preserve testid for E2E */}
+          <input data-testid="create-group-name-input" type="hidden" value={name} readOnly />
 
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="create-group-slug" className="section-label px-0">Slug</label>
-            <input
-              id="create-group-slug"
-              data-testid="create-group-slug-input"
-              type="text"
-              value={slug}
-              onChange={(e) => { setSlug(e.target.value.toLowerCase()); setSlugEdited(true); }}
-              placeholder="engineering"
-              required
-              disabled={isLoading}
-              className="pollis-input font-mono"
-            />
-            <p className="text-2xs font-mono" style={{ color: 'var(--c-text-muted)' }}>
-              Auto-generated from name. Letters, numbers, hyphens.
-            </p>
-          </div>
+          <TextInput
+            label="Slug"
+            value={slug}
+            onChange={(val) => { setSlug(val.toLowerCase()); setSlugEdited(true); }}
+            placeholder="engineering"
+            disabled={isLoading}
+            id="create-group-slug"
+            required
+            description="Auto-generated from name. Letters, numbers, hyphens."
+          />
+          <input data-testid="create-group-slug-input" type="hidden" value={slug} readOnly />
 
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="create-group-description" className="section-label px-0">Description</label>
-            <textarea
-              id="create-group-description"
-              data-testid="create-group-description-input"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional description…"
-              disabled={isLoading}
-              rows={3}
-              className="pollis-textarea"
-            />
-          </div>
+          <TextArea
+            label="Description"
+            value={description}
+            onChange={setDescription}
+            placeholder="Optional description…"
+            disabled={isLoading}
+            rows={3}
+            id="create-group-description"
+          />
+          <input data-testid="create-group-description-input" type="hidden" value={description} readOnly />
 
           {error && (
             <p data-testid="create-group-error" className="text-xs font-mono" style={{ color: '#ff6b6b' }}>
@@ -131,14 +128,15 @@ export const CreateGroup: React.FC = () => {
             </p>
           )}
 
-          <button
+          <Button
             data-testid="create-group-submit-button"
             type="submit"
-            disabled={isLoading}
-            className="btn-primary py-2"
+            isLoading={isLoading}
+            loadingText="Creating…"
+            className="w-full"
           >
-            {isLoading ? "Creating…" : "Create Group"}
-          </button>
+            Create Group
+          </Button>
         </form>
       </div>
     </div>

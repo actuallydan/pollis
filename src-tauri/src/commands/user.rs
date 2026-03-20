@@ -118,7 +118,7 @@ pub async fn search_user_by_username(
     let conn = state.remote_db.conn().await?;
 
     let mut rows = conn.query(
-        "SELECT id, username, phone, avatar_url FROM users WHERE username = ?1",
+        "SELECT id, username, phone, avatar_url FROM users WHERE username = ?1 OR email = ?1",
         libsql::params![username],
     ).await?;
 

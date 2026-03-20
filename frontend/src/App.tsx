@@ -4,17 +4,19 @@ import React, {
   useCallback,
   useRef,
 } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "./stores/appStore";
-import { TitleBar } from "./components/Layout/TitleBar";
 import { EmailOTPAuth } from "./components/Auth/EmailOTPAuth";
+import { TerminalApp } from "./components/TerminalApp";
+import { TitleBar } from "./components/Layout/TitleBar";
+import { DotMatrix } from "./components/ui/DotMatrix";
+import { Card } from "./components/ui/Card";
 import * as api from "./services/api";
-import { useAblyRealtime } from "./hooks/useAblyRealtime";
-import { useNetworkStatus } from "./hooks/useNetworkStatus";
-import { RouterProvider } from "@tanstack/react-router";
-import { router } from "./routes";
+import { getPreference, applyPreferences } from "./hooks/queries/usePreferences";
+import { restoreWindowState, useWindowState } from "./hooks/useWindowState";
 import type { User } from "./types";
 
-type AppState = "initializing" | "loading" | "email-auth" | "ready";
+type AppState = "initializing" | "loading" | "email-auth" | "logout-confirm" | "ready";
 
 function MainApp() {
   const {
@@ -24,9 +26,6 @@ function MainApp() {
 
   const [appState, setAppState] = useState<AppState>("initializing");
 
-  useAblyRealtime();
-  useNetworkStatus(appState === "ready");
-
   const checkStoredSession = useCallback(async () => {
     try {
       const user = await api.getSession();
@@ -35,6 +34,17 @@ function MainApp() {
           await api.initializeIdentity(user.id);
         } catch (err) {
           console.error("[App] Failed to initialize identity:", err);
+        }
+        // Load and apply saved preferences before showing the UI
+        try {
+          const json = await invoke<string>("get_preferences", { userId: user.id });
+          const prefs = {
+            accent_color: getPreference<string | undefined>(json, "accent_color", undefined),
+            font_size: getPreference<string | undefined>(json, "font_size", undefined),
+          };
+          applyPreferences(prefs);
+        } catch {
+          // Preferences are optional — ignore failures
         }
         setCurrentUser(user);
         setAppState("ready");
@@ -54,9 +64,27 @@ function MainApp() {
       return;
     }
     hasInitializedRef.current = true;
+    restoreWindowState();
     checkStoredSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Escape on logout-confirm goes back to ready
+  useEffect(() => {
+    if (appState !== "logout-confirm") {
+      return;
+    }
+    const handle = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setAppState("ready");
+      }
+    };
+    window.addEventListener("keydown", handle);
+    return () => window.removeEventListener("keydown", handle);
+  }, [appState]);
+
+  useWindowState();
 
   const handleAuthSuccess = useCallback(async (user: User) => {
     try {
@@ -64,36 +92,47 @@ function MainApp() {
     } catch (err) {
       console.error("[App] Failed to initialize identity:", err);
     }
+    // Apply saved preferences for newly logged-in user
+    try {
+      const json = await invoke<string>("get_preferences", { userId: user.id });
+      const prefs = {
+        accent_color: getPreference<string | undefined>(json, "accent_color", undefined),
+        font_size: getPreference<string | undefined>(json, "font_size", undefined),
+      };
+      applyPreferences(prefs);
+    } catch {
+      // Preferences are optional
+    }
     setCurrentUser(user);
     setAppState("ready");
   }, [setCurrentUser]);
 
-  const handleLogout = async () => {
-    const deleteData = window.confirm(
-      "Do you want to delete all local data?\n\n" +
-      "Click OK to delete all data, or Cancel to keep data and just log out."
-    );
+  // Navigate to the confirmation view instead of using window.confirm
+  const handleLogout = useCallback(() => {
+    setAppState("logout-confirm");
+  }, []);
 
+  const handleLogoutConfirm = useCallback(async (deleteData: boolean) => {
     try {
       await api.logout(deleteData);
     } catch (error) {
       console.error("Failed to logout:", error);
     }
-
     setAppState("email-auth");
-  };
+    useAppStore.getState().logout();
+  }, []);
 
   if (appState === "initializing") {
     return (
       <div
         data-testid="loading-screen"
         className="flex items-center justify-center h-full w-full"
-        style={{ background: 'var(--c-bg)' }}
+        style={{ background: "var(--c-bg)" }}
       >
         <span
           data-testid="loading-spinner"
           className="text-xs font-mono"
-          style={{ color: 'var(--c-text-muted)' }}
+          style={{ color: "var(--c-text-muted)" }}
         >
           initializing…
         </span>
@@ -101,63 +140,131 @@ function MainApp() {
     );
   }
 
-  const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+  if (appState === "email-auth") {
+    return (
+      <div
+        data-testid="auth-screen"
+        className="flex flex-col h-full w-full"
+        style={{ background: "var(--c-bg)", position: "relative" }}
+      >
+        {/* DotMatrix background — low opacity, random algorithm each load */}
+        <div style={{ position: "absolute", inset: 0, opacity: 0.35, pointerEvents: "none" }}>
+          <DotMatrix />
+        </div>
 
-  return (
-    <div data-testid="app-root" style={{ height: "100%", width: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      {isMac && (
-        <div
-          style={{ height: "2rem", width: "100%", position: "absolute", top: 0, left: 0, zIndex: 50 }}
-          className="titlebar-drag"
-        />
-      )}
-      {/* <TitleBar /> */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {appState === "loading" && (
-          <div
-            data-testid="loading-screen"
-            className="flex items-center justify-center h-full"
-            style={{ background: 'var(--c-bg)' }}
-          >
-            <span
-              data-testid="loading-spinner"
-              className="text-xs font-mono"
-              style={{ color: 'var(--c-text-muted)' }}
-            >
-              loading…
-            </span>
-          </div>
-        )}
+        {/* Title bar with proper window controls */}
+        <TitleBar />
 
-        {appState === "email-auth" && (
-          <div
-            data-testid="auth-screen"
-            className="flex items-center justify-center h-full w-full"
-            style={{ background: 'var(--c-bg)' }}
-          >
-            <div
-              className="panel w-full max-w-sm p-8 flex flex-col gap-5"
-            >
+        {/* Centered auth card */}
+        <div className="flex-1 flex items-center justify-center" style={{ position: "relative", zIndex: 1 }}>
+          <Card padding="lg" style={{ width: "100%", maxWidth: 360 }}>
+            <div className="flex flex-col gap-5">
               <div>
-                <h1 className="text-base font-mono font-bold" style={{ color: 'var(--c-accent)' }}>
+                <h1 className="text-base font-mono font-bold" style={{ color: "var(--c-accent)" }}>
                   Pollis.
                 </h1>
-                <p className="text-xs mt-1" style={{ color: 'var(--c-text-muted)' }}>
-                  Sign in to continue
+                <p className="text-xs mt-1 font-mono" style={{ color: "var(--c-text-muted)" }}>
+                  Enter your email to continue
                 </p>
               </div>
               <EmailOTPAuth onSuccess={handleAuthSuccess} />
             </div>
-          </div>
-        )}
-
-        {appState === "ready" && currentUser && (
-          <RouterProvider
-            router={router}
-            context={{ handleLogout }}
-          />
-        )}
+          </Card>
+        </div>
       </div>
+    );
+  }
+
+  if (appState === "logout-confirm") {
+    return (
+      <div
+        data-testid="logout-confirm-screen"
+        className="flex flex-col h-full w-full"
+        style={{ background: "var(--c-bg)", position: "relative" }}
+      >
+        <div style={{ position: "absolute", inset: 0, opacity: 0.2, pointerEvents: "none" }}>
+          <DotMatrix speed={0.2} />
+        </div>
+
+        <TitleBar />
+
+        <div className="flex-1 flex items-center justify-center" style={{ position: "relative", zIndex: 1 }}>
+          <Card padding="lg" style={{ width: "100%", maxWidth: 360 }}>
+            <div className="flex flex-col gap-5">
+              <div>
+                <h2 className="text-sm font-mono font-semibold" style={{ color: "var(--c-text)" }}>
+                  Sign out
+                </h2>
+                <p className="text-xs mt-1 font-mono" style={{ color: "var(--c-text-muted)" }}>
+                  Do you want to delete your locally stored messages and keys?
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <button
+                  data-testid="logout-delete-data-button"
+                  onClick={() => handleLogoutConfirm(true)}
+                  className="w-full py-2 px-4 font-mono text-xs transition-colors"
+                  style={{
+                    background: "transparent",
+                    border: "1px solid hsl(0 70% 50% / 40%)",
+                    borderRadius: "4px",
+                    color: "hsl(0 70% 65%)",
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "hsl(0 70% 50% / 10%)"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                >
+                  Delete data &amp; sign out
+                </button>
+                <button
+                  data-testid="logout-keep-data-button"
+                  onClick={() => handleLogoutConfirm(false)}
+                  className="w-full py-2 px-4 font-mono text-xs transition-colors"
+                  style={{
+                    background: "transparent",
+                    border: "1px solid var(--c-border)",
+                    borderRadius: "4px",
+                    color: "var(--c-text-dim)",
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--c-hover)"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                >
+                  Keep data &amp; sign out
+                </button>
+                <button
+                  data-testid="logout-cancel-button"
+                  onClick={() => setAppState("ready")}
+                  className="w-full py-1 font-mono text-xs"
+                  style={{ color: "var(--c-text-muted)" }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  if (appState === "ready" && currentUser) {
+    return <TerminalApp onLogout={handleLogout} />;
+  }
+
+  // Fallback loading
+  return (
+    <div
+      data-testid="loading-screen"
+      className="flex items-center justify-center h-full w-full"
+      style={{ background: "var(--c-bg)" }}
+    >
+      <span
+        data-testid="loading-spinner"
+        className="text-xs font-mono"
+        style={{ color: "var(--c-text-muted)" }}
+      >
+        loading…
+      </span>
     </div>
   );
 }

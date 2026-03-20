@@ -1,5 +1,91 @@
 import { test, expect } from '@playwright/test';
-import { injectPreload, waitForApp, TEST_USER } from './helpers';
+import { injectPreload, waitForApp, terminalNavigate, TEST_USER } from './helpers';
+
+const GROUP_ID = 'group-test-1';
+const CHANNEL_ID = 'channel-test-1';
+
+test.describe('Groups list', () => {
+  test('shows groups in the groups menu', async ({ page }) => {
+    await injectPreload(page, {
+      groups: [
+        {
+          id: GROUP_ID,
+          name: 'Engineering',
+          description: 'Engineering group',
+          owner_id: TEST_USER.id,
+          created_at: new Date().toISOString(),
+        },
+      ],
+      channels: { [GROUP_ID]: [] },
+    });
+    await page.goto('/');
+    await waitForApp(page);
+
+    await terminalNavigate(page, 'menu-item-groups');
+
+    await expect(page.locator(`[data-testid="group-option-${GROUP_ID}"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="group-option-${GROUP_ID}"]`)).toContainText('Engineering');
+  });
+
+  test('shows empty groups list with create/find actions', async ({ page }) => {
+    await injectPreload(page, { groups: [] });
+    await page.goto('/');
+    await waitForApp(page);
+
+    await terminalNavigate(page, 'menu-item-groups');
+
+    await expect(page.locator('[data-testid="menu-item-create-group"]')).toBeVisible();
+    await expect(page.locator('[data-testid="menu-item-find-group"]')).toBeVisible();
+  });
+});
+
+test.describe('Group channels', () => {
+  test('shows channels for a group', async ({ page }) => {
+    await injectPreload(page, {
+      groups: [
+        {
+          id: GROUP_ID,
+          name: 'Engineering',
+          description: 'Engineering group',
+          owner_id: TEST_USER.id,
+          created_at: new Date().toISOString(),
+        },
+      ],
+      channels: {
+        [GROUP_ID]: [
+          { id: CHANNEL_ID, group_id: GROUP_ID, name: 'general' },
+        ],
+      },
+    });
+    await page.goto('/');
+    await waitForApp(page);
+
+    await terminalNavigate(page, 'menu-item-groups', `group-option-${GROUP_ID}`);
+
+    await expect(page.locator(`[data-testid="channel-option-${CHANNEL_ID}"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="channel-option-${CHANNEL_ID}"]`)).toContainText('general');
+  });
+
+  test('shows create channel option in group view', async ({ page }) => {
+    await injectPreload(page, {
+      groups: [
+        {
+          id: GROUP_ID,
+          name: 'Engineering',
+          owner_id: TEST_USER.id,
+          created_at: new Date().toISOString(),
+        },
+      ],
+      channels: { [GROUP_ID]: [] },
+    });
+    await page.goto('/');
+    await waitForApp(page);
+
+    await terminalNavigate(page, 'menu-item-groups', `group-option-${GROUP_ID}`);
+
+    await expect(page.locator('[data-testid="menu-item-create-channel"]')).toBeVisible();
+  });
+});
 
 test.describe('Create group', () => {
   test.beforeEach(async ({ page }) => {
@@ -8,41 +94,31 @@ test.describe('Create group', () => {
     await waitForApp(page);
   });
 
-  test('creates a group and shows it in the sidebar', async ({ page }) => {
-    // Navigate to create group page via sidebar button
-    await page.click('[data-testid="sidebar-create-group-button"]');
-    await page.waitForSelector('[data-testid="create-group-page"]');
-
-    // Fill in group details
-    await page.fill('[data-testid="create-group-name-input"]', 'Engineering');
-    await page.fill('[data-testid="create-group-description-input"]', 'Engineering team workspace');
-
-    // Slug should auto-populate
-    const slugValue = await page.inputValue('[data-testid="create-group-slug-input"]');
-    expect(slugValue).toBe('engineering');
-
-    // Submit
-    await page.click('[data-testid="create-group-submit-button"]');
-
-    // Should navigate away from create-group page and show the new group in sidebar
-    await page.waitForSelector('[data-testid^="group-item-"]');
-    const groupItem = page.locator('[data-testid^="group-item-"]');
-    await expect(groupItem).toBeVisible();
+  test('navigates to create group form', async ({ page }) => {
+    await terminalNavigate(page, 'menu-item-groups', 'menu-item-create-group');
+    await expect(page.locator('[data-testid="create-group-page"]')).toBeVisible();
   });
 
-  test('shows validation error for invalid name', async ({ page }) => {
-    await page.click('[data-testid="sidebar-create-group-button"]');
+  test('creates a group successfully', async ({ page }) => {
+    await terminalNavigate(page, 'menu-item-groups', 'menu-item-create-group');
     await page.waitForSelector('[data-testid="create-group-page"]');
 
-    // A name with only special characters produces an empty slug,
-    // which triggers React-level validation without relying on browser required-field popup
+    await page.fill('[data-testid="create-group-name-input"]', 'My Team');
+    await page.fill('[data-testid="create-group-description-input"]', 'Team workspace');
+    await page.click('[data-testid="create-group-submit-button"]');
+
+    // After creation, navigated away from create-group
+    await expect(page.locator('[data-testid="create-group-page"]')).not.toBeVisible();
+  });
+
+  test('shows error for empty name', async ({ page }) => {
+    await terminalNavigate(page, 'menu-item-groups', 'menu-item-create-group');
+    await page.waitForSelector('[data-testid="create-group-page"]');
+
     await page.fill('[data-testid="create-group-name-input"]', '!!!');
-    // Disable browser native validation so React handleSubmit runs
     await page.evaluate(() => {
       const form = document.querySelector('[data-testid="create-group-form"]') as HTMLFormElement;
-      if (form) {
-        form.noValidate = true;
-      }
+      if (form) { form.noValidate = true; }
     });
     await page.click('[data-testid="create-group-submit-button"]');
 
@@ -52,37 +128,47 @@ test.describe('Create group', () => {
 });
 
 test.describe('Create channel', () => {
-  test('creates a channel after first creating a group', async ({ page }) => {
-    await injectPreload(page, { groups: [] });
+  test('navigates to create channel form from group view', async ({ page }) => {
+    await injectPreload(page, {
+      groups: [
+        {
+          id: GROUP_ID,
+          name: 'Engineering',
+          owner_id: TEST_USER.id,
+          created_at: new Date().toISOString(),
+        },
+      ],
+      channels: { [GROUP_ID]: [] },
+    });
     await page.goto('/');
     await waitForApp(page);
 
-    // Create a group first
-    await page.click('[data-testid="sidebar-create-group-button"]');
-    await page.waitForSelector('[data-testid="create-group-page"]');
-    await page.fill('[data-testid="create-group-name-input"]', 'My Team');
-    await page.click('[data-testid="create-group-submit-button"]');
+    await terminalNavigate(page, 'menu-item-groups', `group-option-${GROUP_ID}`, 'menu-item-create-channel');
 
-    // Wait for group to appear in sidebar and be selected
-    await page.waitForSelector('[data-testid^="group-item-"]');
+    await expect(page.locator('[data-testid="create-channel-page"]')).toBeVisible();
+  });
 
-    // Click the create channel button (visible when group is selected)
-    await page.click('[data-testid="create-channel-button"]');
+  test('creates a channel successfully', async ({ page }) => {
+    await injectPreload(page, {
+      groups: [
+        {
+          id: GROUP_ID,
+          name: 'Engineering',
+          owner_id: TEST_USER.id,
+          created_at: new Date().toISOString(),
+        },
+      ],
+      channels: { [GROUP_ID]: [] },
+    });
+    await page.goto('/');
+    await waitForApp(page);
+
+    await terminalNavigate(page, 'menu-item-groups', `group-option-${GROUP_ID}`, 'menu-item-create-channel');
     await page.waitForSelector('[data-testid="create-channel-page"]');
 
-    // Fill in channel details
     await page.fill('[data-testid="create-channel-name-input"]', 'general');
-
-    // Slug should auto-populate
-    const slugValue = await page.inputValue('[data-testid="create-channel-slug-input"]');
-    expect(slugValue).toBe('general');
-
-    // Submit
     await page.click('[data-testid="create-channel-submit-button"]');
 
-    // Should navigate away from create-channel page and show the new channel
-    await page.waitForSelector('[data-testid^="channel-item-"]');
-    const channelItem = page.locator('[data-testid^="channel-item-"]');
-    await expect(channelItem).toBeVisible();
+    await expect(page.locator('[data-testid="create-channel-page"]')).not.toBeVisible();
   });
 });

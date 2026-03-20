@@ -111,6 +111,35 @@ CREATE INDEX idx_sender_key_channel ON sender_key_dist(channel_id, sender_id);
 CREATE INDEX idx_sender_key_recip   ON sender_key_dist(recipient_id, channel_id);
 CREATE INDEX idx_x3dh_init_recip    ON x3dh_init(recipient_id, sender_id);
 
+-- Group invites (a member invites an outside user to join)
+CREATE TABLE group_invite (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    inviter_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    invitee_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'accepted', 'declined'))
+);
+
+CREATE INDEX idx_invite_invitee ON group_invite(invitee_id, status);
+CREATE INDEX idx_invite_group   ON group_invite(group_id, status);
+
+-- Join requests (a user requests to join a group)
+CREATE TABLE group_join_request (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    requester_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    reviewed_by TEXT REFERENCES users(id),
+    reviewed_at TEXT,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'approved', 'rejected'))
+);
+
+CREATE INDEX idx_join_request_group     ON group_join_request(group_id, status);
+CREATE INDEX idx_join_request_requester ON group_join_request(requester_id, status);
+
 -- User preferences (stored as JSON: accent_color, font_size, etc.)
 CREATE TABLE user_preferences (
     user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

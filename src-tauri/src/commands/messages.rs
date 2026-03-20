@@ -8,12 +8,14 @@ use crate::state::AppState;
 use crate::signal::group::{SenderKeyState, SenderKeyMessage};
 use crate::signal::session;
 use crate::signal::crypto;
-use crate::signal::identity::{IdentityKey, load_x25519_secret};
+use crate::signal::identity::load_x25519_secret;
 
 const QUERY_MESSAGES_BY_SENDER: &str = include_str!("../db/queries/messages_by_sender.sql");
 const QUERY_CHANNEL_PREVIEWS: &str = include_str!("../db/queries/channel_previews.sql");
 const QUERY_CHANNEL_MESSAGES_INITIAL: &str = include_str!("../db/queries/channel_messages_initial.sql");
 const QUERY_CHANNEL_MESSAGES_CURSOR: &str = include_str!("../db/queries/channel_messages_cursor.sql");
+const QUERY_DM_CHANNEL_MESSAGES_INITIAL: &str = include_str!("../db/queries/dm_channel_messages_initial.sql");
+const QUERY_DM_CHANNEL_MESSAGES_CURSOR: &str = include_str!("../db/queries/dm_channel_messages_cursor.sql");
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Message {
@@ -145,10 +147,15 @@ async fn distribute_sender_key_to_group_members(
          FROM group_member gm
          JOIN users u ON u.id = gm.user_id
          WHERE gm.group_id = ?1 AND gm.user_id != ?2
-           AND u.identity_key IS NOT NULL",
-        libsql::params![group_id, sender_id],
+           AND u.identity_key IS NOT NULL
+           AND NOT EXISTS (
+               SELECT 1 FROM sender_key_dist
+               WHERE channel_id = ?3 AND sender_id = ?2 AND recipient_id = gm.user_id
+           )",
+        libsql::params![group_id, sender_id, channel_id],
     ).await?;
 
+    let mut distributed = 0usize;
     while let Some(row) = member_rows.next().await? {
         let member_id: String = row.get(0)?;
         let ik_hex: String = row.get(1)?;
@@ -157,11 +164,17 @@ async fn distribute_sender_key_to_group_members(
 
         let spk_hex = match spk_hex {
             Some(s) => s,
-            None => continue,
+            None => {
+                eprintln!("[dist] skipping member {member_id}: no SPK");
+                continue;
+            }
         };
         let spk_id = match spk_id {
             Some(id) => id,
-            None => continue,
+            None => {
+                eprintln!("[dist] skipping member {member_id}: no SPK id");
+                continue;
+            }
         };
 
         let ik_bytes = match hex::decode(&ik_hex) {
@@ -170,7 +183,10 @@ async fn distribute_sender_key_to_group_members(
                 arr.copy_from_slice(&b);
                 arr
             }
-            _ => continue,
+            _ => {
+                eprintln!("[dist] skipping member {member_id}: bad identity_key hex (len={})", ik_hex.len());
+                continue;
+            }
         };
 
         let spk_bytes = match hex::decode(&spk_hex) {
@@ -179,7 +195,10 @@ async fn distribute_sender_key_to_group_members(
                 arr.copy_from_slice(&b);
                 arr
             }
-            _ => continue,
+            _ => {
+                eprintln!("[dist] skipping member {member_id}: bad SPK hex");
+                continue;
+            }
         };
 
         let (encrypted_state, ephemeral_key) = match crypto::encrypt_sender_key_for_recipient(
@@ -188,11 +207,14 @@ async fn distribute_sender_key_to_group_members(
             &spk_bytes,
         ) {
             Ok(result) => result,
-            Err(_) => continue,
+            Err(e) => {
+                eprintln!("[dist] encrypt_sender_key_for_recipient failed for member {member_id}: {e}");
+                continue;
+            }
         };
 
         let dist_id = Ulid::new().to_string();
-        let _ = conn.execute(
+        match conn.execute(
             "INSERT OR REPLACE INTO sender_key_dist
              (id, channel_id, sender_id, recipient_id, encrypted_state, ephemeral_key, spk_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -200,13 +222,20 @@ async fn distribute_sender_key_to_group_members(
                 dist_id,
                 channel_id,
                 sender_id,
-                member_id,
+                member_id.clone(),
                 encrypted_state,
                 ephemeral_key,
                 spk_id,
             ],
-        ).await;
+        ).await {
+            Ok(_) => {
+                eprintln!("[dist] distributed sender key to member {member_id} on channel {channel_id}");
+                distributed += 1;
+            }
+            Err(e) => eprintln!("[dist] INSERT failed for member {member_id}: {e}"),
+        }
     }
+    eprintln!("[dist] group distribution done: {distributed} new member(s) on channel {channel_id}");
 
     Ok(())
 }
@@ -225,10 +254,15 @@ async fn distribute_sender_key_to_dm_members(
          FROM dm_channel_member dcm
          JOIN users u ON u.id = dcm.user_id
          WHERE dcm.dm_channel_id = ?1 AND dcm.user_id != ?2
-           AND u.identity_key IS NOT NULL",
+           AND u.identity_key IS NOT NULL
+           AND NOT EXISTS (
+               SELECT 1 FROM sender_key_dist
+               WHERE channel_id = ?1 AND sender_id = ?2 AND recipient_id = dcm.user_id
+           )",
         libsql::params![dm_channel_id, sender_id],
     ).await?;
 
+    let mut distributed = 0usize;
     while let Some(row) = member_rows.next().await? {
         let member_id: String = row.get(0)?;
         let ik_hex: String = row.get(1)?;
@@ -237,11 +271,17 @@ async fn distribute_sender_key_to_dm_members(
 
         let spk_hex = match spk_hex {
             Some(s) => s,
-            None => continue,
+            None => {
+                eprintln!("[dist] DM skipping member {member_id}: no SPK");
+                continue;
+            }
         };
         let spk_id = match spk_id {
             Some(id) => id,
-            None => continue,
+            None => {
+                eprintln!("[dist] DM skipping member {member_id}: no SPK id");
+                continue;
+            }
         };
 
         let ik_bytes = match hex::decode(&ik_hex) {
@@ -250,7 +290,10 @@ async fn distribute_sender_key_to_dm_members(
                 arr.copy_from_slice(&b);
                 arr
             }
-            _ => continue,
+            _ => {
+                eprintln!("[dist] DM skipping member {member_id}: bad identity_key hex");
+                continue;
+            }
         };
 
         let spk_bytes = match hex::decode(&spk_hex) {
@@ -259,7 +302,10 @@ async fn distribute_sender_key_to_dm_members(
                 arr.copy_from_slice(&b);
                 arr
             }
-            _ => continue,
+            _ => {
+                eprintln!("[dist] DM skipping member {member_id}: bad SPK hex");
+                continue;
+            }
         };
 
         let (encrypted_state, ephemeral_key) = match crypto::encrypt_sender_key_for_recipient(
@@ -268,11 +314,14 @@ async fn distribute_sender_key_to_dm_members(
             &spk_bytes,
         ) {
             Ok(result) => result,
-            Err(_) => continue,
+            Err(e) => {
+                eprintln!("[dist] DM encrypt failed for member {member_id}: {e}");
+                continue;
+            }
         };
 
         let dist_id = Ulid::new().to_string();
-        let _ = conn.execute(
+        match conn.execute(
             "INSERT OR REPLACE INTO sender_key_dist
              (id, channel_id, sender_id, recipient_id, encrypted_state, ephemeral_key, spk_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -280,13 +329,20 @@ async fn distribute_sender_key_to_dm_members(
                 dist_id,
                 dm_channel_id,
                 sender_id,
-                member_id,
+                member_id.clone(),
                 encrypted_state,
                 ephemeral_key,
                 spk_id,
             ],
-        ).await;
+        ).await {
+            Ok(_) => {
+                eprintln!("[dist] DM distributed sender key to member {member_id} on channel {dm_channel_id}");
+                distributed += 1;
+            }
+            Err(e) => eprintln!("[dist] DM INSERT failed for member {member_id}: {e}"),
+        }
     }
+    eprintln!("[dist] DM distribution done: {distributed} new member(s) on channel {dm_channel_id}");
 
     Ok(())
 }
@@ -303,7 +359,7 @@ pub async fn send_message(
     let now = chrono::Utc::now().to_rfc3339();
 
     // Encrypt the message using sender's SenderKeyState
-    let (sender_key_msg, ciphertext_json) = {
+    let (_sender_key_msg, ciphertext_json, pre_encrypt_state) = {
         let db = state.local_db.lock().await;
 
         // Load or create SenderKeyState for this channel
@@ -311,6 +367,10 @@ pub async fn send_message(
             Some(key) => key,
             None => SenderKeyState::new(),
         };
+
+        // Capture state before encrypt so we can distribute it to new members.
+        // Recipients need the pre-encrypt state to decrypt this and future messages.
+        let pre_state = sender_key.clone();
 
         let msg = sender_key.encrypt(content.as_bytes())?;
         let ciphertext_json = serde_json::to_string(&msg)?;
@@ -334,7 +394,7 @@ pub async fn send_message(
             ],
         )?;
 
-        (msg, ciphertext_json)
+        (msg, ciphertext_json, pre_state)
     };
 
     // Write envelope to Turso for offline delivery (use same id as local message)
@@ -345,40 +405,32 @@ pub async fn send_message(
         libsql::params![id.clone(), conversation_id.clone(), sender_id.clone(), ciphertext_json.clone(), now.clone()],
     ).await?;
 
-    // Distribute sender key if this is a fresh state (iteration == 1 after first encrypt)
-    if sender_key_msg.iteration == 0 {
-        // Detect if this is a DM channel or group channel and distribute accordingly
-        let is_dm = match conn.query(
-            "SELECT 1 FROM dm_channel WHERE id = ?1",
-            libsql::params![conversation_id.clone()],
-        ).await {
-            Ok(mut rows) => rows.next().await.ok().flatten().is_some(),
-            Err(_) => false,
-        };
+    // Distribute pre-encrypt sender key state to any members who don't have it yet.
+    // Using the pre-encrypt state ensures recipients can decrypt the message just sent
+    // and all future messages. The NOT EXISTS filter in each distribute function means
+    // this is a no-op when all members already have our key.
+    let is_dm = match conn.query(
+        "SELECT 1 FROM dm_channel WHERE id = ?1",
+        libsql::params![conversation_id.clone()],
+    ).await {
+        Ok(mut rows) => rows.next().await.ok().flatten().is_some(),
+        Err(_) => false,
+    };
 
-        if is_dm {
-            let _ = distribute_sender_key_to_dm_members(
-                &conn,
-                &conversation_id,
-                &sender_id,
-                &{
-                    let db = state.local_db.lock().await;
-                    session::load_sender_key(db.conn(), &conversation_id, &sender_id)?
-                        .unwrap_or_else(SenderKeyState::new)
-                },
-            ).await;
-        } else {
-            let _ = distribute_sender_key_to_group_members(
-                &conn,
-                &conversation_id,
-                &sender_id,
-                &{
-                    let db = state.local_db.lock().await;
-                    session::load_sender_key(db.conn(), &conversation_id, &sender_id)?
-                        .unwrap_or_else(SenderKeyState::new)
-                },
-            ).await;
-        }
+    if is_dm {
+        let _ = distribute_sender_key_to_dm_members(
+            &conn,
+            &conversation_id,
+            &sender_id,
+            &pre_encrypt_state,
+        ).await;
+    } else {
+        let _ = distribute_sender_key_to_group_members(
+            &conn,
+            &conversation_id,
+            &sender_id,
+            &pre_encrypt_state,
+        ).await;
     }
 
     Ok(Message {
@@ -464,16 +516,33 @@ fn try_decrypt_message(
     conversation_id: &str,
     sender_id: &str,
 ) -> Option<String> {
-    let msg: SenderKeyMessage = serde_json::from_str(ciphertext).ok()?;
+    let msg: SenderKeyMessage = match serde_json::from_str(ciphertext) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("[decrypt] failed to parse ciphertext from {sender_id}: {e}");
+            return None;
+        }
+    };
 
-    // Load the peer's sender key state for this channel
-    let mut peer_state = session::load_peer_sender_key(
-        local_conn,
-        conversation_id,
-        sender_id,
-    ).ok()??;
+    let mut peer_state = match session::load_peer_sender_key(local_conn, conversation_id, sender_id) {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            eprintln!("[decrypt] no peer sender key for {sender_id} on channel {conversation_id}");
+            return None;
+        }
+        Err(e) => {
+            eprintln!("[decrypt] error loading peer sender key for {sender_id}: {e}");
+            return None;
+        }
+    };
 
-    let plaintext = peer_state.decrypt(&msg).ok()?;
+    let plaintext = match peer_state.decrypt(&msg) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("[decrypt] decryption failed for msg iteration={} from {sender_id} (peer state iteration={}): {e}", msg.iteration, peer_state.iteration);
+            return None;
+        }
+    };
 
     // Save updated peer state after successful decryption
     let _ = session::save_peer_sender_key(local_conn, conversation_id, sender_id, &peer_state);
@@ -494,11 +563,15 @@ async fn fetch_sender_key_distributions(
     user_id: &str,
     channel_id: &str,
 ) -> Result<Vec<(String, SenderKeyState)>> {
-    let identity = match IdentityKey::load().await? {
-        Some(ik) => ik,
-        None => return Ok(vec![]),
+    // Use the dedicated X25519 identity key (not the Ed25519 signing key).
+    // users.identity_key stores the X25519 public key; x25519_ik_private is the matching secret.
+    let our_ik_secret = match load_x25519_secret("x25519_ik_private").await {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[dist] x25519_ik_private not found for user {user_id}: {e}");
+            return Ok(vec![]);
+        }
     };
-    let our_ik_secret = identity.to_x25519_static_secret();
 
     let mut rows = remote_conn.query(
         "SELECT sender_id, encrypted_state, ephemeral_key, spk_id
@@ -517,7 +590,10 @@ async fn fetch_sender_key_distributions(
         let spk_key_name = format!("spk_{}", spk_id);
         let our_spk_secret = match load_x25519_secret(&spk_key_name).await {
             Ok(s) => s,
-            Err(_) => continue,
+            Err(e) => {
+                eprintln!("[dist] SPK '{spk_key_name}' not found while decrypting dist from {sender_id}: {e}");
+                continue;
+            }
         };
 
         let state = match crypto::decrypt_sender_key_distribution(
@@ -527,9 +603,13 @@ async fn fetch_sender_key_distributions(
             &our_spk_secret,
         ) {
             Ok(s) => s,
-            Err(_) => continue,
+            Err(e) => {
+                eprintln!("[dist] failed to decrypt sender key distribution from {sender_id} on channel {channel_id}: {e}");
+                continue;
+            }
         };
 
+        eprintln!("[dist] ingested sender key from {sender_id} for channel {channel_id} (iteration={})", state.iteration);
         result.push((sender_id, state));
     }
 
@@ -607,7 +687,11 @@ pub async fn get_channel_messages(
     let db = state.local_db.lock().await;
     ingest_sender_key_distributions(db.conn(), &channel_id, distributions);
 
-    let messages: Vec<ChannelMessage> = raw_messages.into_iter().map(|(id, conv_id, sender_id, sender_username, ciphertext, sent_at)| {
+    // Decrypt in oldest-first order so the ratchet chain advances correctly.
+    // The SQL query returns newest-first; sort ascending here and reverse after.
+    raw_messages.sort_by(|a, b| a.5.cmp(&b.5).then(a.0.cmp(&b.0)));
+
+    let mut messages: Vec<ChannelMessage> = raw_messages.into_iter().map(|(id, conv_id, sender_id, sender_username, ciphertext, sent_at)| {
         let content = if sender_id == user_id {
             // Own message: read plaintext we stored locally at send time
             db.conn().query_row(
@@ -616,7 +700,28 @@ pub async fn get_channel_messages(
                 |row| row.get::<_, Option<String>>(0),
             ).ok().flatten()
         } else {
-            try_decrypt_message(db.conn(), &ciphertext, &conv_id, &sender_id)
+            // Peer message: check local cache first so the ratchet doesn't need
+            // to replay already-decrypted messages after a refresh.
+            let cached = db.conn().query_row(
+                "SELECT content FROM message WHERE id = ?1",
+                rusqlite::params![&id],
+                |row| row.get::<_, Option<String>>(0),
+            ).ok().flatten();
+
+            if cached.is_some() {
+                cached
+            } else {
+                let plaintext = try_decrypt_message(db.conn(), &ciphertext, &conv_id, &sender_id);
+                if let Some(ref text) = plaintext {
+                    let _ = db.conn().execute(
+                        "INSERT OR IGNORE INTO message
+                         (id, conversation_id, sender_id, ciphertext, content, sent_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        rusqlite::params![id, conv_id, sender_id, ciphertext.as_bytes(), text, sent_at],
+                    );
+                }
+                plaintext
+            }
         };
         ChannelMessage {
             id,
@@ -628,6 +733,9 @@ pub async fn get_channel_messages(
             sent_at,
         }
     }).collect();
+
+    // Restore newest-first order for the response (frontend expects newest at top).
+    messages.reverse();
 
     // If we got a full page there are likely more; expose a cursor to the
     // oldest row so the caller can fetch the next older page.
@@ -697,6 +805,110 @@ pub async fn list_channel_previews(
     }
 
     Ok(previews)
+}
+
+/// Fetch a page of messages for a DM channel the user is a member of.
+/// Mirrors get_channel_messages: ingests sender key distributions from remote,
+/// decrypts peer messages, caches plaintext locally, returns newest-first.
+#[tauri::command]
+pub async fn get_dm_messages(
+    user_id: String,
+    dm_channel_id: String,
+    limit: Option<i64>,
+    cursor: Option<MessageCursor>,
+    state: State<'_, Arc<AppState>>,
+) -> Result<MessagePage> {
+    let limit = limit.unwrap_or(50);
+    let conn = state.remote_db.conn().await?;
+
+    let mut rows = match cursor {
+        None => {
+            conn.query(
+                QUERY_DM_CHANNEL_MESSAGES_INITIAL,
+                libsql::params![user_id.clone(), dm_channel_id.clone(), limit],
+            ).await?
+        }
+        Some(c) => {
+            conn.query(
+                QUERY_DM_CHANNEL_MESSAGES_CURSOR,
+                libsql::params![user_id.clone(), dm_channel_id.clone(), c.sent_at, c.id, limit],
+            ).await?
+        }
+    };
+
+    let mut raw_messages = Vec::new();
+    while let Some(row) = rows.next().await? {
+        raw_messages.push((
+            row.get::<String>(0)?,
+            row.get::<String>(1)?,
+            row.get::<String>(2)?,
+            row.get::<Option<String>>(3)?,
+            row.get::<String>(4)?,
+            row.get::<String>(5)?,
+        ));
+    }
+
+    let distributions = fetch_sender_key_distributions(&conn, &user_id, &dm_channel_id).await
+        .unwrap_or_default();
+
+    let db = state.local_db.lock().await;
+    ingest_sender_key_distributions(db.conn(), &dm_channel_id, distributions);
+
+    // Decrypt in oldest-first order so the ratchet chain advances correctly.
+    raw_messages.sort_by(|a, b| a.5.cmp(&b.5).then(a.0.cmp(&b.0)));
+
+    let mut messages: Vec<ChannelMessage> = raw_messages.into_iter().map(|(id, conv_id, sender_id, sender_username, ciphertext, sent_at)| {
+        let content = if sender_id == user_id {
+            db.conn().query_row(
+                "SELECT content FROM message WHERE id = ?1",
+                rusqlite::params![&id],
+                |row| row.get::<_, Option<String>>(0),
+            ).ok().flatten()
+        } else {
+            let cached = db.conn().query_row(
+                "SELECT content FROM message WHERE id = ?1",
+                rusqlite::params![&id],
+                |row| row.get::<_, Option<String>>(0),
+            ).ok().flatten();
+
+            if cached.is_some() {
+                cached
+            } else {
+                let plaintext = try_decrypt_message(db.conn(), &ciphertext, &conv_id, &sender_id);
+                if let Some(ref text) = plaintext {
+                    let _ = db.conn().execute(
+                        "INSERT OR IGNORE INTO message
+                         (id, conversation_id, sender_id, ciphertext, content, sent_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        rusqlite::params![id, conv_id, sender_id, ciphertext.as_bytes(), text, sent_at],
+                    );
+                }
+                plaintext
+            }
+        };
+        ChannelMessage {
+            id,
+            conversation_id: conv_id,
+            sender_id,
+            sender_username,
+            ciphertext,
+            content,
+            sent_at,
+        }
+    }).collect();
+
+    messages.reverse();
+
+    let next_cursor = if messages.len() == limit as usize {
+        messages.last().map(|m| MessageCursor {
+            sent_at: m.sent_at.clone(),
+            id: m.id.clone(),
+        })
+    } else {
+        None
+    };
+
+    Ok(MessagePage { messages, next_cursor })
 }
 
 #[cfg(test)]

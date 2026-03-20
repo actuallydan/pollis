@@ -3,6 +3,7 @@ import { useAppStore } from "../../stores/appStore";
 import { MessageList } from "../Message/MessageList";
 import { ReplyPreview } from "../Message/ReplyPreview";
 import { MessageQueue } from "../Message/MessageQueue";
+import { ChatInput } from "../ui/ChatInput";
 import { useMessages, useSendMessage } from "../../hooks/queries";
 
 export const MainContent: React.FC = () => {
@@ -66,8 +67,10 @@ export const MainContent: React.FC = () => {
           messages={messages}
           onReply={(id) => setReplyToMessageId(id)}
           onScrollToMessage={(id) => console.log("Scroll to:", id)}
-          getAuthorUsername={(authorId) =>
-            authorId === currentUser?.id ? (currentUser as any).username || "you" : "user"
+          getAuthorUsername={(authorId, message) =>
+            authorId === currentUser?.id
+              ? (currentUser as any).username || "you"
+              : message?.sender_username || authorId
           }
         />
       </div>
@@ -83,49 +86,9 @@ export const MainContent: React.FC = () => {
 
       <MessageQueue />
 
-      {/* Message input */}
-      <form
-        data-testid="message-form"
-        className="flex-shrink-0 px-4 py-3"
-        style={{ borderTop: '1px solid var(--c-border)' }}
-        onSubmit={(e) => {
-          e.preventDefault();
-          const ta = e.currentTarget.querySelector("textarea") as HTMLTextAreaElement;
-          handleSend(ta.value);
-          ta.value = "";
-        }}
-      >
-        <div className="flex items-end gap-2">
-          <textarea
-            data-testid="message-input"
-            placeholder="Type a message…"
-            aria-label="Message input"
-            rows={1}
-            className="pollis-textarea flex-1"
-            style={{ maxHeight: 120 }}
-            onInput={(e) => {
-              const ta = e.currentTarget;
-              ta.style.height = "auto";
-              ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                const form = e.currentTarget.closest("form") as HTMLFormElement;
-                form?.requestSubmit();
-              }
-            }}
-          />
-          <button
-            type="submit"
-            data-testid="message-send-button"
-            className="btn-primary flex-shrink-0 self-end"
-            style={{ paddingTop: 8, paddingBottom: 8 }}
-          >
-            Send
-          </button>
-        </div>
-      </form>
+      <div data-testid="message-form">
+        <ChatInput onSend={(text) => handleSend(text)} />
+      </div>
     </div>
   );
 };

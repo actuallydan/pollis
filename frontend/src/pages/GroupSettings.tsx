@@ -5,6 +5,8 @@ import { uploadGroupIcon, getFileDownloadUrl } from "../services/r2-upload";
 import { deriveSlug, parseURL } from "../utils/urlRouting";
 import { useUpdateGroupIcon } from "../hooks/queries";
 import * as api from "../services/api";
+import { TextInput } from "../components/ui/TextInput";
+import { Button } from "../components/ui/Button";
 
 export const GroupSettings: React.FC = () => {
   const { groups, setGroups, selectedGroupId, setSelectedGroupId } = useAppStore();
@@ -128,7 +130,7 @@ export const GroupSettings: React.FC = () => {
 
           {/* Group info */}
           <section className="flex flex-col gap-4">
-            <h2 className="section-label px-0 border-b pb-1" style={{ borderColor: 'var(--c-border)' }}>
+            <h2 className="text-xs font-mono font-medium uppercase tracking-widest pb-1 border-b" style={{ color: 'var(--c-text-dim)', borderColor: 'var(--c-border)' }}>
               Group Info
             </h2>
 
@@ -138,26 +140,22 @@ export const GroupSettings: React.FC = () => {
               </span>
             ) : (
               <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="group-settings-name" className="section-label px-0">Group Name</label>
-                  <input
-                    id="group-settings-name"
-                    data-testid="group-settings-name-input"
-                    type="text"
-                    value={groupName}
-                    onChange={(e) => setGroupName(e.target.value)}
-                    placeholder="My Group"
-                    required
-                    className="pollis-input"
-                  />
-                </div>
+                <TextInput
+                  label="Group Name"
+                  value={groupName}
+                  onChange={setGroupName}
+                  placeholder="My Group"
+                  id="group-settings-name"
+                  required
+                />
+                <input data-testid="group-settings-name-input" type="hidden" value={groupName} readOnly />
 
                 <div
                   data-testid="group-settings-slug-preview"
                   className="flex items-center gap-2"
                 >
-                  <span className="section-label px-0">URL</span>
-                  <span className="text-xs font-mono" style={{ color: 'var(--c-text-dim)' }}>
+                  <span className="text-xs font-mono font-medium" style={{ color: 'var(--c-text-dim)' }}>URL</span>
+                  <span className="text-xs font-mono" style={{ color: 'var(--c-text-muted)' }}>
                     /g/{slugPreview}
                   </span>
                 </div>
@@ -175,26 +173,27 @@ export const GroupSettings: React.FC = () => {
               </p>
             )}
 
-            <button
+            <Button
               data-testid="group-settings-save-button"
               onClick={handleSave}
               disabled={isSaving}
-              className="btn-primary self-start"
+              isLoading={isSaving}
+              loadingText="Saving…"
             >
-              {isSaving ? "Saving…" : "Save Changes"}
-            </button>
+              Save Changes
+            </Button>
           </section>
 
           {/* Group icon */}
           <section className="flex flex-col gap-4">
-            <h2 className="section-label px-0 border-b pb-1" style={{ borderColor: 'var(--c-border)' }}>
+            <h2 className="text-xs font-mono font-medium uppercase tracking-widest pb-1 border-b" style={{ color: 'var(--c-text-dim)', borderColor: 'var(--c-border)' }}>
               Icon
             </h2>
 
             <div className="flex items-center gap-4">
               <div
                 data-testid="group-icon-preview-container"
-                className="w-14 h-14 rounded-panel overflow-hidden flex items-center justify-center flex-shrink-0 font-mono font-bold text-lg"
+                className="w-14 h-14 overflow-hidden flex items-center justify-center flex-shrink-0 font-mono font-bold text-lg"
                 style={{ border: '1px solid var(--c-border)', background: 'var(--c-surface-high)', color: 'var(--c-accent-dim)' }}
               >
                 {preview ? (
@@ -217,9 +216,10 @@ export const GroupSettings: React.FC = () => {
               <div className="flex flex-col gap-2">
                 <label
                   htmlFor="group-icon-input"
-                  className="btn-ghost cursor-pointer inline-flex items-center gap-1.5"
+                  className="inline-flex items-center gap-1.5 text-xs font-mono cursor-pointer transition-colors"
+                  style={{ color: 'var(--c-accent)' }}
                 >
-                  <Upload size={17} aria-hidden="true" />
+                  <Upload size={14} aria-hidden="true" />
                   Choose icon
                 </label>
                 <input
@@ -233,7 +233,7 @@ export const GroupSettings: React.FC = () => {
                   aria-label="Select group icon"
                   className="sr-only"
                 />
-                <p className="text-2xs font-mono" style={{ color: 'var(--c-text-muted)' }}>PNG, JPG, GIF</p>
+                <p className="text-xs font-mono" style={{ color: 'var(--c-text-muted)' }}>PNG, JPG, GIF</p>
               </div>
             </div>
 
@@ -244,15 +244,15 @@ export const GroupSettings: React.FC = () => {
             )}
 
             {selectedFile && (
-              <button
+              <Button
                 data-testid="upload-group-icon-button"
                 onClick={handleIconUpload}
                 disabled={isUploading}
-                className="btn-primary self-start flex items-center gap-1.5"
+                isLoading={isUploading}
+                loadingText="Uploading…"
               >
-                <Upload size={17} aria-hidden="true" />
-                {isUploading ? "Uploading…" : "Upload Icon"}
-              </button>
+                Upload Icon
+              </Button>
             )}
           </section>
         </div>

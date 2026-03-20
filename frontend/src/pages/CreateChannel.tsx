@@ -1,10 +1,20 @@
 import React, { useState } from "react";
 import { useAppStore } from "../stores/appStore";
 import { invoke } from "@tauri-apps/api/core";
-import { deriveSlug, updateURL } from "../utils/urlRouting";
+import { useQueryClient } from "@tanstack/react-query";
+import { deriveSlug } from "../utils/urlRouting";
+import { groupQueryKeys } from "../hooks/queries/useGroups";
+import { TextInput } from "../components/ui/TextInput";
+import { TextArea } from "../components/ui/TextArea";
+import { Button } from "../components/ui/Button";
 
-export const CreateChannel: React.FC = () => {
+interface CreateChannelProps {
+  onSuccess?: (channelId: string) => void;
+}
+
+export const CreateChannel: React.FC<CreateChannelProps> = ({ onSuccess }) => {
   const { selectedGroupId, currentUser, addChannel, channels, groups, setSelectedChannelId } = useAppStore();
+  const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugEdited, setSlugEdited] = useState(false);
@@ -63,10 +73,8 @@ export const CreateChannel: React.FC = () => {
       };
       addChannel(channelData);
       setSelectedChannelId(channelData.id);
-      if (currentGroup) {
-        updateURL(`/g/${currentGroup.slug}/${finalSlug}`);
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      }
+      queryClient.invalidateQueries({ queryKey: groupQueryKeys.userGroupsWithChannels(currentUser.id) });
+      onSuccess?.(channel.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create channel");
     } finally {
@@ -88,8 +96,11 @@ export const CreateChannel: React.FC = () => {
         <p className="text-xs font-mono" style={{ color: 'var(--c-text-muted)' }}>Select a group first</p>
         <button
           data-testid="create-channel-go-home-button"
-          onClick={() => { updateURL("/"); window.dispatchEvent(new PopStateEvent("popstate")); }}
-          className="btn-ghost"
+          onClick={() => onSuccess?.("")}
+          className="text-xs font-mono transition-colors"
+          style={{ color: "var(--c-text-muted)" }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--c-accent)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--c-text-muted)"; }}
         >
           Go Home
         </button>
@@ -109,52 +120,41 @@ export const CreateChannel: React.FC = () => {
           onSubmit={handleSubmit}
           className="w-full max-w-md flex flex-col gap-5"
         >
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="create-channel-name" className="section-label px-0">Channel Name</label>
-            <input
-              id="create-channel-name"
-              data-testid="create-channel-name-input"
-              type="text"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                if (!slugEdited) { setSlug(deriveSlug(e.target.value)); }
-              }}
-              placeholder="general"
-              required
-              disabled={isLoading}
-              className="pollis-input"
-            />
-          </div>
+          <TextInput
+            label="Channel Name"
+            value={name}
+            onChange={(val) => {
+              setName(val);
+              if (!slugEdited) { setSlug(deriveSlug(val)); }
+            }}
+            placeholder="general"
+            disabled={isLoading}
+            id="create-channel-name"
+            required
+          />
+          <input data-testid="create-channel-name-input" type="hidden" value={name} readOnly />
 
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="create-channel-slug" className="section-label px-0">Slug</label>
-            <input
-              id="create-channel-slug"
-              data-testid="create-channel-slug-input"
-              type="text"
-              value={slug}
-              onChange={(e) => { setSlug(e.target.value.toLowerCase()); setSlugEdited(true); }}
-              placeholder="general"
-              required
-              disabled={isLoading}
-              className="pollis-input font-mono"
-            />
-          </div>
+          <TextInput
+            label="Slug"
+            value={slug}
+            onChange={(val) => { setSlug(val.toLowerCase()); setSlugEdited(true); }}
+            placeholder="general"
+            disabled={isLoading}
+            id="create-channel-slug"
+            required
+          />
+          <input data-testid="create-channel-slug-input" type="hidden" value={slug} readOnly />
 
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="create-channel-description" className="section-label px-0">Description</label>
-            <textarea
-              id="create-channel-description"
-              data-testid="create-channel-description-input"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional description…"
-              disabled={isLoading}
-              rows={2}
-              className="pollis-textarea"
-            />
-          </div>
+          <TextArea
+            label="Description"
+            value={description}
+            onChange={setDescription}
+            placeholder="Optional description…"
+            disabled={isLoading}
+            rows={2}
+            id="create-channel-description"
+          />
+          <input data-testid="create-channel-description-input" type="hidden" value={description} readOnly />
 
           {error && (
             <p data-testid="create-channel-error" className="text-xs font-mono" style={{ color: '#ff6b6b' }}>
@@ -162,14 +162,15 @@ export const CreateChannel: React.FC = () => {
             </p>
           )}
 
-          <button
+          <Button
             data-testid="create-channel-submit-button"
             type="submit"
-            disabled={isLoading}
-            className="btn-primary py-2"
+            isLoading={isLoading}
+            loadingText="Creating…"
+            className="w-full"
           >
-            {isLoading ? "Creating…" : "Create Channel"}
-          </button>
+            Create Channel
+          </Button>
         </form>
       </div>
     </div>

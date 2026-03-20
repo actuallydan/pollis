@@ -1,0 +1,187 @@
+import React, { useState, useEffect, useCallback } from "react";
+import { usePreferences, applyPreferences } from "../hooks/queries/usePreferences";
+import { hslToHex } from "../utils/colorUtils";
+
+function getRootVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function setRootVar(name: string, value: string) {
+  document.documentElement.style.setProperty(name, value);
+}
+
+export const Preferences: React.FC = () => {
+  const [hue, setHue] = useState<number>(38);
+  const [saturation, setSaturation] = useState<number>(90);
+  const [fontSize, setFontSize] = useState<number>(15);
+
+  const { query, mutation } = usePreferences();
+
+  // Apply saved preferences on first load
+  useEffect(() => {
+    if (query.data) {
+      applyPreferences(query.data);
+    }
+  }, [query.data]);
+
+  // Read current CSS var values on mount
+  useEffect(() => {
+    const h = parseInt(getRootVar("--accent-h"));
+    const s = parseInt(getRootVar("--accent-s"));
+    const fs = parseInt(getRootVar("--font-size-base"));
+    if (!isNaN(h)) { setHue(h); }
+    if (!isNaN(s)) { setSaturation(s); }
+    if (!isNaN(fs)) { setFontSize(fs); }
+  }, []);
+
+  const save = useCallback((newHue: number, newSat: number, newFs: number) => {
+    const accentHex = hslToHex(newHue, newSat, 62);
+    mutation.mutate({ accent_color: accentHex, font_size: String(newFs) });
+  }, [mutation]);
+
+  const handleHue = (val: number) => {
+    setHue(val);
+    setRootVar("--accent-h", String(val));
+    save(val, saturation, fontSize);
+  };
+
+  const handleSaturation = (val: number) => {
+    setSaturation(val);
+    setRootVar("--accent-s", `${val}%`);
+    save(hue, val, fontSize);
+  };
+
+  const handleFontSize = (val: number) => {
+    setFontSize(val);
+    setRootVar("--font-size-base", `${val}px`);
+    save(hue, saturation, val);
+  };
+
+  const previewColor = `hsl(${hue} ${saturation}% 62%)`;
+
+  return (
+    <div
+      data-testid="preferences-page"
+      className="flex-1 flex flex-col overflow-auto"
+      style={{ background: "var(--c-bg)" }}
+    >
+      <div className="flex-1 flex justify-center overflow-auto px-6 py-8">
+        <div className="w-full max-w-md flex flex-col gap-8">
+
+          {/* Color */}
+          <section className="flex flex-col gap-4">
+            <h2
+              className="text-xs font-mono font-medium uppercase tracking-widest pb-1 border-b"
+              style={{ color: "var(--c-text-dim)", borderColor: "var(--c-border)" }}
+            >
+              Accent Color
+            </h2>
+
+            <div className="flex items-center gap-3">
+              <div
+                className="w-8 h-8 rounded-sm flex-shrink-0"
+                style={{ background: previewColor, border: "1px solid var(--c-border)" }}
+              />
+              <span className="text-xs font-mono" style={{ color: "var(--c-text-muted)" }}>
+                hsl({hue} {saturation}% 62%)
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-mono" style={{ color: "var(--c-text-dim)" }}>
+                  Hue — {hue}°
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={360}
+                  value={hue}
+                  onChange={(e) => handleHue(Number(e.target.value))}
+                  className="w-full accent-[var(--c-accent)]"
+                  style={{ accentColor: previewColor }}
+                />
+                {/* Quick presets */}
+                <div className="flex gap-2 flex-wrap mt-1">
+                  {[
+                    { label: "Orange", h: 38, s: 90 },
+                    { label: "Green", h: 150, s: 62 },
+                    { label: "Blue", h: 210, s: 80 },
+                    { label: "Purple", h: 270, s: 70 },
+                    { label: "Red", h: 0, s: 85 },
+                    { label: "Cyan", h: 185, s: 75 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      onClick={() => { handleHue(preset.h); handleSaturation(preset.s); }}
+                      className="px-2 py-0.5 text-xs font-mono transition-colors"
+                      style={{
+                        background: `hsl(${preset.h} ${preset.s}% 62% / 15%)`,
+                        border: `1px solid hsl(${preset.h} ${preset.s}% 62% / 40%)`,
+                        color: `hsl(${preset.h} ${preset.s}% 65%)`,
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-mono" style={{ color: "var(--c-text-dim)" }}>
+                  Saturation — {saturation}%
+                </label>
+                <input
+                  type="range"
+                  min={20}
+                  max={100}
+                  value={saturation}
+                  onChange={(e) => handleSaturation(Number(e.target.value))}
+                  className="w-full"
+                  style={{ accentColor: previewColor }}
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* Font size */}
+          <section className="flex flex-col gap-4">
+            <h2
+              className="text-xs font-mono font-medium uppercase tracking-widest pb-1 border-b"
+              style={{ color: "var(--c-text-dim)", borderColor: "var(--c-border)" }}
+            >
+              Font Size
+            </h2>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-mono" style={{ color: "var(--c-text-dim)" }}>
+                Base size — {fontSize}px
+              </label>
+              <input
+                type="range"
+                min={12}
+                max={20}
+                step={1}
+                value={fontSize}
+                onChange={(e) => handleFontSize(Number(e.target.value))}
+                className="w-full"
+                style={{ accentColor: "var(--c-accent)" }}
+              />
+              <div className="flex justify-between text-xs font-mono" style={{ color: "var(--c-text-muted)" }}>
+                <span>12px small</span>
+                <span>16px normal</span>
+                <span>20px large</span>
+              </div>
+            </div>
+            <p
+              className="font-mono"
+              style={{ fontSize, color: "var(--c-text-dim)" }}
+            >
+              The quick brown fox jumps over the lazy dog.
+            </p>
+          </section>
+
+        </div>
+      </div>
+    </div>
+  );
+};

@@ -11,6 +11,8 @@ export const groupQueryKeys = {
   userGroupsWithChannels: (userId: string | null) => ["groups", "with-channels", userId] as const,
   group: (groupId: string) => ["groups", groupId] as const,
   channels: (groupId: string) => ["groups", groupId, "channels"] as const,
+  pendingInvites: (userId: string | null) => ["group-invites", "pending", userId] as const,
+  joinRequests: (groupId: string) => ["group-join-requests", groupId] as const,
 };
 
 export function useUserGroupsWithChannels() {
@@ -216,6 +218,154 @@ export function useCreateChannel() {
           return updated;
         },
       );
+    },
+  });
+}
+
+export type PendingInvite = {
+  id: string;
+  group_id: string;
+  group_name: string;
+  inviter_id: string;
+  inviter_username?: string;
+  created_at: string;
+};
+
+export type JoinRequest = {
+  id: string;
+  group_id: string;
+  requester_id: string;
+  requester_username?: string;
+  created_at: string;
+};
+
+export function usePendingInvites() {
+  const currentUser = useAppStore((state) => state.currentUser);
+
+  return useQuery({
+    queryKey: groupQueryKeys.pendingInvites(currentUser?.id ?? null),
+    queryFn: async (): Promise<PendingInvite[]> => {
+      if (!currentUser) {
+        return [];
+      }
+      return await invoke<PendingInvite[]>('get_pending_invites', { userId: currentUser.id });
+    },
+    enabled: !!currentUser,
+    staleTime: 1000 * 30,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useAcceptInvite() {
+  const queryClient = useQueryClient();
+  const currentUser = useAppStore((state) => state.currentUser);
+
+  return useMutation({
+    mutationFn: async (inviteId: string) => {
+      if (!currentUser) {
+        throw new Error('No current user');
+      }
+      await invoke('accept_group_invite', { inviteId, userId: currentUser.id });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: groupQueryKeys.pendingInvites(currentUser?.id ?? null) });
+      queryClient.invalidateQueries({ queryKey: groupQueryKeys.userGroupsWithChannels(currentUser?.id ?? null) });
+    },
+  });
+}
+
+export function useDeclineInvite() {
+  const queryClient = useQueryClient();
+  const currentUser = useAppStore((state) => state.currentUser);
+
+  return useMutation({
+    mutationFn: async (inviteId: string) => {
+      if (!currentUser) {
+        throw new Error('No current user');
+      }
+      await invoke('decline_group_invite', { inviteId, userId: currentUser.id });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: groupQueryKeys.pendingInvites(currentUser?.id ?? null) });
+    },
+  });
+}
+
+export function useRequestGroupAccess() {
+  const currentUser = useAppStore((state) => state.currentUser);
+
+  return useMutation({
+    mutationFn: async (groupId: string) => {
+      if (!currentUser) {
+        throw new Error('No current user');
+      }
+      await invoke('request_group_access', { groupId, requesterId: currentUser.id });
+    },
+  });
+}
+
+export function useSendGroupInvite() {
+  const currentUser = useAppStore((state) => state.currentUser);
+
+  return useMutation({
+    mutationFn: async ({ groupId, inviteeIdentifier }: { groupId: string; inviteeIdentifier: string }) => {
+      if (!currentUser) {
+        throw new Error('No current user');
+      }
+      await invoke('send_group_invite', { groupId, inviterId: currentUser.id, inviteeIdentifier });
+    },
+  });
+}
+
+export function useGroupJoinRequests(groupId: string | null) {
+  const currentUser = useAppStore((state) => state.currentUser);
+
+  return useQuery({
+    queryKey: groupQueryKeys.joinRequests(groupId ?? ''),
+    queryFn: async (): Promise<JoinRequest[]> => {
+      if (!currentUser || !groupId) {
+        return [];
+      }
+      return await invoke<JoinRequest[]>('get_group_join_requests', { groupId, requesterId: currentUser.id });
+    },
+    enabled: !!currentUser && !!groupId,
+    staleTime: 1000 * 30,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useApproveJoinRequest() {
+  const queryClient = useQueryClient();
+  const currentUser = useAppStore((state) => state.currentUser);
+
+  return useMutation({
+    mutationFn: async ({ requestId, groupId }: { requestId: string; groupId: string }) => {
+      if (!currentUser) {
+        throw new Error('No current user');
+      }
+      await invoke('approve_join_request', { requestId, approverId: currentUser.id });
+      return groupId;
+    },
+    onSuccess: (groupId) => {
+      queryClient.invalidateQueries({ queryKey: groupQueryKeys.joinRequests(groupId) });
+    },
+  });
+}
+
+export function useRejectJoinRequest() {
+  const queryClient = useQueryClient();
+  const currentUser = useAppStore((state) => state.currentUser);
+
+  return useMutation({
+    mutationFn: async ({ requestId, groupId }: { requestId: string; groupId: string }) => {
+      if (!currentUser) {
+        throw new Error('No current user');
+      }
+      await invoke('reject_join_request', { requestId, approverId: currentUser.id });
+      return groupId;
+    },
+    onSuccess: (groupId) => {
+      queryClient.invalidateQueries({ queryKey: groupQueryKeys.joinRequests(groupId) });
     },
   });
 }

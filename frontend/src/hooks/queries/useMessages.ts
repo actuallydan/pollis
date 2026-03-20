@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../stores/appStore";
-import type { Message } from "../../types";
+import type { Message, DMConversation } from "../../types";
 
 export const messageQueryKeys = {
   all: ["messages"] as const,
@@ -17,6 +17,29 @@ type RawMessage = {
   content?: string;
   reply_to_id?: string;
   sent_at: string;
+};
+
+// Returned by get_channel_messages — fetches from Turso, decrypts, includes sender_username
+type RawChannelMessage = {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  sender_username?: string;
+  ciphertext: string;
+  content?: string;
+  sent_at: string;
+};
+
+type MessagePage = {
+  messages: RawChannelMessage[];
+  next_cursor: { sent_at: string; id: string } | null;
+};
+
+type RawDmChannel = {
+  id: string;
+  created_by: string;
+  created_at: string;
+  members: Array<{ user_id: string; username?: string; added_by: string; added_at: string }>;
 };
 
 function transformMessage(m: RawMessage): Message {
@@ -37,28 +60,60 @@ function transformMessage(m: RawMessage): Message {
   };
 }
 
+function transformChannelMessage(m: RawChannelMessage): Message {
+  return {
+    id: m.id,
+    channel_id: undefined,
+    conversation_id: m.conversation_id,
+    sender_id: m.sender_id,
+    sender_username: m.sender_username,
+    ciphertext: new Uint8Array(),
+    nonce: new Uint8Array(),
+    content_decrypted: m.content || '',
+    reply_to_message_id: undefined,
+    is_pinned: false,
+    created_at: new Date(m.sent_at).getTime(),
+    delivered: true,
+    status: 'sent' as const,
+    attachments: [],
+  };
+}
+
 export function useMessages(channelId: string | null, conversationId: string | null) {
+  const currentUser = useAppStore((state) => state.currentUser);
   const isChannel = !!channelId;
   const queryKey = isChannel
     ? messageQueryKeys.channel(channelId)
     : messageQueryKeys.conversation(conversationId);
 
-  // In the Tauri backend, channels are addressed by their ID as the conversation_id
-  const targetId = channelId || conversationId || '';
-
   return useQuery({
     queryKey,
     queryFn: async (): Promise<Message[]> => {
-      const messages = await invoke<RawMessage[]>('list_messages', {
-        conversationId: targetId,
-        limit: 50,
-      });
-      return (messages || []).map(transformMessage);
+      if (isChannel && channelId && currentUser) {
+        // get_channel_messages fetches from Turso, ingests sender key distributions,
+        // and decrypts — the only way for recipients to see messages from others.
+        const page = await invoke<MessagePage>('get_channel_messages', {
+          userId: currentUser.id,
+          channelId,
+          limit: 50,
+        });
+        return (page.messages || []).map(transformChannelMessage);
+      }
+
+      if (conversationId && currentUser) {
+        const page = await invoke<MessagePage>('get_dm_messages', {
+          userId: currentUser.id,
+          dmChannelId: conversationId,
+          limit: 50,
+        });
+        return (page.messages || []).map(transformChannelMessage);
+      }
+
+      return [];
     },
-    enabled: !!(channelId || conversationId),
+    enabled: !!(channelId || conversationId) && !!currentUser,
     staleTime: 1000 * 30,
     refetchOnWindowFocus: true,
-    refetchInterval: 1000 * 10,
   });
 }
 
@@ -104,16 +159,20 @@ export function useSendMessage() {
         replyToId: replyToMessageId ?? null,
       });
     },
-    onSuccess: (_newMessage, variables) => {
-      if (variables.channelId) {
-        queryClient.invalidateQueries({
-          queryKey: messageQueryKeys.channel(variables.channelId),
-        });
-      } else if (variables.conversationId) {
-        queryClient.invalidateQueries({
-          queryKey: messageQueryKeys.conversation(variables.conversationId),
-        });
-      }
+    onSuccess: (newMessage, variables) => {
+      const queryKey = variables.channelId
+        ? messageQueryKeys.channel(variables.channelId)
+        : messageQueryKeys.conversation(variables.conversationId);
+
+      // Write the new message into the cache immediately so it appears without
+      // waiting for the full refetch round-trip.
+      queryClient.setQueryData<Message[]>(queryKey, (old) => {
+        const transformed = transformMessage(newMessage);
+        return old ? [...old, transformed] : [transformed];
+      });
+
+      // Then invalidate in the background so we stay in sync with the server.
+      queryClient.invalidateQueries({ queryKey });
     },
   });
 }
@@ -123,12 +182,25 @@ export function useDMConversations() {
 
   return useQuery({
     queryKey: messageQueryKeys.dmConversations(currentUser?.id ?? null),
-    queryFn: async () => {
-      // DM conversations not yet implemented in Tauri backend
-      return [];
+    queryFn: async (): Promise<DMConversation[]> => {
+      if (!currentUser) {
+        return [];
+      }
+      const channels = await invoke<RawDmChannel[]>('list_dm_channels', { userId: currentUser.id });
+      return (channels || []).map((c) => {
+        const other = c.members.find((m) => m.user_id !== currentUser.id);
+        return {
+          id: c.id,
+          user1_id: currentUser.id,
+          user2_identifier: other?.username || other?.user_id || 'Unknown',
+          created_at: new Date(c.created_at).getTime(),
+          updated_at: new Date(c.created_at).getTime(),
+        };
+      });
     },
     enabled: !!currentUser,
     staleTime: 1000 * 60,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -137,9 +209,22 @@ export function useCreateOrGetDMConversation() {
   const currentUser = useAppStore((state) => state.currentUser);
 
   return useMutation({
-    mutationFn: async (_identifier: string): Promise<{ id: string }> => {
-      // DM conversations not yet implemented in Tauri backend
-      throw new Error('DM conversations not yet implemented');
+    mutationFn: async (identifier: string): Promise<{ id: string }> => {
+      if (!currentUser) {
+        throw new Error('No current user');
+      }
+      const found = await invoke<{ id: string; username?: string } | null>(
+        'search_user_by_username',
+        { username: identifier },
+      );
+      if (!found) {
+        throw new Error(`User "${identifier}" not found`);
+      }
+      const channel = await invoke<RawDmChannel>('create_dm_channel', {
+        creatorId: currentUser.id,
+        memberIds: [found.id],
+      });
+      return { id: channel.id };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({

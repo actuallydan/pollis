@@ -145,14 +145,32 @@ export async function joinGroup(groupId: string, userId: string): Promise<void> 
   await invoke('invite_to_group', { groupId, userId });
 }
 
-export async function updateGroupIcon(_groupId: string, _iconUrl: string): Promise<void> {
-  // TODO: add update_group Tauri command
-  console.warn('updateGroupIcon not yet implemented');
+export async function updateGroupIcon(groupId: string, iconUrl: string): Promise<void> {
+  const session = await getSession();
+  if (!session) {
+    throw new Error('No session');
+  }
+  await invoke('update_group', {
+    groupId,
+    requesterId: session.id,
+    name: null,
+    description: null,
+    iconUrl,
+  });
 }
 
-export async function updateGroup(_groupId: string, _name: string, _description: string): Promise<void> {
-  // TODO: add update_group Tauri command
-  console.warn('updateGroup not yet implemented');
+export async function updateGroup(groupId: string, name: string, description: string): Promise<void> {
+  const session = await getSession();
+  if (!session) {
+    throw new Error('No session');
+  }
+  await invoke('update_group', {
+    groupId,
+    requesterId: session.id,
+    name: name || null,
+    description: description || null,
+    iconUrl: null,
+  });
 }
 
 // ── Messages ───────────────────────────────────────────────────────────────
