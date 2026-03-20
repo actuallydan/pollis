@@ -42,12 +42,20 @@ interface MockProfile {
   avatar_url?: string;
 }
 
+interface MockDmChannel {
+  id: string;
+  created_by: string;
+  created_at: string;
+  members: Array<{ user_id: string; username?: string; added_by: string; added_at: string }>;
+}
+
 interface MockStore {
   session: MockUser | null;
   profile: MockProfile | null;
   groups: MockGroup[];
   channels: Record<string, MockChannel[]>;
   messages: Record<string, MockMessage[]>;
+  dmChannels: MockDmChannel[];
 }
 
 const preload = (window as any).__POLLIS_PRELOAD__ ?? {};
@@ -58,6 +66,7 @@ const store: MockStore = {
   groups: preload.groups ?? [],
   channels: preload.channels ?? {},
   messages: preload.messages ?? {},
+  dmChannels: preload.dmChannels ?? [],
 };
 
 // Expose for test inspection via page.evaluate(() => window.__tauriMock)
@@ -161,6 +170,24 @@ function handleCommand(command: string, args: Record<string, unknown>): unknown 
       return store.messages[conversationId] ?? [];
     }
 
+    case 'get_channel_messages': {
+      const { channelId } = args as { channelId: string };
+      const messages = store.messages[channelId] ?? [];
+      return { messages, next_cursor: null };
+    }
+
+    case 'get_dm_messages': {
+      const { dmChannelId } = args as { dmChannelId: string };
+      const messages = store.messages[dmChannelId] ?? [];
+      return { messages, next_cursor: null };
+    }
+
+    case 'list_dm_channels':
+      return store.dmChannels;
+
+    case 'get_preferences':
+      return '{}';
+
     case 'send_message': {
       const { conversationId, senderId, content, replyToId } = args as {
         conversationId: string;
@@ -187,9 +214,21 @@ function handleCommand(command: string, args: Record<string, unknown>): unknown 
       store.session = null;
       return null;
 
-    // These are no-ops or stubs for commands not needed in frontend tests
     case 'request_otp':
-    case 'verify_otp':
+      return null;
+
+    case 'verify_otp': {
+      const { email } = args as { email: string; code: string };
+      const user: MockUser = {
+        id: generateId(),
+        email,
+        username: email.split('@')[0],
+      };
+      store.session = user;
+      return user;
+    }
+
+    // These are no-ops or stubs for commands not needed in frontend tests
     case 'search_user_by_username':
     case 'invite_to_group':
     case 'get_prekey_bundle':
