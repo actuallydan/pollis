@@ -87,6 +87,9 @@ jobs:
 
       - name: Build Windows
         shell: bash
+        env:
+          OPENSSL_DIR: "C:/Program Files/OpenSSL"
+          OPENSSL_NO_VENDOR: "1"
         run: pnpm build:windows
 
       - name: Upload Windows artifact
