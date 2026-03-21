@@ -85,6 +85,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Install OpenSSL via vcpkg
+        shell: bash
+        run: |
+          vcpkg install openssl:x64-windows-static-md
+          echo "OPENSSL_DIR=$VCPKG_INSTALLATION_ROOT/installed/x64-windows-static-md" >> $GITHUB_ENV
+          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
+
       - name: Build Windows
         shell: bash
         run: pnpm build:windows
