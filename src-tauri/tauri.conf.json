@@ -11,14 +11,15 @@
   },
   "app": {
     "withGlobalTauri": false,
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
         "title": "Pollis",
-        "width": 1200,
-        "height": 800,
-        "minWidth": 800,
-        "minHeight": 600,
+        "width": 540,
+        "height": 360,
+        "minWidth": 540,
+        "minHeight": 360,
         "resizable": true,
         "fullscreen": false,
         "decorations": false,

@@ -214,7 +214,7 @@ function MainApp() {
                   onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "hsl(0 70% 50% / 10%)"; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                 >
-                  Delete data &amp; sign out
+                  Delete data and sign out
                 </button>
                 <button
                   data-testid="logout-keep-data-button"
@@ -229,7 +229,7 @@ function MainApp() {
                   onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--c-hover)"; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                 >
-                  Keep data &amp; sign out
+                  Keep data and sign out
                 </button>
                 <button
                   data-testid="logout-cancel-button"

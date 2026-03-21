@@ -9,9 +9,7 @@
 
 ## Immediate / in-progress
 - [ ] Add Playwright tests for auth flow, sidebar, messaging (testids are in place)
-- [ ] Verify OTP auth works end-to-end (request + verify commands added to Tauri)
 - [ ] `useViewCounter.ts` — remove this hook and all usages (not needed)
-- [ ] Remove Clerk dependency from `frontend/package.json` once auth is confirmed working
 
 ## Small effort
 - [ ] CI: guard R2 upload step so it only runs if all 3 platform builds succeed
@@ -19,8 +17,6 @@
 - [ ] Website speed: static export + reduce DotMatrix animation cost on Vercel
 - [ ] Nav bar: show lowest-level entity name after page — e.g. "Join Requests :: <Group Name>", "Direct Message :: @username", "Channel :: Memes with Friends"
 - [ ] DM header: show the other user's username after "<- back Direct Message" and in the breadcrumb bottom-right
-- [ ] Chat input: placeholder color should be brighter when unfocused, darker when focused
-- [ ] Refresh command: Cmd/Ctrl+R should invalidate React Query cache and refetch (not hard reload). Show "Syncing…" indicator in nav pane while in flight
 - [ ] Unread indicators: show unread message count on channels and DMs in the sidebar
 
 ## Medium effort
