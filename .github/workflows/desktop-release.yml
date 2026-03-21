@@ -34,9 +34,8 @@ jobs:
         env:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
         run: |
-          mkdir -p ~/.config/sops/age
-          echo "$SOPS_AGE_KEY" > ~/.config/sops/age/keys.txt
-          sops --decrypt --input-type dotenv --output-type dotenv secrets.prod.enc.env >> $GITHUB_ENV
+          echo "$SOPS_AGE_KEY" > /tmp/sops-age-key.txt
+          SOPS_AGE_KEY="" SOPS_AGE_KEY_FILE=/tmp/sops-age-key.txt sops --decrypt --input-type dotenv --output-type dotenv secrets.prod.enc.env >> $GITHUB_ENV
 
       - name: Install dependencies
         run: pnpm install
@@ -76,9 +75,8 @@ jobs:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
         shell: bash
         run: |
-          mkdir -p "$APPDATA/sops/age"
-          echo "$SOPS_AGE_KEY" > "$APPDATA/sops/age/keys.txt"
-          sops --decrypt --input-type dotenv --output-type dotenv secrets.prod.enc.env >> $GITHUB_ENV
+          echo "$SOPS_AGE_KEY" > /tmp/sops-age-key.txt
+          SOPS_AGE_KEY="" SOPS_AGE_KEY_FILE=/tmp/sops-age-key.txt sops --decrypt --input-type dotenv --output-type dotenv secrets.prod.enc.env >> $GITHUB_ENV
 
       - name: Install dependencies
         run: pnpm install
@@ -132,9 +130,8 @@ jobs:
         env:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
         run: |
-          mkdir -p ~/.config/sops/age
-          echo "$SOPS_AGE_KEY" > ~/.config/sops/age/keys.txt
-          sops --decrypt --input-type dotenv --output-type dotenv secrets.prod.enc.env >> $GITHUB_ENV
+          echo "$SOPS_AGE_KEY" > /tmp/sops-age-key.txt
+          SOPS_AGE_KEY="" SOPS_AGE_KEY_FILE=/tmp/sops-age-key.txt sops --decrypt --input-type dotenv --output-type dotenv secrets.prod.enc.env >> $GITHUB_ENV
 
       - name: Install dependencies
         run: pnpm install
