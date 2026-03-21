@@ -568,7 +568,8 @@ async fn fetch_sender_key_distributions(
     let mut rows = remote_conn.query(
         "SELECT sender_id, encrypted_state, ephemeral_key, spk_id
          FROM sender_key_dist
-         WHERE recipient_id = ?1 AND channel_id = ?2",
+         WHERE recipient_id = ?1 AND channel_id = ?2
+         ORDER BY id DESC",
         libsql::params![user_id, channel_id],
     ).await?;
 
@@ -609,22 +610,43 @@ async fn fetch_sender_key_distributions(
 }
 
 /// Save fetched sender key distributions to local DB.
-/// Skips senders whose peer key already exists locally (chain may have advanced).
+/// Distributions arrive newest-first (ORDER BY id DESC). For each sender:
+/// - If no local key exists: save the distribution.
+/// - If a local key exists with the same chain_id: skip (local state has ratcheted forward).
+/// - If a local key exists with a DIFFERENT chain_id: the sender reset their key; update.
 fn ingest_sender_key_distributions(
     local_conn: &rusqlite::Connection,
     channel_id: &str,
     distributions: Vec<(String, SenderKeyState)>,
 ) {
+    // Track which senders have already been saved in this batch (first = newest wins).
+    let mut saved: std::collections::HashSet<String> = std::collections::HashSet::new();
+
     for (sender_id, state) in distributions {
-        // Skip if we already have this sender's key locally (it may have ratcheted forward)
-        if session::load_peer_sender_key(local_conn, channel_id, &sender_id)
-            .ok()
-            .flatten()
-            .is_some()
-        {
+        if saved.contains(&sender_id) {
             continue;
         }
-        let _ = session::save_peer_sender_key(local_conn, channel_id, &sender_id, &state);
+
+        let existing = session::load_peer_sender_key(local_conn, channel_id, &sender_id)
+            .ok()
+            .flatten();
+
+        match existing {
+            None => {
+                // No local state — save the distribution.
+                let _ = session::save_peer_sender_key(local_conn, channel_id, &sender_id, &state);
+                saved.insert(sender_id);
+            }
+            Some(local) if local.chain_id != state.chain_id => {
+                // Sender reset their sender key (new chain_id) — update to the new distribution.
+                let _ = session::save_peer_sender_key(local_conn, channel_id, &sender_id, &state);
+                saved.insert(sender_id);
+            }
+            Some(_) => {
+                // Same chain_id: local state has ratcheted forward via decryption — keep it.
+                saved.insert(sender_id);
+            }
+        }
     }
 }
 

@@ -4,6 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::config::Config;
 use crate::db::{local::LocalDb, remote::RemoteDb};
+use crate::keystore;
 
 #[derive(Clone)]
 pub struct OtpEntry {
@@ -20,7 +21,16 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(config: Config) -> crate::error::Result<Self> {
-        let local_db = LocalDb::open()?;
+        // Load or generate the local DB encryption key from the OS keystore.
+        let db_key = match keystore::load("local_db_key").await? {
+            Some(k) => k,
+            None => {
+                let key: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
+                keystore::store("local_db_key", &key).await?;
+                key
+            }
+        };
+        let local_db = LocalDb::open(&db_key)?;
         let remote_db = RemoteDb::connect(&config.turso_url, &config.turso_token).await?;
 
         Ok(Self {

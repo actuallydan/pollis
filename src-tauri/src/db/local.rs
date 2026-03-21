@@ -1,9 +1,10 @@
 use rusqlite::Connection;
 use crate::error::Result;
 
-// Bump this string whenever local_schema.sql changes.
+// Bump this string whenever local_schema.sql changes OR encryption is added.
 // On mismatch the old DB file is deleted and recreated from scratch.
-const LOCAL_SCHEMA_VERSION: &str = "2";
+// Version 3: SQLCipher encryption enabled.
+const LOCAL_SCHEMA_VERSION: &str = "3";
 const SCHEMA: &str = include_str!("migrations/local_schema.sql");
 
 pub struct LocalDb {
@@ -11,36 +12,44 @@ pub struct LocalDb {
 }
 
 impl LocalDb {
-    pub fn open() -> Result<Self> {
+    pub fn open(key: &[u8]) -> Result<Self> {
         let data_dir = dirs_path();
         std::fs::create_dir_all(&data_dir)
             .map_err(|e| crate::error::Error::Other(anyhow::anyhow!("create data dir: {e}")))?;
 
         let db_path = data_dir.join("pollis.db");
+        let key_pragma = format!("PRAGMA key = \"x'{}'\"", hex::encode(key));
 
         // Check if the stored schema version matches. If not, wipe and recreate.
         if db_path.exists() {
-            if let Ok(conn) = Connection::open(&db_path) {
-                let version: Option<String> = conn
-                    .query_row(
-                        "SELECT value FROM kv WHERE key = 'schema_version'",
-                        [],
-                        |row| row.get(0),
-                    )
-                    .ok();
-                if version.as_deref() != Some(LOCAL_SCHEMA_VERSION) {
-                    drop(conn);
-                    std::fs::remove_file(&db_path).map_err(|e| {
-                        crate::error::Error::Other(anyhow::anyhow!("remove stale db: {e}"))
-                    })?;
+            match Connection::open(&db_path) {
+                Ok(conn) => {
+                    // Apply key before any SQL — required for SQLCipher.
+                    let _ = conn.execute_batch(&key_pragma);
+                    let version: Option<String> = conn
+                        .query_row(
+                            "SELECT value FROM kv WHERE key = 'schema_version'",
+                            [],
+                            |row| row.get(0),
+                        )
+                        .ok();
+                    if version.as_deref() != Some(LOCAL_SCHEMA_VERSION) {
+                        drop(conn);
+                        std::fs::remove_file(&db_path).map_err(|e| {
+                            crate::error::Error::Other(anyhow::anyhow!("remove stale db: {e}"))
+                        })?;
+                    }
                 }
-            } else {
-                // Unreadable — delete and start fresh.
-                std::fs::remove_file(&db_path).ok();
+                Err(_) => {
+                    // Unreadable (wrong key or corrupt) — delete and start fresh.
+                    std::fs::remove_file(&db_path).ok();
+                }
             }
         }
 
         let conn = Connection::open(&db_path)?;
+        // Key must be applied before any other SQL on an encrypted database.
+        conn.execute_batch(&key_pragma)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
         conn.execute_batch(SCHEMA)?;
         conn.execute(
