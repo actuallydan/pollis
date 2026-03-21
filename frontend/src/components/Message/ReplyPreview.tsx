@@ -19,8 +19,9 @@ export const ReplyPreview: React.FC<ReplyPreviewProps> = ({
   if (!message) {
     return null;
   }
+  const author = message.sender_username ?? message.sender_id;
   const content = message.content_decrypted || '[Encrypted message]';
-  const snippet = content.length > 100 ? content.substring(0, 100) + '...' : content;
+  const snippet = content.length > 80 ? content.substring(0, 80) + '...' : content;
 
   return (
     <div
@@ -30,7 +31,10 @@ export const ReplyPreview: React.FC<ReplyPreviewProps> = ({
     >
       <div className="flex-1 min-w-0">
         <span className="text-2xs font-mono uppercase tracking-widest" style={{ color: 'var(--c-text-muted)' }}>
-          replying to
+          replying to{' '}
+          <span className="font-semibold" style={{ color: 'var(--c-text-dim)' }}>
+            {author}
+          </span>
         </span>
         <button
           data-testid="reply-preview-scroll-button"

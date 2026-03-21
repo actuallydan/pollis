@@ -11,6 +11,7 @@ SELECT
     me.sender_id,
     u.username  AS sender_username,
     me.ciphertext,
+    me.reply_to_id,
     me.sent_at
 FROM message_envelope me
 JOIN channels      c   ON c.id  = me.conversation_id

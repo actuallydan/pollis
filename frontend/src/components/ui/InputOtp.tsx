@@ -93,6 +93,7 @@ export const InputOtp: React.FC<InputOtpProps> = ({
             onBlur={() => setFocusedIndex(null)}
             disabled={disabled}
             autoFocus={autoFocus && index === 0}
+            autoComplete="off"
             aria-label={`OTP digit ${index + 1}`}
             className="w-10 h-12 text-center font-mono text-lg font-medium transition-all"
             style={{

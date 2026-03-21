@@ -6,6 +6,9 @@ interface AppStore extends AppState {
   username: string | null;
   userAvatarUrl: string | null;
 
+  // Unread message counts keyed by conversation_id or channel_id
+  unreadCounts: Record<string, number>;
+
   // Actions
   setCurrentUser: (user: User | null) => void;
   setUsername: (username: string | null) => void;
@@ -29,6 +32,13 @@ interface AppStore extends AppState {
   setShowThreadId: (threadId: string | null) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
+  // Clears the unread count for a conversation or channel
+  markRead: (id: string) => void;
+  // Increments the unread count for a conversation or channel by 1
+  incrementUnread: (id: string) => void;
+  // Voice channel — null when not in a call
+  activeVoiceChannelId: string | null;
+  setActiveVoiceChannelId: (id: string | null) => void;
   logout: () => void;
 }
 
@@ -50,6 +60,8 @@ export const useAppStore = create<AppStore>((set) => ({
   showThreadId: null,
   isLoading: false,
   error: null,
+  unreadCounts: {},
+  activeVoiceChannelId: null,
 
   // Actions
   setCurrentUser: (user) => set({ currentUser: user }),
@@ -99,7 +111,22 @@ export const useAppStore = create<AppStore>((set) => ({
   
   setLoading: (loading) => set({ isLoading: loading }),
   setError: (error) => set({ error }),
-  
+
+  markRead: (id) => set((state) => {
+    const next = { ...state.unreadCounts };
+    delete next[id];
+    return { unreadCounts: next };
+  }),
+
+  incrementUnread: (id) => set((state) => ({
+    unreadCounts: {
+      ...state.unreadCounts,
+      [id]: (state.unreadCounts[id] ?? 0) + 1,
+    },
+  })),
+
+  setActiveVoiceChannelId: (id) => set({ activeVoiceChannelId: id }),
+
   logout: () => set({
     currentUser: null,
     username: null,
@@ -117,6 +144,8 @@ export const useAppStore = create<AppStore>((set) => ({
     showThreadId: null,
     isLoading: false,
     error: null,
+    unreadCounts: {},
+    activeVoiceChannelId: null,
   }),
 }));
 

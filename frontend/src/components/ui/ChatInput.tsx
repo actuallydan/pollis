@@ -12,6 +12,7 @@ interface ChatInputProps {
   onSend: (message: string, attachments: Attachment[]) => void;
   placeholder?: string;
   disabled?: boolean;
+  autoFocus?: boolean;
   className?: string;
   maxAttachments?: number;
   maxFileSize?: number;
@@ -29,6 +30,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onSend,
   placeholder = "Type a message…",
   disabled = false,
+  autoFocus = false,
   className = "",
   maxAttachments = 5,
   maxFileSize = 10 * 1024 * 1024,
@@ -175,6 +177,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           onPaste={handlePaste}
           placeholder={placeholder}
           disabled={disabled}
+          autoFocus={autoFocus}
           rows={1}
           className="chat-input-textarea flex-1 min-w-0 px-2 py-1 resize-none font-mono text-sm transition-colors"
           style={{

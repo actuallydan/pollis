@@ -392,9 +392,9 @@ pub async fn send_message(
     // Write envelope to Turso for offline delivery (use same id as local message)
     let conn = state.remote_db.conn().await?;
     conn.execute(
-        "INSERT INTO message_envelope (id, conversation_id, sender_id, ciphertext, sent_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        libsql::params![id.clone(), conversation_id.clone(), sender_id.clone(), ciphertext_json.clone(), now.clone()],
+        "INSERT INTO message_envelope (id, conversation_id, sender_id, ciphertext, reply_to_id, sent_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        libsql::params![id.clone(), conversation_id.clone(), sender_id.clone(), ciphertext_json.clone(), reply_to_id.clone(), now.clone()],
     ).await?;
 
     // Distribute pre-encrypt sender key state to any members who don't have it yet.
@@ -479,6 +479,7 @@ pub struct ChannelMessage {
     pub sender_username: Option<String>,
     pub ciphertext: String,
     pub content: Option<String>,
+    pub reply_to_id: Option<String>,
     pub sent_at: String,
 }
 
@@ -689,7 +690,8 @@ pub async fn get_channel_messages(
             row.get::<String>(2)?,
             row.get::<Option<String>>(3)?,
             row.get::<String>(4)?,
-            row.get::<String>(5)?,
+            row.get::<Option<String>>(5)?,
+            row.get::<String>(6)?,
         ));
     }
 
@@ -703,9 +705,9 @@ pub async fn get_channel_messages(
 
     // Decrypt in oldest-first order so the ratchet chain advances correctly.
     // The SQL query returns newest-first; sort ascending here and reverse after.
-    raw_messages.sort_by(|a, b| a.5.cmp(&b.5).then(a.0.cmp(&b.0)));
+    raw_messages.sort_by(|a, b| a.6.cmp(&b.6).then(a.0.cmp(&b.0)));
 
-    let mut messages: Vec<ChannelMessage> = raw_messages.into_iter().map(|(id, conv_id, sender_id, sender_username, ciphertext, sent_at)| {
+    let mut messages: Vec<ChannelMessage> = raw_messages.into_iter().map(|(id, conv_id, sender_id, sender_username, ciphertext, reply_to_id, sent_at)| {
         let content = if sender_id == user_id {
             // Own message: read plaintext we stored locally at send time
             db.conn().query_row(
@@ -744,6 +746,7 @@ pub async fn get_channel_messages(
             sender_username,
             ciphertext,
             content,
+            reply_to_id,
             sent_at,
         }
     }).collect();
@@ -858,7 +861,8 @@ pub async fn get_dm_messages(
             row.get::<String>(2)?,
             row.get::<Option<String>>(3)?,
             row.get::<String>(4)?,
-            row.get::<String>(5)?,
+            row.get::<Option<String>>(5)?,
+            row.get::<String>(6)?,
         ));
     }
 
@@ -869,9 +873,9 @@ pub async fn get_dm_messages(
     ingest_sender_key_distributions(db.conn(), &dm_channel_id, distributions);
 
     // Decrypt in oldest-first order so the ratchet chain advances correctly.
-    raw_messages.sort_by(|a, b| a.5.cmp(&b.5).then(a.0.cmp(&b.0)));
+    raw_messages.sort_by(|a, b| a.6.cmp(&b.6).then(a.0.cmp(&b.0)));
 
-    let mut messages: Vec<ChannelMessage> = raw_messages.into_iter().map(|(id, conv_id, sender_id, sender_username, ciphertext, sent_at)| {
+    let mut messages: Vec<ChannelMessage> = raw_messages.into_iter().map(|(id, conv_id, sender_id, sender_username, ciphertext, reply_to_id, sent_at)| {
         let content = if sender_id == user_id {
             db.conn().query_row(
                 "SELECT content FROM message WHERE id = ?1",
@@ -907,6 +911,7 @@ pub async fn get_dm_messages(
             sender_username,
             ciphertext,
             content,
+            reply_to_id,
             sent_at,
         }
     }).collect();
@@ -923,6 +928,139 @@ pub async fn get_dm_messages(
     };
 
     Ok(MessagePage { messages, next_cursor })
+}
+
+/// A search result from the local message cache.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SearchResult {
+    pub message_id: String,
+    pub conversation_id: String,
+    pub sender_id: String,
+    pub content: String,
+    pub sent_at: String,
+    /// Surrounding context — same as content for now.
+    pub snippet: String,
+}
+
+/// Search the local plaintext message cache using a LIKE query.
+/// Only messages where content IS NOT NULL are searched (i.e. decrypted messages).
+/// Results are ordered newest-first.
+#[tauri::command]
+pub async fn search_messages(
+    query: String,
+    limit: Option<i64>,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<SearchResult>> {
+    let db = state.local_db.lock().await;
+    let limit = limit.unwrap_or(50);
+    let pattern = format!("%{}%", query);
+
+    let mut stmt = db.conn().prepare(
+        "SELECT id, conversation_id, sender_id, content, sent_at
+         FROM message
+         WHERE content IS NOT NULL AND content LIKE ?1
+         ORDER BY sent_at DESC LIMIT ?2"
+    )?;
+
+    let rows = stmt.query_map(
+        rusqlite::params![pattern, limit],
+        |row| {
+            let content: String = row.get(3)?;
+            let snippet = content.clone();
+            Ok(SearchResult {
+                message_id: row.get(0)?,
+                conversation_id: row.get(1)?,
+                sender_id: row.get(2)?,
+                content,
+                sent_at: row.get(4)?,
+                snippet,
+            })
+        },
+    )?;
+
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+/// Aggregated emoji reaction for a message.
+/// `user_ids` is the list of users who reacted with this emoji.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Reaction {
+    pub emoji: String,
+    pub user_ids: Vec<String>,
+    pub count: u32,
+}
+
+/// Add an emoji reaction to a message.
+/// Silently succeeds if the reaction already exists (UNIQUE constraint).
+#[tauri::command]
+pub async fn add_reaction(
+    message_id: String,
+    user_id: String,
+    emoji: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<()> {
+    let conn = state.remote_db.conn().await?;
+    let id = Ulid::new().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    conn.execute(
+        "INSERT OR IGNORE INTO message_reaction (id, message_id, user_id, emoji, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        libsql::params![id, message_id, user_id, emoji, now],
+    ).await?;
+
+    Ok(())
+}
+
+/// Remove an emoji reaction from a message.
+/// Silently succeeds if the reaction does not exist.
+#[tauri::command]
+pub async fn remove_reaction(
+    message_id: String,
+    user_id: String,
+    emoji: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<()> {
+    let conn = state.remote_db.conn().await?;
+
+    conn.execute(
+        "DELETE FROM message_reaction WHERE message_id = ?1 AND user_id = ?2 AND emoji = ?3",
+        libsql::params![message_id, user_id, emoji],
+    ).await?;
+
+    Ok(())
+}
+
+/// Get all reactions for a message, grouped by emoji.
+#[tauri::command]
+pub async fn get_reactions(
+    message_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<Reaction>> {
+    let conn = state.remote_db.conn().await?;
+
+    let mut rows = conn.query(
+        "SELECT emoji, user_id FROM message_reaction WHERE message_id = ?1 ORDER BY created_at ASC",
+        libsql::params![message_id],
+    ).await?;
+
+    // Collect all (emoji, user_id) rows and group by emoji.
+    let mut grouped: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    while let Some(row) = rows.next().await? {
+        let emoji: String = row.get(0)?;
+        let uid: String = row.get(1)?;
+        grouped.entry(emoji).or_default().push(uid);
+    }
+
+    let reactions: Vec<Reaction> = grouped
+        .into_iter()
+        .map(|(emoji, user_ids)| {
+            let count = user_ids.len() as u32;
+            Reaction { emoji, user_ids, count }
+        })
+        .collect();
+
+    Ok(reactions)
 }
 
 #[cfg(test)]

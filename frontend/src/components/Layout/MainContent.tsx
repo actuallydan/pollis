@@ -87,7 +87,7 @@ export const MainContent: React.FC = () => {
       <MessageQueue />
 
       <div data-testid="message-form">
-        <ChatInput onSend={(text) => handleSend(text)} />
+        <ChatInput onSend={(text) => handleSend(text)} autoFocus />
       </div>
     </div>
   );

@@ -29,6 +29,28 @@ pub async fn push_schema(url: &str, token: &str) -> Result<()> {
         .build()
         .await?;
     let conn = db.connect()?;
+
+    // Drop all tables in reverse dependency order (leaf tables first so FK
+    // constraints don't block the drops).
+    let drop_sql = "
+        DROP TABLE IF EXISTS message_reaction;
+        DROP TABLE IF EXISTS group_invite;
+        DROP TABLE IF EXISTS group_join_request;
+        DROP TABLE IF EXISTS user_preferences;
+        DROP TABLE IF EXISTS x3dh_init;
+        DROP TABLE IF EXISTS sender_key_dist;
+        DROP TABLE IF EXISTS dm_channel_member;
+        DROP TABLE IF EXISTS dm_channel;
+        DROP TABLE IF EXISTS message_envelope;
+        DROP TABLE IF EXISTS one_time_prekey;
+        DROP TABLE IF EXISTS signed_prekey;
+        DROP TABLE IF EXISTS channels;
+        DROP TABLE IF EXISTS group_member;
+        DROP TABLE IF EXISTS groups;
+        DROP TABLE IF EXISTS users
+    ";
+    run_statements(&conn, drop_sql).await?;
+
     run_statements(&conn, SCHEMA).await?;
     Ok(())
 }

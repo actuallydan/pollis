@@ -1,5 +1,4 @@
 import React, { useEffect, useCallback, useState } from "react";
-import { exit } from "@tauri-apps/plugin-process";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { TitleBar } from "./Layout/TitleBar";
@@ -14,11 +13,14 @@ import { StartDM } from "../pages/StartDM";
 import { Invites } from "../pages/Invites";
 import { JoinRequests } from "../pages/JoinRequests";
 import { InviteMember } from "../pages/InviteMember";
+import { SearchView } from "./Search/SearchView";
 import { useAppStore } from "../stores/appStore";
 import { useUserGroupsWithChannels, usePendingInvites } from "../hooks/queries/useGroups";
 import { LoadingSpinner } from "./ui/LoaderSpinner";
 import { useDMConversations } from "../hooks/queries/useMessages";
 import { useLiveKitRealtime } from "../hooks/useLiveKitRealtime";
+import { VoiceBar } from "./Voice/VoiceBar";
+import { VoiceChannelView } from "./Voice/VoiceChannelView";
 import type { GroupWithChannels } from "../services/api";
 import type { DMConversation } from "../types";
 
@@ -39,15 +41,18 @@ type View =
   | { type: "settings" }
   | { type: "invites" }
   | { type: "join-requests"; group: GroupWithChannels }
-  | { type: "invite-member"; group: GroupWithChannels };
+  | { type: "invite-member"; group: GroupWithChannels }
+  | { type: "search" }
+  | { type: "voice-channel"; channelName: string };
 
 // ─── TerminalApp ──────────────────────────────────────────────────────────────
 
 interface TerminalAppProps {
   onLogout: () => void;
+  onDeleteAccount?: () => void;
 }
 
-export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
+export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout, onDeleteAccount }) => {
   const [viewStack, setViewStack] = React.useState<View[]>([{ type: "root" }]);
   const [isSyncing, setIsSyncing] = useState(false);
   const queryClient = useQueryClient();
@@ -63,6 +68,10 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
     setSelectedConversationId,
     setGroups,
     setChannels,
+    unreadCounts,
+    markRead,
+    activeVoiceChannelId,
+    setActiveVoiceChannelId,
   } = useAppStore();
 
   const { data: groupsWithChannels, isLoading: groupsLoading, error: groupsError } = useUserGroupsWithChannels();
@@ -178,6 +187,14 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
         type: "system" as const,
         testId: "menu-item-invites",
       },
+      {
+        id: "search",
+        label: "Search",
+        description: "Search your message history",
+        action: () => push({ type: "search" }),
+        type: "system" as const,
+        testId: "menu-item-search",
+      },
       { id: "__sep1__", label: "", type: "separator" },
       {
         id: "preferences",
@@ -194,20 +211,6 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
         action: () => push({ type: "settings" }),
         type: "system",
         testId: "menu-item-settings",
-      },
-      {
-        id: "exit",
-        label: "Exit",
-        action: () => exit(0),
-        type: "system",
-        testId: "menu-item-exit",
-      },
-      {
-        id: "logout",
-        label: "Log out",
-        action: onLogout,
-        type: "system",
-        testId: "menu-item-logout",
       },
     ];
 
@@ -262,12 +265,20 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
     const items: TerminalMenuItem[] = [
       ...channels.map((ch) => ({
         id: ch.id,
-        label: `# ${ch.name}`,
+        // Voice channels get a [v] prefix; text channels get #
+        label: ch.channel_type === "voice" ? `[v] ${ch.name}` : `# ${ch.name}`,
         description: ch.description || undefined,
         action: () => {
-          setSelectedChannelId(ch.id);
-          push({ type: "channel" as const });
+          if (ch.channel_type === "voice") {
+            setActiveVoiceChannelId(ch.id);
+            push({ type: "voice-channel" as const, channelName: ch.name });
+          } else {
+            setSelectedChannelId(ch.id);
+            markRead(ch.id);
+            push({ type: "channel" as const });
+          }
         },
+        badge: ch.channel_type === "voice" ? 0 : (unreadCounts[ch.id] ?? 0),
         testId: `channel-option-${ch.id}`,
       })),
       { id: "__sep__", label: "", type: "separator" as const },
@@ -309,8 +320,10 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
         label: c.user2_identifier,
         action: () => {
           setSelectedConversationId(c.id);
+          markRead(c.id);
           push({ type: "dm" as const });
         },
+        badge: unreadCounts[c.id] ?? 0,
         testId: `dm-option-${c.id}`,
       })),
       { id: "__sep__", label: "", type: "separator" as const },
@@ -354,6 +367,8 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
       case "invites": return "Invites";
       case "join-requests": return `Join Requests : : ${currentView.group.name}`;
       case "invite-member": return `Invite Member : : ${currentView.group.name}`;
+      case "search": return "Search";
+      case "voice-channel": return `[v] ${currentView.channelName}`;
       default: return "pollis";
     }
   };
@@ -483,34 +498,9 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
       case "settings":
         return (
           <div className="flex flex-col h-full">
-            <MenuPageHeader
-              title="Settings"
-              onBack={pop}
-              rightAction={
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => exit(0)}
-                    className="text-xs font-mono transition-colors"
-                    style={{ color: "var(--c-text-muted)" }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--c-text-dim)"; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--c-text-muted)"; }}
-                  >
-                    Exit
-                  </button>
-                  <button
-                    onClick={onLogout}
-                    className="text-xs font-mono transition-colors"
-                    style={{ color: "var(--c-text-muted)" }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "#ff6b6b"; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--c-text-muted)"; }}
-                  >
-                    Log out
-                  </button>
-                </div>
-              }
-            />
-            <div className="flex-1 overflow-hidden">
-              <Settings />
+            <MenuPageHeader title="Settings" onBack={pop} />
+            <div className="flex-1 overflow-auto">
+              <Settings onDeleteAccount={onDeleteAccount} />
             </div>
           </div>
         );
@@ -538,6 +528,34 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
             <MenuPageHeader title="Invite Member" onBack={pop} />
             <div className="flex-1 overflow-hidden">
               <InviteMember groupId={currentView.group.id} groupName={currentView.group.name} />
+            </div>
+          </div>
+        );
+      case "search":
+        return (
+          <div className="flex flex-col h-full">
+            <MenuPageHeader title="Search" onBack={pop} />
+            <div className="flex-1 overflow-hidden">
+              <SearchView
+                onNavigateToConversation={(conversationId) => {
+                  setSelectedConversationId(conversationId);
+                  // Navigate back, then open the DM conversation
+                  pop();
+                  push({ type: "dm" });
+                }}
+              />
+            </div>
+          </div>
+        );
+      case "voice-channel":
+        return (
+          <div className="flex flex-col h-full">
+            <MenuPageHeader title={`[v] ${currentView.channelName}`} onBack={pop} />
+            <div className="flex-1 overflow-hidden">
+              <VoiceChannelView
+                channelId={activeVoiceChannelId}
+                channelName={currentView.channelName}
+              />
             </div>
           </div>
         );
@@ -584,6 +602,18 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
         {renderContent()}
       </div>
 
+      {/* VoiceBar — shown above bottom bar while user is in a voice channel */}
+      {activeVoiceChannelId !== null && (() => {
+        const voiceView = viewStack.find((v) => v.type === "voice-channel") as { type: "voice-channel"; channelName: string } | undefined;
+        const channelName = voiceView?.channelName ?? "voice";
+        return (
+          <VoiceBar
+            channelId={activeVoiceChannelId}
+            channelName={channelName}
+          />
+        );
+      })()}
+
       {/* Bottom bar — reserved for notifications/shortcuts/status */}
       <div
         style={{
@@ -623,6 +653,7 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
                 case "invites": return "Invites";
                 case "join-requests": return `Join Requests : : ${v.group.name}`;
                 case "invite-member": return `Invite Member : : ${v.group.name}`;
+                case "search": return "Search";
                 default: return null;
               }
             })

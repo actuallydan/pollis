@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Room, RoomEvent } from 'livekit-client';
 import { invoke } from '@tauri-apps/api/core';
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '../stores/appStore';
 import { useTauriReady } from './useTauriReady';
@@ -17,9 +18,29 @@ export function useLiveKitRealtime() {
     selectedConversationId,
     currentUser,
     networkStatus,
+    incrementUnread,
   } = useAppStore();
 
   const roomRef = useRef<Room | null>(null);
+
+  // Track whether the app window is currently focused
+  const isWindowFocusedRef = useRef<boolean>(document.hasFocus());
+
+  // Keep window focus state in sync via event listeners
+  useEffect(() => {
+    const handleFocus = () => {
+      isWindowFocusedRef.current = true;
+    };
+    const handleBlur = () => {
+      isWindowFocusedRef.current = false;
+    };
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, []);
 
   const activeRoomId = selectedChannelId ?? selectedConversationId;
 
@@ -82,6 +103,8 @@ export function useLiveKitRealtime() {
 
         const channelId = (data.channelId as string | null) ?? null;
         const conversationId = (data.conversationId as string | null) ?? null;
+        const senderUsername = (data.senderUsername as string | null) ?? 'Someone';
+        const roomName = (data.roomName as string | null) ?? 'New message';
 
         console.log('[LiveKit] ping received', { channelId, conversationId, selectedChannelId, selectedConversationId });
 
@@ -96,7 +119,30 @@ export function useLiveKitRealtime() {
             queryKey: messageQueryKeys.conversation(conversationId),
           });
         } else {
-          console.log('[LiveKit] ping did not match active channel/conversation — no refetch');
+          console.log('[LiveKit] ping did not match active channel/conversation — incrementing unread');
+
+          // Increment unread count for the non-active channel or conversation
+          const unreadId = channelId ?? conversationId;
+          if (unreadId) {
+            incrementUnread(unreadId);
+          }
+
+          // Fire a native OS notification only when the window is not focused
+          if (!isWindowFocusedRef.current && unreadId) {
+            void (async () => {
+              let permissionGranted = await isPermissionGranted();
+              if (!permissionGranted) {
+                const permission = await requestPermission();
+                permissionGranted = permission === 'granted';
+              }
+              if (permissionGranted) {
+                sendNotification({
+                  title: roomName,
+                  body: `${senderUsername}: New message`,
+                });
+              }
+            })();
+          }
         }
       });
 
@@ -134,5 +180,6 @@ export function useLiveKitRealtime() {
     selectedChannelId,
     selectedConversationId,
     queryClient,
+    incrementUnread,
   ]);
 }

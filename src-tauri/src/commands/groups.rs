@@ -35,6 +35,9 @@ pub struct Channel {
     pub group_id: String,
     pub name: String,
     pub description: Option<String>,
+    // 'text' or 'voice' — persisted in Turso.
+    // Migration: ALTER TABLE channels ADD COLUMN channel_type TEXT NOT NULL DEFAULT 'text';
+    pub channel_type: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -56,7 +59,7 @@ pub async fn list_user_groups_with_channels(
 
     let mut rows = conn.query(
         "SELECT g.id, g.name, g.description, g.owner_id, g.created_at,
-                c.id, c.group_id, c.name, c.description
+                c.id, c.group_id, c.name, c.description, c.channel_type
          FROM groups g
          JOIN group_member gm ON gm.group_id = g.id
          LEFT JOIN channels c ON c.group_id = g.id
@@ -77,6 +80,7 @@ pub async fn list_user_groups_with_channels(
                     group_id: row.get(6)?,
                     name: row.get(7)?,
                     description: row.get(8)?,
+                    channel_type: row.get::<Option<String>>(9)?.unwrap_or_else(|| "text".to_string()),
                 });
             }
         } else {
@@ -87,6 +91,7 @@ pub async fn list_user_groups_with_channels(
                     group_id: row.get(6)?,
                     name: row.get(7)?,
                     description: row.get(8)?,
+                    channel_type: row.get::<Option<String>>(9)?.unwrap_or_else(|| "text".to_string()),
                 });
             }
             groups.push(GroupWithChannels {
@@ -140,7 +145,7 @@ pub async fn list_group_channels(
     let conn = state.remote_db.conn().await?;
 
     let mut rows = conn.query(
-        "SELECT id, group_id, name, description FROM channels WHERE group_id = ?1",
+        "SELECT id, group_id, name, description, channel_type FROM channels WHERE group_id = ?1",
         libsql::params![group_id],
     ).await?;
 
@@ -151,6 +156,7 @@ pub async fn list_group_channels(
             group_id: row.get(1)?,
             name: row.get(2)?,
             description: row.get(3)?,
+            channel_type: row.get::<Option<String>>(4)?.unwrap_or_else(|| "text".to_string()),
         });
     }
 
@@ -186,17 +192,21 @@ pub async fn create_channel(
     group_id: String,
     name: String,
     description: Option<String>,
+    // 'text' (default) or 'voice' — stored in the channel_type column.
+    // Requires Turso migration: ALTER TABLE channels ADD COLUMN channel_type TEXT NOT NULL DEFAULT 'text';
+    channel_type: Option<String>,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Channel> {
     let conn = state.remote_db.conn().await?;
     let id = Ulid::new().to_string();
+    let channel_type = channel_type.unwrap_or_else(|| "text".to_string());
 
     conn.execute(
-        "INSERT INTO channels (id, group_id, name, description) VALUES (?1, ?2, ?3, ?4)",
-        libsql::params![id.clone(), group_id.clone(), name.clone(), description.clone()],
+        "INSERT INTO channels (id, group_id, name, description, channel_type) VALUES (?1, ?2, ?3, ?4, ?5)",
+        libsql::params![id.clone(), group_id.clone(), name.clone(), description.clone(), channel_type.clone()],
     ).await.map_err(|e| db_err(e.into(), "Channel"))?;
 
-    Ok(Channel { id, group_id, name, description })
+    Ok(Channel { id, group_id, name, description, channel_type })
 }
 
 /// Internal helper: add a user directly to a group as a member.
@@ -487,7 +497,7 @@ pub async fn update_channel(
     }
 
     let mut rows = conn.query(
-        "SELECT id, group_id, name, description FROM channels WHERE id = ?1",
+        "SELECT id, group_id, name, description, channel_type FROM channels WHERE id = ?1",
         libsql::params![channel_id],
     ).await?;
 
@@ -497,6 +507,7 @@ pub async fn update_channel(
             group_id: row.get(1)?,
             name: row.get(2)?,
             description: row.get(3)?,
+            channel_type: row.get::<Option<String>>(4)?.unwrap_or_else(|| "text".to_string()),
         })
     } else {
         Err(Error::Other(anyhow::anyhow!("channel not found after update")))

@@ -35,6 +35,7 @@ CREATE TABLE channels (
     group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     description TEXT,
+    channel_type TEXT NOT NULL DEFAULT 'text',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -61,6 +62,7 @@ CREATE TABLE message_envelope (
     conversation_id TEXT NOT NULL,
     sender_id TEXT NOT NULL,
     ciphertext TEXT NOT NULL,
+    reply_to_id TEXT,
     sent_at TEXT NOT NULL,
     delivered INTEGER NOT NULL DEFAULT 0
 );
@@ -146,3 +148,18 @@ CREATE TABLE user_preferences (
     preferences TEXT NOT NULL DEFAULT '{}',
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Emoji reactions on messages.
+-- NOTE: This table must be created in Turso manually (or via pnpm db:push).
+-- The UNIQUE constraint prevents duplicate (message, user, emoji) combos;
+-- add_reaction uses INSERT OR IGNORE to silently skip duplicates.
+CREATE TABLE message_reaction (
+    id         TEXT PRIMARY KEY,
+    message_id TEXT NOT NULL,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji      TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(message_id, user_id, emoji)
+);
+
+CREATE INDEX idx_reaction_message ON message_reaction(message_id, created_at);

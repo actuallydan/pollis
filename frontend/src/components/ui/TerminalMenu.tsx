@@ -11,6 +11,8 @@ export interface TerminalMenuItem {
   // "separator" renders a horizontal rule; "system" dims the item (for nav/action items vs content items)
   type?: "separator" | "system";
   testId?: string;
+  // Unread count badge — shown next to label when > 0
+  badge?: number;
 }
 
 interface TerminalMenuProps {
@@ -189,7 +191,7 @@ export const TerminalMenu: React.FC<TerminalMenuProps> = ({
 
               <div className="flex-1 min-w-0">
                 <div
-                  className="font-mono font-medium text-sm"
+                  className="font-mono font-medium text-sm flex items-center gap-2"
                   style={{
                     color: isSelected
                       ? "var(--c-accent)"
@@ -198,7 +200,15 @@ export const TerminalMenu: React.FC<TerminalMenuProps> = ({
                         : "var(--c-text)",
                   }}
                 >
-                  {item.label}
+                  <span>{item.label}</span>
+                  {item.badge != null && item.badge > 0 && (
+                    <span
+                      className="font-mono text-xs"
+                      style={{ color: "var(--c-accent)" }}
+                    >
+                      [{item.badge}]
+                    </span>
+                  )}
                 </div>
                 {item.description && (
                   <div

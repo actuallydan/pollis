@@ -5,3 +5,5 @@
 export * from "./useUserProfile";
 export * from "./useGroups";
 export * from "./useMessages";
+export * from "./useSearchMessages";
+export * from "./useReactions";

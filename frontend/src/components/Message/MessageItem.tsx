@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Reply, Download, Image as ImageIcon, File as FileIcon } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
 import { getFileDownloadUrl } from "../../services/r2-upload";
+// import { MessageReactions } from "./MessageReactions";
 import type { Message, MessageAttachment } from "../../types";
 
 interface MessageItemProps {
@@ -35,6 +36,10 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     ? allMessages.find((m) => m.id === message.reply_to_message_id)
     : null;
 
+  const replyToAuthor = replyTo
+    ? (replyTo.sender_username ?? replyTo.sender_id)
+    : null;
+
   const content =
     message.content_decrypted ??
     (message as any).content ??
@@ -55,8 +60,13 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           style={{ color: "var(--c-text-muted)" }}
         >
           <Reply size={10} style={{ transform: "scaleX(-1)" }} />
+          {replyToAuthor && (
+            <span className="font-semibold flex-shrink-0" style={{ color: "var(--c-text-dim)" }}>
+              {replyToAuthor}:
+            </span>
+          )}
           <span className="truncate max-w-xs">
-            {replyTo.content_decrypted?.slice(0, 50) || "[encrypted]"}
+            {replyTo.content_decrypted?.slice(0, 80) || "[encrypted]"}
           </span>
         </button>
       )}
@@ -122,6 +132,9 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           ))}
         </div>
       )}
+
+      {/* Reactions row — disabled, needs more thought */}
+      {/* <MessageReactions messageId={message.id} /> */}
     </div>
   );
 };

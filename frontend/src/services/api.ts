@@ -42,6 +42,10 @@ export async function logout(deleteData = false): Promise<void> {
   await invoke('logout', { deleteData });
 }
 
+export async function deleteAccount(userId: string): Promise<void> {
+  await invoke('delete_account', { userId });
+}
+
 // ── User ───────────────────────────────────────────────────────────────────
 
 export interface UserProfileData {
@@ -78,7 +82,7 @@ export async function searchUserByUsername(username: string): Promise<UserProfil
 import { deriveSlug } from '../utils/urlRouting';
 
 type RawGroup = { id: string; name: string; description?: string; owner_id: string; created_at: string };
-type RawChannel = { id: string; group_id: string; name: string; description?: string };
+type RawChannel = { id: string; group_id: string; name: string; description?: string; channel_type?: string };
 
 function toGroup(g: RawGroup): Group {
   const ts = new Date(g.created_at).getTime();
@@ -100,7 +104,7 @@ function toChannel(c: RawChannel): Channel {
     slug: '',
     name: c.name,
     description: c.description || '',
-    channel_type: 'text',
+    channel_type: (c.channel_type === 'voice' ? 'voice' : 'text'),
     created_by: '',
     created_at: 0,
     updated_at: 0,
@@ -136,8 +140,8 @@ export async function createGroup(name: string, description: string, ownerId: st
   return toGroup(g);
 }
 
-export async function createChannel(groupId: string, name: string, description: string): Promise<Channel> {
-  const c = await invoke<RawChannel>('create_channel', { groupId, name, description: description || null });
+export async function createChannel(groupId: string, name: string, description: string, channelType: 'text' | 'voice' = 'text'): Promise<Channel> {
+  const c = await invoke<RawChannel>('create_channel', { groupId, name, description: description || null, channelType });
   return toChannel(c);
 }
 

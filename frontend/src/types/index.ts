@@ -42,7 +42,7 @@ export interface Channel {
   slug?: string;
   name: string;
   description?: string;
-  channel_type: string; // 'text' | 'voice'
+  channel_type: 'text' | 'voice';
   created_by: string; // user_id
   created_at: number;
   updated_at: number;
@@ -111,6 +111,12 @@ export interface PresignedUploadResponse {
   public_url: string;
 }
 
+export interface Reaction {
+  emoji: string;
+  user_ids: string[];
+  count: number;
+}
+
 export interface MessageAttachment {
   id: string;
   object_key: string; // R2 object key
@@ -118,6 +124,15 @@ export interface MessageAttachment {
   content_type: string;
   file_size: number;
   uploaded_at: number;
+}
+
+export interface SearchResult {
+  message_id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string;
+  sent_at: string;
+  snippet: string;
 }
 
 export interface UserAlias {

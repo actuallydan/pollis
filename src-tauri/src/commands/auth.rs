@@ -323,6 +323,102 @@ pub async fn logout(delete_data: bool) -> Result<()> {
     Ok(())
 }
 
+/// Permanently delete the account: wipe all remote data, clear keystore, delete local DB.
+#[tauri::command]
+pub async fn delete_account(
+    state: State<'_, Arc<AppState>>,
+    user_id: String,
+) -> Result<()> {
+    let conn = state.remote_db.conn().await?;
+
+    // Remove sender key distribution rows for this user
+    let _ = conn.execute(
+        "DELETE FROM sender_key_dist WHERE sender_id = ?1 OR recipient_id = ?1",
+        libsql::params![user_id.clone()],
+    ).await;
+
+    // Remove encrypted message envelopes sent by this user
+    let _ = conn.execute(
+        "DELETE FROM message_envelope WHERE sender_id = ?1",
+        libsql::params![user_id.clone()],
+    ).await;
+
+    // Remove one-time prekeys
+    let _ = conn.execute(
+        "DELETE FROM one_time_prekey WHERE user_id = ?1",
+        libsql::params![user_id.clone()],
+    ).await;
+
+    // Remove signed prekeys
+    let _ = conn.execute(
+        "DELETE FROM signed_prekey WHERE user_id = ?1",
+        libsql::params![user_id.clone()],
+    ).await;
+
+    // Remove group memberships
+    let _ = conn.execute(
+        "DELETE FROM group_member WHERE user_id = ?1",
+        libsql::params![user_id.clone()],
+    ).await;
+
+    // Remove the user row itself
+    conn.execute(
+        "DELETE FROM users WHERE id = ?1",
+        libsql::params![user_id.clone()],
+    ).await?;
+
+    // Clear all keystore entries
+    let _ = keystore::delete(SESSION_KEY).await;
+    let _ = keystore::delete("identity_key_private").await;
+    let _ = keystore::delete("identity_key_public").await;
+    let _ = keystore::delete("x25519_ik_private").await;
+    let _ = keystore::delete("local_db_key").await;
+
+    // Clear stored signed prekey and one-time prekey entries from keystore
+    for i in 1u32..=10 {
+        let _ = keystore::delete(&format!("spk_private_{i}")).await;
+    }
+    for i in 1u32..=110 {
+        let _ = keystore::delete(&format!("opk_private_{i}")).await;
+    }
+
+    // Delete the local SQLite database file
+    {
+        let data_dir = {
+            if let Ok(dir) = std::env::var("POLLIS_DATA_DIR") {
+                std::path::PathBuf::from(dir)
+            } else {
+                #[cfg(target_os = "macos")]
+                {
+                    let home = std::env::var("HOME").unwrap_or_default();
+                    std::path::PathBuf::from(home)
+                        .join("Library/Application Support/com.pollis.app")
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    let home = std::env::var("HOME").unwrap_or_default();
+                    std::path::PathBuf::from(home).join(".local/share/pollis")
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    let appdata = std::env::var("APPDATA").unwrap_or_default();
+                    std::path::PathBuf::from(appdata).join("pollis")
+                }
+            }
+        };
+        let db_path = data_dir.join("pollis.db");
+        if db_path.exists() {
+            let _ = std::fs::remove_file(&db_path);
+        }
+        // Also remove WAL and SHM companion files if present
+        let _ = std::fs::remove_file(data_dir.join("pollis.db-wal"));
+        let _ = std::fs::remove_file(data_dir.join("pollis.db-shm"));
+    }
+
+    eprintln!("[account] deleted account for user {user_id}");
+    Ok(())
+}
+
 async fn upload_initial_keys(
     state: &AppState,
     user_id: &str,

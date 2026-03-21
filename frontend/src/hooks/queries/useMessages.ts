@@ -28,6 +28,7 @@ type RawChannelMessage = {
   sender_username?: string;
   ciphertext: string;
   content?: string;
+  reply_to_id?: string;
   sent_at: string;
 };
 
@@ -71,7 +72,7 @@ function transformChannelMessage(m: RawChannelMessage): Message {
     ciphertext: new Uint8Array(),
     nonce: new Uint8Array(),
     content_decrypted: m.content || '',
-    reply_to_message_id: undefined,
+    reply_to_message_id: m.reply_to_id,
     is_pinned: false,
     created_at: new Date(m.sent_at).getTime(),
     delivered: true,

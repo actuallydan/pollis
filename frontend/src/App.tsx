@@ -16,7 +16,9 @@ import { getPreference, applyPreferences } from "./hooks/queries/usePreferences"
 import { restoreWindowState, useWindowState } from "./hooks/useWindowState";
 import type { User } from "./types";
 
-type AppState = "initializing" | "loading" | "email-auth" | "logout-confirm" | "ready";
+type AppState = "initializing" | "loading" | "email-auth" | "logout-confirm" | "identity-setup" | "ready";
+
+const MULTI_DEVICE_DISMISSED_KEY = "pollis:multi_device_warning_dismissed";
 
 function MainApp() {
   const {
@@ -25,6 +27,7 @@ function MainApp() {
   } = useAppStore();
 
   const [appState, setAppState] = useState<AppState>("initializing");
+  const [showMultiDeviceWarning, setShowMultiDeviceWarning] = useState(false);
 
   const checkStoredSession = useCallback(async () => {
     try {
@@ -87,6 +90,8 @@ function MainApp() {
   useWindowState();
 
   const handleAuthSuccess = useCallback(async (user: User) => {
+    // Show the identity setup loading screen while keys are generated/uploaded
+    setAppState("identity-setup");
     try {
       await api.initializeIdentity(user.id);
     } catch (err) {
@@ -104,12 +109,24 @@ function MainApp() {
       // Preferences are optional
     }
     setCurrentUser(user);
+    // Show the multi-device warning once per device after a fresh login
+    const dismissed = localStorage.getItem(MULTI_DEVICE_DISMISSED_KEY);
+    if (!dismissed) {
+      setShowMultiDeviceWarning(true);
+    }
     setAppState("ready");
   }, [setCurrentUser]);
 
   // Navigate to the confirmation view instead of using window.confirm
   const handleLogout = useCallback(() => {
     setAppState("logout-confirm");
+  }, []);
+
+  // After delete_account succeeds in Settings, clear local state and go to auth
+  const handleDeleteAccount = useCallback(() => {
+    setShowMultiDeviceWarning(false);
+    setAppState("email-auth");
+    useAppStore.getState().logout();
   }, []);
 
   const handleLogoutConfirm = useCallback(async (deleteData: boolean) => {
@@ -247,8 +264,79 @@ function MainApp() {
     );
   }
 
+  if (appState === "identity-setup") {
+    return (
+      <div
+        data-testid="identity-setup-screen"
+        className="flex flex-col h-full w-full"
+        style={{ background: "var(--c-bg)", position: "relative" }}
+      >
+        <div style={{ position: "absolute", inset: 0, opacity: 0.35, pointerEvents: "none" }}>
+          <DotMatrix />
+        </div>
+        <TitleBar />
+        <div className="flex-1 flex items-center justify-center" style={{ position: "relative", zIndex: 1 }}>
+          <Card padding="lg" style={{ width: "100%", maxWidth: 360 }}>
+            <div className="flex flex-col gap-3">
+              <span
+                data-testid="identity-setup-message"
+                className="text-sm font-mono font-semibold"
+                style={{ color: "var(--c-accent)" }}
+              >
+                Pollis.
+              </span>
+              <p className="text-xs font-mono" style={{ color: "var(--c-text-dim)" }}>
+                Setting up your encrypted identity
+                <IdentitySetupDots />
+              </p>
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   if (appState === "ready" && currentUser) {
-    return <TerminalApp onLogout={handleLogout} />;
+    return (
+      <div
+        data-testid="app-ready"
+        style={{ height: "100%", width: "100%", display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}
+      >
+        {showMultiDeviceWarning && (
+          <div
+            data-testid="multi-device-warning"
+            className="flex items-center justify-between px-4 py-2 text-xs font-mono flex-shrink-0"
+            style={{
+              background: "hsl(38 35% 12%)",
+              borderBottom: "1px solid hsl(38 50% 25% / 50%)",
+              color: "var(--c-text-dim)",
+              zIndex: 100,
+            }}
+          >
+            <span>
+              Signing in on another device will break your session on this one. Multi-device support is coming soon.
+            </span>
+            <button
+              data-testid="multi-device-warning-dismiss"
+              onClick={() => {
+                localStorage.setItem(MULTI_DEVICE_DISMISSED_KEY, "1");
+                setShowMultiDeviceWarning(false);
+              }}
+              className="ml-4 flex-shrink-0 font-mono text-xs transition-colors"
+              style={{ color: "var(--c-text-muted)" }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--c-text)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--c-text-muted)"; }}
+              aria-label="Dismiss warning"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        <div style={{ flex: 1, overflow: "hidden" }}>
+          <TerminalApp onLogout={handleLogout} />
+        </div>
+      </div>
+    );
   }
 
   // Fallback loading
@@ -268,5 +356,20 @@ function MainApp() {
     </div>
   );
 }
+
+// ── Animated dots for the identity setup loading screen ──────────────────────
+
+const IdentitySetupDots: React.FC = () => {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCount((prev) => (prev + 1) % 4);
+    }, 400);
+    return () => clearInterval(interval);
+  }, []);
+
+  return <span aria-hidden="true">{".".repeat(count)}</span>;
+};
 
 export default MainApp;
