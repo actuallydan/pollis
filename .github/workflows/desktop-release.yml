@@ -34,9 +34,10 @@ jobs:
         env:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
         run: |
-          if [ -z "$SOPS_AGE_KEY" ]; then echo "SOPS_AGE_KEY is empty"; else echo "SOPS_AGE_KEY length: ${#SOPS_AGE_KEY}"; fi
           echo "$SOPS_AGE_KEY" > /tmp/sops-age-key.txt
-          SOPS_AGE_KEY="" SOPS_AGE_KEY_FILE=/tmp/sops-age-key.txt sops --decrypt --input-type dotenv --output-type dotenv secrets.prod.enc.env >> $GITHUB_ENV
+          unset SOPS_AGE_KEY
+          SOPS_AGE_KEY_FILE=/tmp/sops-age-key.txt sops --decrypt --input-type dotenv --output-type dotenv secrets.prod.enc.env \
+            | grep -v '^#' | grep -v '^[[:space:]]*$' >> $GITHUB_ENV
 
       - name: Install dependencies
         run: pnpm install
@@ -77,7 +78,9 @@ jobs:
         shell: bash
         run: |
           echo "$SOPS_AGE_KEY" > /tmp/sops-age-key.txt
-          SOPS_AGE_KEY="" SOPS_AGE_KEY_FILE=/tmp/sops-age-key.txt sops --decrypt --input-type dotenv --output-type dotenv secrets.prod.enc.env >> $GITHUB_ENV
+          unset SOPS_AGE_KEY
+          SOPS_AGE_KEY_FILE=/tmp/sops-age-key.txt sops --decrypt --input-type dotenv --output-type dotenv secrets.prod.enc.env \
+            | grep -v '^#' | grep -v '^[[:space:]]*$' >> $GITHUB_ENV
 
       - name: Install dependencies
         run: pnpm install
@@ -131,9 +134,10 @@ jobs:
         env:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
         run: |
-          if [ -z "$SOPS_AGE_KEY" ]; then echo "SOPS_AGE_KEY is empty"; else echo "SOPS_AGE_KEY length: ${#SOPS_AGE_KEY}"; fi
           echo "$SOPS_AGE_KEY" > /tmp/sops-age-key.txt
-          SOPS_AGE_KEY="" SOPS_AGE_KEY_FILE=/tmp/sops-age-key.txt sops --decrypt --input-type dotenv --output-type dotenv secrets.prod.enc.env >> $GITHUB_ENV
+          unset SOPS_AGE_KEY
+          SOPS_AGE_KEY_FILE=/tmp/sops-age-key.txt sops --decrypt --input-type dotenv --output-type dotenv secrets.prod.enc.env \
+            | grep -v '^#' | grep -v '^[[:space:]]*$' >> $GITHUB_ENV
 
       - name: Install dependencies
         run: pnpm install
