@@ -1,4 +1,5 @@
 import React, { useEffect, useCallback, useState } from "react";
+import { exit } from "@tauri-apps/plugin-process";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { TitleBar } from "./Layout/TitleBar";
@@ -17,6 +18,7 @@ import { useAppStore } from "../stores/appStore";
 import { useUserGroupsWithChannels, usePendingInvites } from "../hooks/queries/useGroups";
 import { LoadingSpinner } from "./ui/LoaderSpinner";
 import { useDMConversations } from "../hooks/queries/useMessages";
+import { useLiveKitRealtime } from "../hooks/useLiveKitRealtime";
 import type { GroupWithChannels } from "../services/api";
 import type { DMConversation } from "../types";
 
@@ -66,6 +68,10 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
   const { data: groupsWithChannels, isLoading: groupsLoading, error: groupsError } = useUserGroupsWithChannels();
   const { data: dmConversations = [] } = useDMConversations();
   const { data: pendingInvites = [] } = usePendingInvites();
+
+  console.log("about to use livekit realtime hook with selectedChannelId", selectedChannelId);
+  // Maintain a LiveKit room connection for the active channel/conversation
+  useLiveKitRealtime();
 
   // Sync groups+channels into the store once loaded
   useEffect(() => {
@@ -188,6 +194,13 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
         action: () => push({ type: "settings" }),
         type: "system",
         testId: "menu-item-settings",
+      },
+      {
+        id: "exit",
+        label: "Exit",
+        action: () => exit(0),
+        type: "system",
+        testId: "menu-item-exit",
       },
       {
         id: "logout",
@@ -474,15 +487,26 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
               title="Settings"
               onBack={pop}
               rightAction={
-                <button
-                  onClick={onLogout}
-                  className="text-xs font-mono transition-colors"
-                  style={{ color: "var(--c-text-muted)" }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "#ff6b6b"; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--c-text-muted)"; }}
-                >
-                  Log out
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => exit(0)}
+                    className="text-xs font-mono transition-colors"
+                    style={{ color: "var(--c-text-muted)" }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--c-text-dim)"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--c-text-muted)"; }}
+                  >
+                    Exit
+                  </button>
+                  <button
+                    onClick={onLogout}
+                    className="text-xs font-mono transition-colors"
+                    style={{ color: "var(--c-text-muted)" }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "#ff6b6b"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--c-text-muted)"; }}
+                  >
+                    Log out
+                  </button>
+                </div>
               }
             />
             <div className="flex-1 overflow-hidden">
@@ -574,37 +598,36 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout }) => {
         }}
       >
         <span className="text-xs font-mono" style={{ color: "var(--c-text-dim)" }}>
-          {viewStack.length > 1
-            ? viewStack
-                .map((v) => {
-                  switch (v.type) {
-                    case "root": return "pollis";
-                    case "groups": return "Groups";
-                    case "group": return v.group.name;
-                    case "channel": {
-                      const groupChannels = selectedGroupId ? (channels[selectedGroupId] ?? []) : [];
-                      const ch = groupChannels.find((c) => c.id === selectedChannelId);
-                      return ch ? `Channel : : ${ch.name}` : "Channel";
-                    }
-                    case "dms": return "Direct Messages";
-                    case "dm": {
-                      const conv = dmConversations.find((c) => c.id === selectedConversationId);
-                      return conv ? `dm : : @${conv.user2_identifier}` : "dm";
-                    }
-                    case "create-group": return "Create Group";
-                    case "search-group": return "Find Group";
-                    case "create-channel": return "New Channel";
-                    case "start-dm": return "New Message";
-                    case "preferences": return "Preferences";
-                    case "settings": return "Settings";
-                    case "invites": return "Invites";
-                    case "join-requests": return `Join Requests : : ${v.group.name}`;
-                    case "invite-member": return `Invite Member : : ${v.group.name}`;
-                    default: return "pollis";
-                  }
-                })
-                .join(" › ")
-            : "pollis"}
+          {viewStack
+            .filter((v) => v.type !== "root")
+            .map((v) => {
+              switch (v.type) {
+                case "groups": return "Groups";
+                case "group": return v.group.name;
+                case "channel": {
+                  const groupChannels = selectedGroupId ? (channels[selectedGroupId] ?? []) : [];
+                  const ch = groupChannels.find((c) => c.id === selectedChannelId);
+                  return ch ? `Channel : : ${ch.name}` : "Channel";
+                }
+                case "dms": return "Direct Messages";
+                case "dm": {
+                  const conv = dmConversations.find((c) => c.id === selectedConversationId);
+                  return conv ? `dm : : @${conv.user2_identifier}` : "dm";
+                }
+                case "create-group": return "Create Group";
+                case "search-group": return "Find Group";
+                case "create-channel": return "New Channel";
+                case "start-dm": return "New Message";
+                case "preferences": return "Preferences";
+                case "settings": return "Settings";
+                case "invites": return "Invites";
+                case "join-requests": return `Join Requests : : ${v.group.name}`;
+                case "invite-member": return `Invite Member : : ${v.group.name}`;
+                default: return null;
+              }
+            })
+            .filter(Boolean)
+            .join(" › ")}
         </span>
       </div>
     </div>

@@ -147,12 +147,8 @@ async fn distribute_sender_key_to_group_members(
          FROM group_member gm
          JOIN users u ON u.id = gm.user_id
          WHERE gm.group_id = ?1 AND gm.user_id != ?2
-           AND u.identity_key IS NOT NULL
-           AND NOT EXISTS (
-               SELECT 1 FROM sender_key_dist
-               WHERE channel_id = ?3 AND sender_id = ?2 AND recipient_id = gm.user_id
-           )",
-        libsql::params![group_id, sender_id, channel_id],
+           AND u.identity_key IS NOT NULL",
+        libsql::params![group_id, sender_id],
     ).await?;
 
     let mut distributed = 0usize;
@@ -254,11 +250,7 @@ async fn distribute_sender_key_to_dm_members(
          FROM dm_channel_member dcm
          JOIN users u ON u.id = dcm.user_id
          WHERE dcm.dm_channel_id = ?1 AND dcm.user_id != ?2
-           AND u.identity_key IS NOT NULL
-           AND NOT EXISTS (
-               SELECT 1 FROM sender_key_dist
-               WHERE channel_id = ?1 AND sender_id = ?2 AND recipient_id = dcm.user_id
-           )",
+           AND u.identity_key IS NOT NULL",
         libsql::params![dm_channel_id, sender_id],
     ).await?;
 

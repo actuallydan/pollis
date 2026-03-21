@@ -2,7 +2,7 @@
 
 A desktop messaging app with end-to-end encryption. Think Slack, but nobody (including me) can read your messages. Built with Tauri 2 — native app on macOS/Linux/Windows with a Rust backend and React frontend.
 
-![Pollis App](readme/app.png)
+![Pollis App](readme/new_app.png)
 
 ## How it works
 
@@ -47,17 +47,17 @@ pnpm dev:frontend
 
 ### Testing with two users
 
-Run two app instances pointing at different home directories so each gets its own OS keystore, local DB, and session:
+Use `POLLIS_DATA_DIR` to give the second instance its own local SQLite database and session:
 
 ```bash
 # Terminal 1 — user A
 pnpm dev
 
 # Terminal 2 — user B
-HOME=/tmp/pollis-user2 pnpm dev
+POLLIS_DATA_DIR=/tmp/pollis2 pnpm dev
 ```
 
-Sign into different email accounts in each window. Both hit the same Turso database, so anything one user writes the other can read (manually refresh until realtime is wired up).
+Sign into different accounts in each window. Both hit the same Turso database, so messages sent in one instance appear in real time in the other via LiveKit data channels.
 
 ### Building
 

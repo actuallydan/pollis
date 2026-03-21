@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../stores/appStore";
+import { livekitRoomRef } from "../useLiveKitRealtime";
 import type { Message, DMConversation } from "../../types";
 
 export const messageQueryKeys = {
@@ -173,6 +174,20 @@ export function useSendMessage() {
 
       // Then invalidate in the background so we stay in sync with the server.
       queryClient.invalidateQueries({ queryKey });
+
+      // Notify other participants in the room via LiveKit data channel
+      if (livekitRoomRef.current) {
+        const ping = JSON.stringify({
+          type: 'new_message',
+          channelId: variables.channelId || null,
+          conversationId: variables.conversationId || null,
+          senderId: currentUser?.id,
+        });
+        livekitRoomRef.current.localParticipant.publishData(
+          new TextEncoder().encode(ping),
+          { reliable: true },
+        );
+      }
     },
   });
 }

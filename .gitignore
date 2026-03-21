@@ -69,3 +69,4 @@ temp/
 .claude/
 
 src-tauri/target/
+dev-keystore.json

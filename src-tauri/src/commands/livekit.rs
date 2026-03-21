@@ -19,6 +19,7 @@ struct LiveKitClaims {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct VideoGrants {
     room: String,
     room_join: bool,
@@ -61,4 +62,11 @@ pub async fn get_livekit_token(
     let key = EncodingKey::from_secret(state.config.livekit_api_secret.as_bytes());
     encode(&header, &claims, &key)
         .map_err(|e| Error::Other(anyhow::anyhow!("JWT sign: {e}")))
+}
+
+#[tauri::command]
+pub async fn get_livekit_url(
+    state: State<'_, Arc<AppState>>,
+) -> Result<String> {
+    Ok(state.config.livekit_url.clone())
 }

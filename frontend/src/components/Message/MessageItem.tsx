@@ -92,7 +92,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
         <span
           data-testid="message-content"
           className="font-mono text-sm break-words flex-1 min-w-0"
-          style={{ color: "var(--c-text)" }}
+          style={{ color: "var(--c-text)", whiteSpace: "pre-wrap" }}
         >
           {content}
           {message.status && message.status !== "sent" && (

@@ -224,7 +224,10 @@ export async function sendMessage(
 // ── Network ────────────────────────────────────────────────────────────────
 
 export async function getNetworkStatus(): Promise<'online' | 'offline'> {
-  return navigator.onLine ? 'online' : 'offline';
+  // navigator.onLine is always false in Tauri's embedded WKWebView — it doesn't
+  // reflect actual network connectivity. All network calls go through the Rust
+  // backend, so we treat the app as online unless the kill switch is active.
+  return 'online';
 }
 
 // ── R2 ─────────────────────────────────────────────────────────────────────

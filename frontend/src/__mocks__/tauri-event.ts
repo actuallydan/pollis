@@ -1,6 +1,6 @@
 /**
  * Browser-side mock for @tauri-apps/api/event used when VITE_PLAYWRIGHT=true.
- * Returns a no-op unlisten function so useAblyRealtime doesn't error.
+ * Returns a no-op unlisten function so event listeners don't error in test mode.
  */
 
 type UnlistenFn = () => void;

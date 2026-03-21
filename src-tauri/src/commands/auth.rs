@@ -45,14 +45,14 @@ pub async fn initialize_identity(
 
     // Ensure a dedicated X25519 identity key exists. This is separate from the
     // Ed25519 signing key — it is used exclusively for DH-based key distribution.
-    let x25519_pub = match load_x25519_secret("x25519_ik_private").await {
-        Ok(secret) => X25519PublicKey::from(&secret),
+    let (x25519_pub, x25519_key_is_new) = match load_x25519_secret("x25519_ik_private").await {
+        Ok(secret) => (X25519PublicKey::from(&secret), false),
         Err(_) => {
             let secret = StaticSecret::random_from_rng(OsRng);
             let pub_key = X25519PublicKey::from(&secret);
             keystore::store("x25519_ik_private", secret.as_bytes()).await?;
             eprintln!("[identity] generated new X25519 identity key for user {user_id}");
-            pub_key
+            (pub_key, true)
         }
     };
 
@@ -64,6 +64,14 @@ pub async fn initialize_identity(
         let opks = generate_one_time_prekeys(1, 100).await?;
         upload_initial_keys(&state, &user_id, &x25519_pub_bytes, 1, &spk_pub, &spk_sig, &opks).await?;
         eprintln!("[identity] uploaded initial keys for new user {user_id}");
+        // Stale distribution rows (encrypted with old keys) are now invalid — delete them
+        // so senders will redistribute with the new identity key on their next message.
+        let conn = state.remote_db.conn().await?;
+        let _ = conn.execute(
+            "DELETE FROM sender_key_dist WHERE recipient_id = ?1",
+            libsql::params![user_id.clone()],
+        ).await;
+        eprintln!("[identity] cleared stale sender_key_dist rows for {user_id}");
     } else {
         // Existing user: update identity_key to the X25519 public key in case it was
         // previously set to an Ed25519 key (the old broken behaviour).
@@ -73,6 +81,15 @@ pub async fn initialize_identity(
             libsql::params![public_key.clone(), user_id.clone()],
         ).await?;
         eprintln!("[identity] ensured X25519 identity_key is uploaded for existing user {user_id}");
+
+        // If X25519 key is new (fresh keystore), old distribution rows are stale.
+        if x25519_key_is_new {
+            let _ = conn.execute(
+                "DELETE FROM sender_key_dist WHERE recipient_id = ?1",
+                libsql::params![user_id.clone()],
+            ).await;
+            eprintln!("[identity] cleared stale sender_key_dist rows for {user_id} (new X25519 key)");
+        }
 
         // Ensure an SPK exists in the remote DB. Existing users may have none if they
         // went through the Ed25519→X25519 migration without an SPK upload.
@@ -252,16 +269,38 @@ pub async fn get_session(state: State<'_, Arc<AppState>>) -> Result<Option<UserP
 
     // Verify the user still exists in Turso. After a DB wipe or account deletion
     // the keystore still has the old profile, which would cause FK errors everywhere.
-    let conn = state.remote_db.conn().await?;
-    let mut rows = conn.query(
-        "SELECT id FROM users WHERE id = ?1",
-        libsql::params![profile.id.clone()],
-    ).await?;
-
-    if rows.next().await?.is_none() {
-        // Stale session — clear it so the app shows the sign-in screen
-        let _ = keystore::delete(SESSION_KEY).await;
-        return Ok(None);
+    // Only clear the session if Turso definitively confirms the user is gone.
+    // Network errors are treated as "assume valid" so a flaky connection at startup
+    // doesn't force the user to re-authenticate every time.
+    match state.remote_db.conn().await {
+        Ok(conn) => {
+            match conn.query(
+                "SELECT id FROM users WHERE id = ?1",
+                libsql::params![profile.id.clone()],
+            ).await {
+                Ok(mut rows) => {
+                    match rows.next().await {
+                        Ok(None) => {
+                            // Turso confirmed the user doesn't exist — stale session
+                            let _ = keystore::delete(SESSION_KEY).await;
+                            return Ok(None);
+                        }
+                        Ok(Some(_)) => {
+                            // User confirmed to exist — session is valid
+                        }
+                        Err(e) => {
+                            eprintln!("[session] failed to read Turso row ({e}); using cached session");
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[session] Turso query failed ({e}); using cached session");
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("[session] Turso connection failed ({e}); using cached session");
+        }
     }
 
     Ok(Some(profile))
@@ -308,7 +347,7 @@ async fn upload_initial_keys(
 
     for (id, pub_key) in opks {
         conn.execute(
-            "INSERT INTO one_time_prekey (user_id, key_id, public_key) VALUES (?1, ?2, ?3)",
+            "INSERT OR IGNORE INTO one_time_prekey (user_id, key_id, public_key) VALUES (?1, ?2, ?3)",
             libsql::params![user_id, *id as i64, hex::encode(pub_key)],
         ).await?;
     }

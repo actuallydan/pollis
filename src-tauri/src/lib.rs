@@ -86,6 +86,7 @@ pub fn run() {
             commands::signal::rotate_signed_prekey,
             commands::signal::replenish_one_time_prekeys,
             commands::livekit::get_livekit_token,
+            commands::livekit::get_livekit_url,
             commands::r2::upload_file,
             commands::r2::download_file,
         ])

@@ -135,7 +135,7 @@
 
   /* Chat input placeholder: bright when unfocused, dark when focused */
   .chat-input-textarea::placeholder { color: var(--c-text-dim); }
-  .chat-input-textarea:focus::placeholder { color: var(--c-accent-dim); }
+  .chat-input-textarea:focus::placeholder { color: color-mix(in srgb, var(--c-bg) 65%, transparent); }
 
   .pollis-textarea {
     @apply pollis-input resize-none;
