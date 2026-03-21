@@ -9,7 +9,6 @@
 
 ## Doing
 - [ ] First-time onboarding: show a loading screen / progress indicator during initial key generation and upload instead of a stalled verify screen
-- [ ] Multi-device sign-out warning: show an explicit warning when signing in that doing so on a second device will break the first device's session until multi-device support is added
 
 ## Done (this sprint)
 - [x] Unread indicators: badge counts `[N]` on channels and DMs in sidebar, clears on navigation
@@ -31,7 +30,7 @@
 - [ ] Remove user from group: let group admins kick a member — requires group admin roles first
 - [ ] Group admin roles: designate group creator as admin; gate destructive actions (remove user) behind admin check
 - [ ] Reactions: emoji reactions on messages stored in Turso (not E2EE — just reaction counts/who reacted)
-- [ ] Inline image/file rendering: verify R2 download → inline display works end-to-end for received attachments
+- [ ] Inline image/file rendering: attachments sent with a message don't appear in the messages API response, so received images/files are never shown — needs investigation into how attachment metadata is included in the message envelope and returned from `list_messages`
 - [ ] CI: guard R2 upload step so it only runs if all 3 platform builds succeed
 - [ ] Migration safety: add pre-flight schema check on startup, Turso PITR as backup before running migrations
 - [ ] Nav bar: show lowest-level entity name after page — e.g. "Join Requests :: <Group Name>", "Direct Message :: @username", "Channel :: Memes with Friends"

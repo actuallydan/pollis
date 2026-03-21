@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { usePreferences, applyPreferences } from "../hooks/queries/usePreferences";
 import { hslToHex } from "../utils/colorUtils";
+import { RangeSlider } from "../components/ui/RangeSlider";
 
 function getRootVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -89,17 +90,13 @@ export const Preferences: React.FC = () => {
 
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-mono" style={{ color: "var(--c-text-dim)" }}>
-                  Hue — {hue}°
-                </label>
-                <input
-                  type="range"
+                <RangeSlider
+                  id="pref-hue"
+                  label={`Hue — °`}
+                  value={hue}
                   min={0}
                   max={360}
-                  value={hue}
-                  onChange={(e) => handleHue(Number(e.target.value))}
-                  className="w-full accent-[var(--c-accent)]"
-                  style={{ accentColor: previewColor }}
+                  onChange={handleHue}
                 />
                 {/* Quick presets */}
                 <div className="flex gap-2 flex-wrap mt-1">
@@ -119,6 +116,7 @@ export const Preferences: React.FC = () => {
                         background: `hsl(${preset.h} ${preset.s}% 62% / 15%)`,
                         border: `1px solid hsl(${preset.h} ${preset.s}% 62% / 40%)`,
                         color: `hsl(${preset.h} ${preset.s}% 65%)`,
+                        borderRadius: 4,
                       }}
                     >
                       {preset.label}
@@ -127,20 +125,14 @@ export const Preferences: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-mono" style={{ color: "var(--c-text-dim)" }}>
-                  Saturation — {saturation}%
-                </label>
-                <input
-                  type="range"
-                  min={20}
-                  max={100}
-                  value={saturation}
-                  onChange={(e) => handleSaturation(Number(e.target.value))}
-                  className="w-full"
-                  style={{ accentColor: previewColor }}
-                />
-              </div>
+              <RangeSlider
+                id="pref-saturation"
+                label="Saturation — %"
+                value={saturation}
+                min={20}
+                max={100}
+                onChange={handleSaturation}
+              />
             </div>
           </section>
 
@@ -153,18 +145,14 @@ export const Preferences: React.FC = () => {
               Font Size
             </h2>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-mono" style={{ color: "var(--c-text-dim)" }}>
-                Base size — {fontSize}px
-              </label>
-              <input
-                type="range"
+              <RangeSlider
+                id="pref-font-size"
+                label="Base size — px"
+                value={fontSize}
                 min={12}
                 max={20}
                 step={1}
-                value={fontSize}
-                onChange={(e) => handleFontSize(Number(e.target.value))}
-                className="w-full"
-                style={{ accentColor: "var(--c-accent)" }}
+                onChange={handleFontSize}
               />
               <div className="flex justify-between text-xs font-mono" style={{ color: "var(--c-text-muted)" }}>
                 <span>12px small</span>

@@ -64,6 +64,16 @@
   }
 }
 
+/* Range slider thumb — themed to accent color (track is handled inline by RangeSlider component) */
+input[type="range"]::-webkit-slider-thumb {
+  background: var(--c-accent) !important;
+}
+
+input[type="range"]::-moz-range-thumb {
+  background: var(--c-accent) !important;
+  border: none !important;
+}
+
 @layer components {
   /* Panel ─────────────────────────────────────────────────────── */
   .panel {

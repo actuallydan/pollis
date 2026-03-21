@@ -4,6 +4,7 @@ import { MessageList } from "../Message/MessageList";
 import { ReplyPreview } from "../Message/ReplyPreview";
 import { MessageQueue } from "../Message/MessageQueue";
 import { ChatInput } from "../ui/ChatInput";
+import { LoadingSpinner } from "../ui/LoaderSpinner";
 import { useMessages, useSendMessage } from "../../hooks/queries";
 
 export const MainContent: React.FC = () => {
@@ -15,7 +16,7 @@ export const MainContent: React.FC = () => {
     currentUser,
   } = useAppStore();
 
-  const { data: messages = [] } = useMessages(
+  const { data: messages = [], isLoading: messagesLoading } = useMessages(
     selectedChannelId,
     selectedConversationId
   );
@@ -63,16 +64,22 @@ export const MainContent: React.FC = () => {
       style={{ background: 'var(--c-bg)' }}
     >
       <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-        <MessageList
-          messages={messages}
-          onReply={(id) => setReplyToMessageId(id)}
-          onScrollToMessage={(id) => console.log("Scroll to:", id)}
-          getAuthorUsername={(authorId, message) =>
-            authorId === currentUser?.id
-              ? (currentUser as any).username || "you"
-              : message?.sender_username || authorId
-          }
-        />
+        {messagesLoading ? (
+          <div className="flex-1 flex items-center justify-center">
+            <LoadingSpinner size="base" />
+          </div>
+        ) : (
+          <MessageList
+            messages={messages}
+            onReply={(id) => setReplyToMessageId(id)}
+            onScrollToMessage={(id) => console.log("Scroll to:", id)}
+            getAuthorUsername={(authorId, message) =>
+              authorId === currentUser?.id
+                ? (currentUser as any).username || "you"
+                : message?.sender_username || authorId
+            }
+          />
+        )}
       </div>
 
       {replyToMessageId && (

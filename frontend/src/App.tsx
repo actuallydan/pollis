@@ -18,8 +18,6 @@ import type { User } from "./types";
 
 type AppState = "initializing" | "loading" | "email-auth" | "logout-confirm" | "identity-setup" | "ready";
 
-const MULTI_DEVICE_DISMISSED_KEY = "pollis:multi_device_warning_dismissed";
-
 function MainApp() {
   const {
     currentUser,
@@ -27,7 +25,6 @@ function MainApp() {
   } = useAppStore();
 
   const [appState, setAppState] = useState<AppState>("initializing");
-  const [showMultiDeviceWarning, setShowMultiDeviceWarning] = useState(false);
 
   const checkStoredSession = useCallback(async () => {
     try {
@@ -109,11 +106,6 @@ function MainApp() {
       // Preferences are optional
     }
     setCurrentUser(user);
-    // Show the multi-device warning once per device after a fresh login
-    const dismissed = localStorage.getItem(MULTI_DEVICE_DISMISSED_KEY);
-    if (!dismissed) {
-      setShowMultiDeviceWarning(true);
-    }
     setAppState("ready");
   }, [setCurrentUser]);
 
@@ -124,7 +116,6 @@ function MainApp() {
 
   // After delete_account succeeds in Settings, clear local state and go to auth
   const handleDeleteAccount = useCallback(() => {
-    setShowMultiDeviceWarning(false);
     setAppState("email-auth");
     useAppStore.getState().logout();
   }, []);
@@ -302,36 +293,6 @@ function MainApp() {
         data-testid="app-ready"
         style={{ height: "100%", width: "100%", display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}
       >
-        {showMultiDeviceWarning && (
-          <div
-            data-testid="multi-device-warning"
-            className="flex items-center justify-between px-4 py-2 text-xs font-mono flex-shrink-0"
-            style={{
-              background: "hsl(38 35% 12%)",
-              borderBottom: "1px solid hsl(38 50% 25% / 50%)",
-              color: "var(--c-text-dim)",
-              zIndex: 100,
-            }}
-          >
-            <span>
-              Signing in on another device will break your session on this one. Multi-device support is coming soon.
-            </span>
-            <button
-              data-testid="multi-device-warning-dismiss"
-              onClick={() => {
-                localStorage.setItem(MULTI_DEVICE_DISMISSED_KEY, "1");
-                setShowMultiDeviceWarning(false);
-              }}
-              className="ml-4 flex-shrink-0 font-mono text-xs transition-colors"
-              style={{ color: "var(--c-text-muted)" }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--c-text)"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--c-text-muted)"; }}
-              aria-label="Dismiss warning"
-            >
-              ✕
-            </button>
-          </div>
-        )}
         <div style={{ flex: 1, overflow: "hidden" }}>
           <TerminalApp onLogout={handleLogout} />
         </div>

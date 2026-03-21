@@ -118,6 +118,13 @@ export const TerminalMenu: React.FC<TerminalMenuProps> = ({
       onKeyDown={handleKeyDown}
       onFocus={() => setIsFocused(true)}
       onBlur={() => setIsFocused(false)}
+      onMouseDown={(e) => {
+        // Keep keyboard focus on the menu when clicking anywhere in it, including dead zones below the last item
+        if (document.activeElement !== containerRef.current) {
+          e.preventDefault();
+          containerRef.current?.focus();
+        }
+      }}
       role="menu"
       aria-label="Navigation menu"
     >

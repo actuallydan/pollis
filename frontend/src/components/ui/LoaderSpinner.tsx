@@ -83,12 +83,14 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
     lg: "text-5xl",
   };
 
-  const baseClasses = `
-    inline-block text-orange-300 font-mono
-    ${sizeClasses[size]}
-  `;
+  const baseClasses = `inline-block font-mono ${sizeClasses[size]}`;
 
   return (
-    <span className={`${baseClasses} ${className}`}>{spinnerChars[frame]}</span>
+    <span
+      className={`${baseClasses} ${className}`}
+      style={{ color: "var(--c-accent)" }}
+    >
+      {spinnerChars[frame]}
+    </span>
   );
 };

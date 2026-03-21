@@ -187,14 +187,15 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ onLogout, onDeleteAcco
         type: "system" as const,
         testId: "menu-item-invites",
       },
-      {
-        id: "search",
-        label: "Search",
-        description: "Search your message history",
-        action: () => push({ type: "search" }),
-        type: "system" as const,
-        testId: "menu-item-search",
-      },
+      // Search disabled — unreliable, needs more work
+      // {
+      //   id: "search",
+      //   label: "Search",
+      //   description: "Search your message history",
+      //   action: () => push({ type: "search" }),
+      //   type: "system" as const,
+      //   testId: "menu-item-search",
+      // },
       { id: "__sep1__", label: "", type: "separator" },
       {
         id: "preferences",
