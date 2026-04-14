@@ -199,41 +199,45 @@ export const VoiceSettingsPage: React.FC = () => {
               </span>
             )}
 
-            <div className="flex flex-wrap gap-2 mt-1">
-              <Button
-                data-testid={
-                  test.phase === "mic_listening"
-                    ? "voice-test-stop-mic"
-                    : "voice-test-start-mic"
-                }
-                variant="secondary"
-                disabled={
-                  test.phase === "recording" || test.phase === "playing"
-                }
-                onClick={() =>
-                  test.phase === "mic_listening"
-                    ? test.stopMicTest()
-                    : test.startMicTest(selectedInput, selectedOutput, false)
-                }
-              >
-                {test.phase === "mic_listening"
-                  ? "Stop mic test"
-                  : "Start mic test"}
-              </Button>
-              <Button
-                data-testid="voice-test-record-playback"
-                variant="secondary"
-                disabled={test.phase === "recording" || test.phase === "playing"}
-                onClick={() =>
-                  test.recordAndPlayBack(selectedInput, selectedOutput, 3000)
-                }
-              >
-                {test.phase === "recording"
-                  ? "Recording…"
-                  : test.phase === "playing"
-                    ? "Playing…"
-                    : "Record 3s & play back"}
-              </Button>
+            <div className="flex flex-col gap-2 mt-1">
+              <div className="flex">
+                <Button
+                  data-testid={
+                    test.phase === "mic_listening"
+                      ? "voice-test-stop-mic"
+                      : "voice-test-start-mic"
+                  }
+                  variant="secondary"
+                  disabled={
+                    test.phase === "recording" || test.phase === "playing"
+                  }
+                  onClick={() =>
+                    test.phase === "mic_listening"
+                      ? test.stopMicTest()
+                      : test.startMicTest(selectedInput, selectedOutput, false)
+                  }
+                >
+                  {test.phase === "mic_listening"
+                    ? "Stop mic test"
+                    : "Start mic test"}
+                </Button>
+              </div>
+              <div className="flex">
+                <Button
+                  data-testid="voice-test-record-playback"
+                  variant="secondary"
+                  disabled={test.phase === "recording" || test.phase === "playing" || test.phase === "mic_listening"}
+                  onClick={() =>
+                    test.recordAndPlayBack(selectedInput, selectedOutput, 3000)
+                  }
+                >
+                  {test.phase === "recording"
+                    ? "Recording…"
+                    : test.phase === "playing"
+                      ? "Playing…"
+                      : "Record 3s & play back"}
+                </Button>
+              </div>
             </div>
 
             {/* Always rendered so the section height doesn't jump when the
