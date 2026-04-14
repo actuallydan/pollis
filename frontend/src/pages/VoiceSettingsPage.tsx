@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { useRouter } from "@tanstack/react-router";
 import { invoke } from "@tauri-apps/api/core";
 import { PageShell } from "../components/Layout/PageShell";
 import { RangeSlider } from "../components/ui/RangeSlider";
@@ -64,7 +63,6 @@ const DeviceSelect: React.FC<DeviceSelectProps> = ({ label, devices, value, onCh
 );
 
 export const VoiceSettingsPage: React.FC = () => {
-  const router = useRouter();
   const preferences = usePreferences();
 
   const [inputs, setInputs] = useState<AudioDevice[]>([]);
@@ -114,13 +112,13 @@ export const VoiceSettingsPage: React.FC = () => {
     preferences.mutation.mutate({ ...preferences.query.data, auto_gain_control: enabled });
   };
 
-  const autoJoinVoice = preferences.query.data?.auto_join_voice ?? true;
+  const autoJoinVoice = preferences.query.data?.auto_join_voice ?? false;
   const handleAutoJoinVoice = (enabled: boolean) => {
     preferences.mutation.mutate({ ...preferences.query.data, auto_join_voice: enabled });
   };
 
   return (
-    <PageShell title="Voice Settings" onBack={() => router.history.back()} scrollable>
+    <PageShell title="Voice Settings" scrollable>
       <div className="flex flex-col px-6 py-8 gap-8" style={{ maxWidth: 400 }}>
 
         <section className="flex flex-col gap-4 mb-12">
@@ -176,7 +174,7 @@ export const VoiceSettingsPage: React.FC = () => {
             className="text-xs font-mono font-medium uppercase tracking-widest pb-1 border-b"
             style={{ color: "var(--c-text)", borderColor: "var(--c-border)" }}
           >
-            Behaviour
+            Behavior
           </h2>
           <Switch
             label="Auto Join Voice"
