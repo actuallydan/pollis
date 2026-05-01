@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { PageShell } from "../components/Layout/PageShell";
 import { Button } from "../components/ui/Button";
 import { TextInput } from "../components/ui/TextInput";
+import { NavigableList } from "../components/ui/NavigableList";
 import { useAppStore } from "../stores/appStore";
 import * as api from "../services/api";
 
@@ -60,6 +61,13 @@ function formatTimestamp(iso: string): string {
   }
 }
 
+const sectionHeaderClass =
+  "text-xs font-mono font-medium uppercase tracking-widest pb-1 border-b";
+const sectionHeaderStyle: React.CSSProperties = {
+  color: "var(--c-text)",
+  borderColor: "var(--c-border)",
+};
+
 export const SecurityPage: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser } = useAppStore();
@@ -68,9 +76,9 @@ export const SecurityPage: React.FC = () => {
 
   const [devices, setDevices] = useState<api.DeviceInfo[] | null>(null);
   const [devicesError, setDevicesError] = useState<string | null>(null);
-  const [confirmingDeviceId, setConfirmingDeviceId] = useState<string | null>(null);
+  const [confirmingDevice, setConfirmingDevice] = useState<api.DeviceInfo | null>(null);
   const [confirmInput, setConfirmInput] = useState("");
-  const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState(false);
 
   const loadDevices = React.useCallback(() => {
     if (!currentUser) {
@@ -109,258 +117,209 @@ export const SecurityPage: React.FC = () => {
     };
   }, [currentUser?.id, loadDevices]);
 
-  const startConfirm = (deviceId: string) => {
-    setConfirmingDeviceId(deviceId);
-    setConfirmInput("");
-    setDevicesError(null);
-  };
-
   const cancelConfirm = () => {
-    setConfirmingDeviceId(null);
+    setConfirmingDevice(null);
     setConfirmInput("");
   };
 
-  const revoke = async (device: api.DeviceInfo) => {
-    if (!currentUser) {
+  const revoke = async () => {
+    if (!currentUser || !confirmingDevice) {
       return;
     }
-    setRevokingDeviceId(device.device_id);
+    setRevoking(true);
     setDevicesError(null);
     try {
-      await api.revokeDevice(currentUser.id, device.device_id);
+      await api.revokeDevice(currentUser.id, confirmingDevice.device_id);
       cancelConfirm();
       loadDevices();
     } catch (err) {
       setDevicesError(err instanceof Error ? err.message : "Failed to revoke device");
     } finally {
-      setRevokingDeviceId(null);
+      setRevoking(false);
     }
   };
 
+  const deviceDisplayName = (device: api.DeviceInfo): string =>
+    device.device_name ?? shortId(device.device_id);
+
   return (
     <PageShell title="Security" scrollable>
-      <div
-        className="flex flex-col gap-4 p-4 font-mono"
-        data-testid="security-page"
-        style={{ color: "var(--c-text)" }}
-      >
-        <div>
-          <h2 className="text-sm font-bold" style={{ color: "var(--c-accent)" }}>
-            PIN
-          </h2>
-          <p
-            className="text-xs mt-1"
-            style={{ color: "var(--c-text-muted)", lineHeight: 1.5 }}
-          >
-            The local PIN unlocks Pollis on this device. It never leaves
-            the device and can't be recovered — use your Secret Key if
-            you forget it.
-          </p>
-          <Button
-            data-testid="change-pin-button"
-            className="mt-3"
-            onClick={() => navigate({ to: "/security/change-pin" })}
-          >
-            Change PIN
-          </Button>
-        </div>
-
-        <div>
-          <h2 className="text-sm font-bold" style={{ color: "var(--c-accent)" }}>
-            Devices
-          </h2>
-          <p
-            className="text-xs mt-1"
-            style={{ color: "var(--c-text-muted)", lineHeight: 1.5 }}
-          >
-            Every device signed in to your account. Revoke any you don't
-            recognise — the device loses access to all groups and DMs on
-            its next sync.
-          </p>
-
-          {devicesError && (
-            <p
-              data-testid="devices-error"
-              className="text-xs mt-2"
-              style={{ color: "#ff6b6b" }}
-            >
-              {devicesError}
+      <div className="flex justify-center px-6 py-8">
+        <div
+          className="flex flex-col gap-8 w-full max-w-md font-mono"
+          data-testid="security-page"
+        >
+          {/* PIN */}
+          <section className="flex flex-col gap-4 mb-12">
+            <h2 className={sectionHeaderClass} style={sectionHeaderStyle}>
+              PIN
+            </h2>
+            <p className="text-xs" style={{ color: "var(--c-text-muted)", lineHeight: 1.5 }}>
+              The local PIN unlocks Pollis on this device. It never leaves the
+              device and can't be recovered — use your Secret Key if you forget it.
             </p>
-          )}
+            <div className="self-start">
+              <Button
+                data-testid="change-pin-button"
+                onClick={() => navigate({ to: "/security/change-pin" })}
+              >
+                Change PIN
+              </Button>
+            </div>
+          </section>
 
-          {devices === null && (
-            <p className="text-xs mt-2" style={{ color: "var(--c-text-muted)" }}>
-              Loading…
+          {/* Devices */}
+          <section className="flex flex-col gap-4 mb-12">
+            <h2 className={sectionHeaderClass} style={sectionHeaderStyle}>
+              Devices
+            </h2>
+            <p className="text-xs" style={{ color: "var(--c-text-muted)", lineHeight: 1.5 }}>
+              Every device signed in to your account. Revoke any you don't
+              recognise — the device loses access to all groups and DMs on its
+              next sync.
             </p>
-          )}
 
-          {devices !== null && devices.length > 0 && (
-            <ul className="flex flex-col gap-2 mt-3" data-testid="devices-list">
-              {devices.map((device) => {
-                const isConfirming = confirmingDeviceId === device.device_id;
-                const isRevoking = revokingDeviceId === device.device_id;
-                const displayName = device.device_name ?? shortId(device.device_id);
-                return (
-                  <li
-                    key={device.device_id}
-                    data-testid={`device-${device.device_id}`}
-                    style={{
-                      background: "var(--c-surface)",
-                      border: "2px solid var(--c-border)",
-                      borderRadius: "0.5rem",
-                      padding: "0.75rem",
-                    }}
+            {devicesError && (
+              <p
+                data-testid="devices-error"
+                className="text-xs"
+                style={{ color: "#ff6b6b" }}
+              >
+                {devicesError}
+              </p>
+            )}
+
+            {confirmingDevice ? (
+              <div
+                className="flex flex-col gap-3"
+                data-testid="revoke-confirm"
+                style={{
+                  background: "var(--c-surface)",
+                  border: "2px solid var(--c-border)",
+                  borderRadius: "0.5rem",
+                  padding: "0.75rem",
+                }}
+              >
+                <p className="text-xs" style={{ color: "var(--c-text)" }}>
+                  Revoke <strong>{deviceDisplayName(confirmingDevice)}</strong>? This
+                  cannot be undone.
+                </p>
+                <TextInput
+                  label={`Type "${deviceDisplayName(confirmingDevice)}" to confirm`}
+                  value={confirmInput}
+                  onChange={setConfirmInput}
+                  autoFocus
+                  data-testid="revoke-confirm-input"
+                />
+                <div className="flex gap-2">
+                  <Button
+                    data-testid="revoke-confirm-submit"
+                    size="sm"
+                    disabled={
+                      confirmInput !== deviceDisplayName(confirmingDevice) || revoking
+                    }
+                    onClick={revoke}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div
-                          className="text-xs font-bold truncate"
-                          style={{ color: "var(--c-text)" }}
-                        >
-                          {displayName}
-                          {device.is_current && (
-                            <span
-                              className="ml-2 text-xs"
-                              style={{ color: "var(--c-accent)" }}
-                            >
-                              (this device)
-                            </span>
-                          )}
-                        </div>
-                        <div
-                          className="text-xs mt-1"
-                          style={{ color: "var(--c-text-dim)" }}
-                        >
-                          Last seen {formatTimestamp(device.last_seen)}
-                        </div>
-                      </div>
-                      {!device.is_current && !isConfirming && (
+                    {revoking ? "Revoking…" : "Revoke device"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={revoking}
+                    onClick={cancelConfirm}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <NavigableList<api.DeviceInfo>
+                testId="devices-list"
+                items={devices ?? []}
+                isLoading={devices === null}
+                loadingLabel="Loading devices…"
+                emptyLabel="No devices registered."
+                getKey={(d) => d.device_id}
+                rowTestId={(d) => `device-${d.device_id}`}
+                renderRow={(d) => (
+                  <div className="min-w-0 flex flex-col">
+                    <span className="truncate" style={{ color: "var(--c-text)" }}>
+                      {deviceDisplayName(d)}
+                    </span>
+                    <span style={{ color: "var(--c-text-dim)" }}>
+                      Last seen {formatTimestamp(d.last_seen)}
+                    </span>
+                  </div>
+                )}
+                controls={(d) =>
+                  d.is_current
+                    ? []
+                    : [
                         <Button
-                          data-testid={`revoke-${device.device_id}`}
+                          key="revoke"
+                          data-testid={`revoke-${d.device_id}`}
                           variant="secondary"
                           size="sm"
-                          disabled={isRevoking}
-                          onClick={() => startConfirm(device.device_id)}
+                          onClick={() => {
+                            setConfirmingDevice(d);
+                            setConfirmInput("");
+                            setDevicesError(null);
+                          }}
                         >
                           Revoke
-                        </Button>
-                      )}
-                    </div>
+                        </Button>,
+                      ]
+                }
+              />
+            )}
+          </section>
 
-                    {isConfirming && (
-                      <div className="mt-3 flex flex-col gap-2">
-                        <TextInput
-                          label={`Type "${displayName}" to confirm`}
-                          value={confirmInput}
-                          onChange={setConfirmInput}
-                          autoFocus
-                          data-testid={`revoke-confirm-input-${device.device_id}`}
-                        />
-                        <div className="flex gap-2">
-                          <Button
-                            data-testid={`revoke-confirm-${device.device_id}`}
-                            size="sm"
-                            disabled={confirmInput !== displayName || isRevoking}
-                            onClick={() => revoke(device)}
-                          >
-                            {isRevoking ? "Revoking…" : "Revoke device"}
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={isRevoking}
-                            onClick={cancelConfirm}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      </div>
+          {/* Security events */}
+          <section className="flex flex-col gap-4 mb-12">
+            <h2 className={sectionHeaderClass} style={sectionHeaderStyle}>
+              Security events
+            </h2>
+            <p className="text-xs" style={{ color: "var(--c-text-muted)", lineHeight: 1.5 }}>
+              Every time a device is added to your account, an enrollment is
+              rejected, or your identity is reset, it shows up here. Check it if
+              you ever suspect someone has accessed your account.
+            </p>
+
+            {error && (
+              <p
+                data-testid="security-events-error"
+                className="text-xs"
+                style={{ color: "#ff6b6b" }}
+              >
+                {error}
+              </p>
+            )}
+
+            <NavigableList<api.SecurityEvent>
+              testId="security-events-list"
+              items={events ?? []}
+              isLoading={events === null}
+              loadingLabel="Loading…"
+              emptyLabel="No security events recorded yet."
+              getKey={(e) => e.id}
+              rowTestId={(e) => `security-event-${e.id}`}
+              renderRow={(event) => {
+                const { heading, detail } = describe(event);
+                return (
+                  <div className="min-w-0 flex flex-col">
+                    <span style={{ color: "var(--c-text)" }}>{heading}</span>
+                    {detail && (
+                      <span style={{ color: "var(--c-text-muted)" }}>{detail}</span>
                     )}
-                  </li>
+                    <span style={{ color: "var(--c-text-dim)" }}>
+                      {formatTimestamp(event.created_at)}
+                    </span>
+                  </div>
                 );
-              })}
-            </ul>
-          )}
+              }}
+            />
+          </section>
         </div>
-
-        <div>
-          <h2 className="text-sm font-bold" style={{ color: "var(--c-accent)" }}>
-            Security events
-          </h2>
-          <p
-            className="text-xs mt-1"
-            style={{ color: "var(--c-text-muted)", lineHeight: 1.5 }}
-          >
-            Every time a device is added to your account, an enrollment is
-            rejected, or your identity is reset, it shows up here. Check it
-            if you ever suspect someone has accessed your account.
-          </p>
-        </div>
-
-        {error && (
-          <p
-            data-testid="security-events-error"
-            className="text-xs"
-            style={{ color: "#ff6b6b" }}
-          >
-            {error}
-          </p>
-        )}
-
-        {events === null && (
-          <p className="text-xs" style={{ color: "var(--c-text-muted)" }}>
-            Loading…
-          </p>
-        )}
-
-        {events !== null && events.length === 0 && (
-          <p
-            data-testid="security-events-empty"
-            className="text-xs"
-            style={{ color: "var(--c-text-muted)" }}
-          >
-            No security events recorded yet.
-          </p>
-        )}
-
-        {events !== null && events.length > 0 && (
-          <ul className="flex flex-col gap-3" data-testid="security-events-list">
-            {events.map((event) => {
-              const { heading, detail } = describe(event);
-              return (
-                <li
-                  key={event.id}
-                  data-testid={`security-event-${event.id}`}
-                  style={{
-                    background: "var(--c-surface)",
-                    border: "2px solid var(--c-border)",
-                    borderRadius: "0.5rem",
-                    padding: "0.75rem",
-                  }}
-                >
-                  <div
-                    className="text-xs font-bold"
-                    style={{ color: "var(--c-text)" }}
-                  >
-                    {heading}
-                  </div>
-                  <div
-                    className="text-xs mt-1"
-                    style={{ color: "var(--c-text-muted)" }}
-                  >
-                    {detail}
-                  </div>
-                  <div
-                    className="text-xs mt-2"
-                    style={{ color: "var(--c-text-dim)" }}
-                  >
-                    {formatTimestamp(event.created_at)}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
       </div>
     </PageShell>
   );
