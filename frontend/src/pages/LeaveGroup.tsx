@@ -8,7 +8,8 @@ import { PageShell } from "../components/Layout/PageShell";
 export const LeaveGroupPage: React.FC = () => {
   const navigate = useNavigate();
   const { groupId } = useParams({ from: "/groups/$groupId/leave" });
-  const { setSelectedGroupId, setSelectedChannelId } = useAppStore();
+  const setSelectedGroupId = useAppStore((s) => s.setSelectedGroupId);
+  const setSelectedChannelId = useAppStore((s) => s.setSelectedChannelId);
   const leaveGroupMutation = useLeaveGroup();
 
   const { data: groupsWithChannels, isLoading } = useUserGroupsWithChannels();
@@ -27,7 +28,7 @@ export const LeaveGroupPage: React.FC = () => {
           You will need a new invite to rejoin.
         </p>
         {leaveGroupMutation.isError && (
-          <p className="text-xs font-mono" style={{ color: "#ff6b6b" }}>
+          <p className="text-xs font-mono" style={{ color: "var(--c-danger)" }}>
             {leaveGroupMutation.error instanceof Error ? leaveGroupMutation.error.message : "Failed to leave group"}
           </p>
         )}

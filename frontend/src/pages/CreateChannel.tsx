@@ -14,7 +14,12 @@ interface CreateChannelProps {
 }
 
 export const CreateChannel: React.FC<CreateChannelProps> = ({ onSuccess }) => {
-  const { selectedGroupId, currentUser, addChannel, channels, groups, setSelectedChannelId } = useAppStore();
+  const selectedGroupId = useAppStore((s) => s.selectedGroupId);
+  const currentUser = useAppStore((s) => s.currentUser);
+  const addChannel = useAppStore((s) => s.addChannel);
+  const channels = useAppStore((s) => s.channels);
+  const groups = useAppStore((s) => s.groups);
+  const setSelectedChannelId = useAppStore((s) => s.setSelectedChannelId);
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -170,7 +175,7 @@ export const CreateChannel: React.FC<CreateChannelProps> = ({ onSuccess }) => {
           <input data-testid="create-channel-type-input" type="hidden" value={channelType} readOnly />
 
           {error && (
-            <p data-testid="create-channel-error" className="text-xs font-mono" style={{ color: '#ff6b6b' }}>
+            <p data-testid="create-channel-error" className="text-xs font-mono" style={{ color: 'var(--c-danger)' }}>
               {error}
             </p>
           )}

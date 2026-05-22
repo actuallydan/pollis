@@ -73,7 +73,7 @@ export const SecurityPage: React.FC = () => {
   const navigate = useNavigate();
   const router = useRouter();
   const { onDeleteAccount } = router.options.context as RouterContext;
-  const { currentUser } = useAppStore();
+  const currentUser = useAppStore((s) => s.currentUser);
   const [events, setEvents] = useState<api.SecurityEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -215,7 +215,7 @@ export const SecurityPage: React.FC = () => {
               <p
                 data-testid="devices-error"
                 className="text-xs"
-                style={{ color: "#ff6b6b" }}
+                style={{ color: "var(--c-danger)" }}
               >
                 {devicesError}
               </p>
@@ -321,7 +321,7 @@ export const SecurityPage: React.FC = () => {
               <p
                 data-testid="security-events-error"
                 className="text-xs"
-                style={{ color: "#ff6b6b" }}
+                style={{ color: "var(--c-danger)" }}
               >
                 {error}
               </p>

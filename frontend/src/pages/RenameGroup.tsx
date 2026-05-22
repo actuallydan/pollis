@@ -11,7 +11,7 @@ interface RenameGroupProps {
 }
 
 export const RenameGroup: React.FC<RenameGroupProps> = ({ groupId, onSuccess }) => {
-  const { currentUser } = useAppStore();
+  const currentUser = useAppStore((s) => s.currentUser);
   const { data: groupsWithChannels } = useUserGroupsWithChannels();
   const updateGroup = useUpdateGroup();
 
@@ -114,7 +114,7 @@ export const RenameGroup: React.FC<RenameGroupProps> = ({ groupId, onSuccess }) 
           <input data-testid="rename-group-description-input" type="hidden" value={description} readOnly />
 
           {error && (
-            <p data-testid="rename-group-error" className="text-xs font-mono" style={{ color: "#ff6b6b" }}>
+            <p data-testid="rename-group-error" className="text-xs font-mono" style={{ color: "var(--c-danger)" }}>
               {error}
             </p>
           )}

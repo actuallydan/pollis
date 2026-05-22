@@ -14,7 +14,9 @@ interface CreateGroupProps {
 }
 
 export const CreateGroup: React.FC<CreateGroupProps> = ({ onSuccess }) => {
-  const { currentUser, addGroup, setSelectedGroupId } = useAppStore();
+  const currentUser = useAppStore((s) => s.currentUser);
+  const addGroup = useAppStore((s) => s.addGroup);
+  const setSelectedGroupId = useAppStore((s) => s.setSelectedGroupId);
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -148,7 +150,7 @@ export const CreateGroup: React.FC<CreateGroupProps> = ({ onSuccess }) => {
           />
 
           {error && (
-            <p data-testid="create-group-error" className="text-xs font-mono" style={{ color: '#ff6b6b' }}>
+            <p data-testid="create-group-error" className="text-xs font-mono" style={{ color: 'var(--c-danger)' }}>
               {error}
             </p>
           )}

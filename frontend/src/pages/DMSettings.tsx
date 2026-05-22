@@ -8,14 +8,14 @@ import { PageShell } from "../components/Layout/PageShell";
 export const DMSettingsPage: React.FC = () => {
   const navigate = useNavigate();
   const { conversationId } = useParams({ from: "/dms/$conversationId/settings" });
-  const { setSelectedConversationId } = useAppStore();
+  const setSelectedConversationId = useAppStore((s) => s.setSelectedConversationId);
   const leaveDMMutation = useLeaveDM();
 
   return (
     <PageShell title="Conversation Settings">
       <div className="h-full flex flex-col items-center justify-center gap-4 px-6">
         {leaveDMMutation.isError && (
-          <p className="text-xs font-mono" style={{ color: "#ff6b6b" }}>
+          <p className="text-xs font-mono" style={{ color: "var(--c-danger)" }}>
             {leaveDMMutation.error instanceof Error ? leaveDMMutation.error.message : "Failed to leave conversation"}
           </p>
         )}

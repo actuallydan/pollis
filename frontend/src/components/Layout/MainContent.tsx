@@ -6,7 +6,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../stores/appStore";
 import { MessageList } from "../Message/MessageList";
 import { ReplyPreview } from "../Message/ReplyPreview";
-import { MessageQueue } from "../Message/MessageQueue";
 import { ChatInput, type Attachment, type ChatInputHandle } from "../ui/ChatInput";
 import { LoadingSpinner } from "../ui/LoaderSpinner";
 import { Button } from "../ui/Button";
@@ -56,16 +55,14 @@ interface MainContentProps {
 }
 
 export const MainContent: React.FC<MainContentProps> = ({ pendingDmRequest = null }) => {
-  const {
-    selectedChannelId,
-    selectedConversationId,
-    selectedGroupId,
-    replyToMessageId,
-    setReplyToMessageId,
-    currentUser,
-    pendingDeleteChannelId,
-    setPendingDeleteChannelId,
-  } = useAppStore();
+  const selectedChannelId = useAppStore((s) => s.selectedChannelId);
+  const selectedConversationId = useAppStore((s) => s.selectedConversationId);
+  const selectedGroupId = useAppStore((s) => s.selectedGroupId);
+  const replyToMessageId = useAppStore((s) => s.replyToMessageId);
+  const setReplyToMessageId = useAppStore((s) => s.setReplyToMessageId);
+  const currentUser = useAppStore((s) => s.currentUser);
+  const pendingDeleteChannelId = useAppStore((s) => s.pendingDeleteChannelId);
+  const setPendingDeleteChannelId = useAppStore((s) => s.setPendingDeleteChannelId);
   const acceptDmRequestMutation = useAcceptDMRequest();
   const blockUserMutation = useBlockUser();
   const navigate = useNavigate();
@@ -516,8 +513,6 @@ export const MainContent: React.FC<MainContentProps> = ({ pendingDmRequest = nul
           onScrollToMessage={(id) => console.log("Scroll to:", id)}
         />
       )}
-
-      <MessageQueue />
 
       {pendingDmRequest ? (
         <div data-testid="dm-request-bar">

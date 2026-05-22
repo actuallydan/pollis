@@ -38,6 +38,9 @@
     --c-border: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 22%);
     --c-border-active: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 50%);
 
+    /* ── Status colors ─────────────────────────────────────────────── */
+    --c-danger: #ff6b6b;
+
     /* ── Text — explicit lightness (not opacity) for readable contrast */
     --c-text: hsl(var(--accent-h) var(--accent-s) var(--accent-l));
     --c-text-dim: hsl(var(--accent-h) 28% 70%);
@@ -316,6 +319,25 @@ input[type="range"]::-moz-range-thumb {
 
 .status-bar-blink {
   animation: status-blink 2s ease-in-out infinite;
+}
+
+/* ── Loading spinner (Braille frame cycle) ───────────────────────── */
+@keyframes loader-spinner-frames {
+  0%   { content: "⠋"; }
+  10%  { content: "⠙"; }
+  20%  { content: "⠹"; }
+  30%  { content: "⠸"; }
+  40%  { content: "⠼"; }
+  50%  { content: "⠴"; }
+  60%  { content: "⠦"; }
+  70%  { content: "⠧"; }
+  80%  { content: "⠇"; }
+  90%  { content: "⠏"; }
+}
+
+.loader-spinner::before {
+  content: "⠋";
+  animation: loader-spinner-frames 0.8s steps(10) infinite;
 }
 
 /* ── Titlebar drag ───────────────────────────────────────────────── */
