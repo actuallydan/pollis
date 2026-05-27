@@ -40,6 +40,21 @@ function trayIconPath(name: "tray-default" | "tray-notification"): string {
   // In dev __dirname is electron/dist; build/ is sibling. In packaged
   // builds the same PNGs are shipped via extraResources to
   // process.resourcesPath (see electron/build/electron-builder.yml).
+  //
+  // macOS uses a dedicated `tray-mac.png` (22x22 + 44x44@2x, dark "p"
+  // silhouette on transparent background) that AppKit treats as a
+  // template image. Electron's nativeImage auto-picks the @2x asset on
+  // Retina displays as long as both files live in the same directory.
+  // There is no `tray-mac-notification` variant — unread on macOS rides
+  // on the dock badge (app.setBadgeCount), same approach Slack/Linear
+  // take. Linux/Windows keep the colored-tile assets that already exist.
+  if (process.platform === "darwin") {
+    const file = "tray-mac.png";
+    if (app.isPackaged) {
+      return path.join(process.resourcesPath, file);
+    }
+    return path.resolve(__dirname, "..", "build", file);
+  }
   if (app.isPackaged) {
     return path.join(process.resourcesPath, `${name}.png`);
   }
@@ -47,17 +62,13 @@ function trayIconPath(name: "tray-default" | "tray-notification"): string {
 }
 
 function loadTrayIcon(name: "tray-default" | "tray-notification"): Electron.NativeImage {
-  const raw = nativeImage.createFromPath(trayIconPath(name));
+  const img = nativeImage.createFromPath(trayIconPath(name));
   if (process.platform === "darwin") {
-    // macOS menu-bar icons want 22x22 logical pixels and a template image
-    // (B&W + alpha) so the system can invert it for light/dark themes.
-    // The shipped PNG is a 64x64 colored "p"; resize + flag as template
-    // and macOS renders a clean silhouette that follows the menu bar.
-    const resized = raw.resize({ width: 22, height: 22 });
-    resized.setTemplateImage(true);
-    return resized;
+    // Template image: AppKit treats the alpha channel as a mask and
+    // ignores RGB, auto-inverting for light/dark menu-bar themes.
+    img.setTemplateImage(true);
   }
-  return raw;
+  return img;
 }
 
 function showWindow(win: BrowserWindow): void {
