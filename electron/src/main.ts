@@ -387,9 +387,21 @@ void app.whenReady().then(async () => {
   });
 
   autoUpdater.on("download-progress", (p) => {
+    // electron-updater hands us `percent` (0–100, float) precomputed
+    // against the true CDN-reported content length. Forward it directly
+    // — the previous code only shipped `delta` (per-tick byte count)
+    // and the renderer had to sum + divide by an unknown total, which
+    // it couldn't because `update-available` doesn't carry the file
+    // size (the file hasn't downloaded yet at that point). Net result
+    // since the Electron migration: no percentage rendered, ever.
     sendToAllRenderers("updater:event", {
       event: "Progress",
-      data: { chunkLength: Math.round(p.delta ?? 0) },
+      data: {
+        chunkLength: Math.round(p.delta ?? 0),
+        percent: typeof p.percent === "number" ? p.percent : undefined,
+        transferred: typeof p.transferred === "number" ? p.transferred : undefined,
+        total: typeof p.total === "number" ? p.total : undefined,
+      },
     });
   });
   autoUpdater.on("update-available", (info) => {
