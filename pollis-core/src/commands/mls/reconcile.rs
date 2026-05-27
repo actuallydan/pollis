@@ -726,6 +726,47 @@ pub async fn reconcile_group_mls_impl(
     if outcome.epoch_after > outcome.epoch_before
         && (!outcome.added.is_empty() || !outcome.removed.is_empty())
     {
+        use std::collections::HashSet;
+
+        // Per-user device counts BEFORE this commit — derived from the
+        // `already_in_tree` snapshot captured at the top of this function.
+        let prior_user_ids: HashSet<&String> =
+            already_in_tree.iter().map(|(uid, _)| uid).collect();
+
+        // Per-user device counts AFTER this commit. Start from
+        // `already_in_tree`, drop removed pairs, add added pairs.
+        let mut post_tree: HashSet<(String, String)> = already_in_tree.clone();
+        for pair in &outcome.removed {
+            post_tree.remove(pair);
+        }
+        for pair in &outcome.added {
+            post_tree.insert(pair.clone());
+        }
+        let post_user_ids: HashSet<&String> =
+            post_tree.iter().map(|(uid, _)| uid).collect();
+
+        let mut joined_user_ids: Vec<String> = Vec::new();
+        let mut devices_added: Vec<(String, String)> = Vec::new();
+        let mut seen_added_user: HashSet<&String> = HashSet::new();
+        for pair in &outcome.added {
+            if prior_user_ids.contains(&pair.0) {
+                devices_added.push(pair.clone());
+            } else if seen_added_user.insert(&pair.0) {
+                joined_user_ids.push(pair.0.clone());
+            }
+        }
+
+        let mut left_user_ids: Vec<String> = Vec::new();
+        let mut devices_removed: Vec<(String, String)> = Vec::new();
+        let mut seen_removed_user: HashSet<&String> = HashSet::new();
+        for pair in &outcome.removed {
+            if post_user_ids.contains(&pair.0) {
+                devices_removed.push(pair.clone());
+            } else if seen_removed_user.insert(&pair.0) {
+                left_user_ids.push(pair.0.clone());
+            }
+        }
+
         // Local emit. The sink is None during early boot / signed-out;
         // dropping the send is the right behaviour there.
         let sink = state.livekit.lock().await.channel.clone();
@@ -734,8 +775,10 @@ pub async fn reconcile_group_mls_impl(
                 conversation_id: conversation_id.clone(),
                 epoch_before: outcome.epoch_before,
                 epoch_after: outcome.epoch_after,
-                added: outcome.added.clone(),
-                removed: outcome.removed.clone(),
+                joined_user_ids: joined_user_ids.clone(),
+                left_user_ids: left_user_ids.clone(),
+                devices_added: devices_added.clone(),
+                devices_removed: devices_removed.clone(),
             });
         }
 
@@ -752,8 +795,10 @@ pub async fn reconcile_group_mls_impl(
                 "conversation_id": conversation_id.clone(),
                 "epoch_before": outcome.epoch_before,
                 "epoch_after": outcome.epoch_after,
-                "added": outcome.added.clone(),
-                "removed": outcome.removed.clone(),
+                "joined_user_ids": joined_user_ids,
+                "left_user_ids": left_user_ids,
+                "devices_added": devices_added,
+                "devices_removed": devices_removed,
             }),
         )
         .await

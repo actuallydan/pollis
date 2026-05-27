@@ -138,29 +138,33 @@ pub enum RealtimeEvent {
     },
     /// Emitted after `reconcile_group_mls_impl` produces a non-empty
     /// commit (members or devices added/removed, with a corresponding
-    /// epoch bump). Carries the raw `(user_id, device_id)` deltas so
-    /// the frontend can render inline "X joined / X added a device /
-    /// X left" banners in the channel timeline.
+    /// epoch bump). The diff is split into user-level vs device-level
+    /// transitions so the frontend can render inline "X joined / X
+    /// added a device / X left" banners directly, without consulting
+    /// any other state.
     ///
     /// Locally: published by the reconciling client to its own sink so
     /// its open channel view picks up the banner immediately.
     /// Remotely: also broadcast to the conversation's LiveKit room via
     /// `publish_to_room_server` so already-connected peers see the
     /// banner without needing to refetch.
-    ///
-    /// The frontend is responsible for collapsing device-vs-user
-    /// transitions (e.g. an added pair whose user_id already had other
-    /// devices in the tree should render as "X added a device", not
-    /// "X joined"). The event itself stays close to the raw MLS diff
-    /// so the wire format doesn't have to encode application semantics.
     RosterChanged {
         conversation_id: String,
         epoch_before: u64,
         epoch_after: u64,
-        /// `(user_id, device_id)` pairs added to the MLS tree.
-        added: Vec<(String, String)>,
-        /// `(user_id, device_id)` pairs removed from the MLS tree.
-        removed: Vec<(String, String)>,
+        /// `user_id`s who had no leaves in the MLS tree before this
+        /// commit and now have at least one — i.e. "X joined".
+        joined_user_ids: Vec<String>,
+        /// `user_id`s whose last device was removed by this commit —
+        /// i.e. "X left". If a user removed one device but still has
+        /// another in the tree, they appear in `devices_removed` instead.
+        left_user_ids: Vec<String>,
+        /// `(user_id, device_id)` device additions for users who were
+        /// already in the tree — i.e. "X added a device".
+        devices_added: Vec<(String, String)>,
+        /// `(user_id, device_id)` device removals for users still in
+        /// the tree after this commit — i.e. "X removed a device".
+        devices_removed: Vec<(String, String)>,
     },
 }
 
