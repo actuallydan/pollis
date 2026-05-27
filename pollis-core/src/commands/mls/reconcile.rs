@@ -354,6 +354,32 @@ pub async fn reconcile_group_mls_impl(
         }
     }
 
+    // 1b. TOFU-pin every roster member's account_id_pub before we use
+    //     server-reported keys to add devices to the MLS tree. Without
+    //     this, a malicious Turso write could swap a member's key on the
+    //     fly and the next reconcile would silently graft an attacker's
+    //     device into the group with no inline signal to other members.
+    //     The DM ingest path already does this per-message; groups
+    //     piggyback on reconcile because that's the only choke point
+    //     where roster changes get applied. Skip the actor's own id —
+    //     contact_verification is for peers, not self. Non-fatal: a
+    //     transient failure must not block a legitimate membership
+    //     update. Caught + logged.
+    {
+        let peers: Vec<String> = roster_user_ids
+            .iter()
+            .filter(|id| id.as_str() != actor_user_id.as_str())
+            .cloned()
+            .collect();
+        if let Err(e) = crate::commands::safety::batch_check_and_pin_account_keys(
+            state, &peers,
+        )
+        .await
+        {
+            eprintln!("[reconcile] batch_check_and_pin_account_keys failed: {e}");
+        }
+    }
+
     // 2. Find devices with unclaimed KPs for all roster users.
     let mut device_pairs: Vec<(String, String)> = Vec::new();
     {
