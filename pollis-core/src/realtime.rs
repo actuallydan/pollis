@@ -136,6 +136,32 @@ pub enum RealtimeEvent {
         peer_user_id: String,
         peer_identity_version: i64,
     },
+    /// Emitted after `reconcile_group_mls_impl` produces a non-empty
+    /// commit (members or devices added/removed, with a corresponding
+    /// epoch bump). Carries the raw `(user_id, device_id)` deltas so
+    /// the frontend can render inline "X joined / X added a device /
+    /// X left" banners in the channel timeline.
+    ///
+    /// Locally: published by the reconciling client to its own sink so
+    /// its open channel view picks up the banner immediately.
+    /// Remotely: also broadcast to the conversation's LiveKit room via
+    /// `publish_to_room_server` so already-connected peers see the
+    /// banner without needing to refetch.
+    ///
+    /// The frontend is responsible for collapsing device-vs-user
+    /// transitions (e.g. an added pair whose user_id already had other
+    /// devices in the tree should render as "X added a device", not
+    /// "X joined"). The event itself stays close to the raw MLS diff
+    /// so the wire format doesn't have to encode application semantics.
+    RosterChanged {
+        conversation_id: String,
+        epoch_before: u64,
+        epoch_after: u64,
+        /// `(user_id, device_id)` pairs added to the MLS tree.
+        added: Vec<(String, String)>,
+        /// `(user_id, device_id)` pairs removed from the MLS tree.
+        removed: Vec<(String, String)>,
+    },
 }
 
 /// Held in AppState behind an Arc<Mutex<_>>.

@@ -715,6 +715,55 @@ pub async fn reconcile_group_mls_impl(
         crate::commands::voice_e2ee::on_mls_epoch_changed(state, &conversation_id).await;
     }
 
+    // Roster-change banners. Fire only when an actual epoch bump happened
+    // — `outcome.added` / `outcome.removed` are populated only on the
+    // committing branch, and the no-op early-returns above leave them
+    // empty. Local emit drives this client's own UI; the room-server
+    // publish reaches existing members so their inline timeline picks up
+    // the banner without refetching. New joiners don't see banners for
+    // themselves because the Welcome path doesn't go through this hook
+    // (it lives in `process_pending_welcomes`).
+    if outcome.epoch_after > outcome.epoch_before
+        && (!outcome.added.is_empty() || !outcome.removed.is_empty())
+    {
+        // Local emit. The sink is None during early boot / signed-out;
+        // dropping the send is the right behaviour there.
+        let sink = state.livekit.lock().await.channel.clone();
+        if let Some(ch) = sink {
+            let _ = ch.send(crate::realtime::RealtimeEvent::RosterChanged {
+                conversation_id: conversation_id.clone(),
+                epoch_before: outcome.epoch_before,
+                epoch_after: outcome.epoch_after,
+                added: outcome.added.clone(),
+                removed: outcome.removed.clone(),
+            });
+        }
+
+        // Room broadcast. Existing members already in the conversation
+        // room receive this data packet, parse the diff client-side
+        // (see `livekit/mod.rs` data-packet dispatch), and render the
+        // banner. Non-fatal: a flaky LiveKit blip mustn't fail the
+        // reconcile that already committed to Turso.
+        if let Err(e) = crate::commands::livekit::publish_to_room_server(
+            &state.config,
+            &conversation_id,
+            serde_json::json!({
+                "type": "roster_changed",
+                "conversation_id": conversation_id.clone(),
+                "epoch_before": outcome.epoch_before,
+                "epoch_after": outcome.epoch_after,
+                "added": outcome.added.clone(),
+                "removed": outcome.removed.clone(),
+            }),
+        )
+        .await
+        {
+            eprintln!(
+                "[realtime] reconcile: publish roster_changed for {conversation_id}: {e}"
+            );
+        }
+    }
+
     Ok(outcome)
 }
 

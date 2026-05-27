@@ -192,6 +192,39 @@ pub(super) fn dispatch_data(payload: &[u8], channel: &dyn crate::sink::EventSink
                 });
             }
         }
+        Some("roster_changed") => {
+            // Mirror of the RosterChanged variant in realtime.rs. Diffs
+            // are wire-format `[user_id, device_id]` pair arrays — pull
+            // them through `serde_json::from_value` rather than re-parsing
+            // by hand so a wire-shape drift fails fast in dev.
+            let conversation_id = data
+                .get("conversation_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned);
+            let epoch_before = data.get("epoch_before").and_then(|v| v.as_u64());
+            let epoch_after = data.get("epoch_after").and_then(|v| v.as_u64());
+            let added: Vec<(String, String)> = data
+                .get("added")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
+            let removed: Vec<(String, String)> = data
+                .get("removed")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
+            if let (Some(conversation_id), Some(epoch_before), Some(epoch_after)) =
+                (conversation_id, epoch_before, epoch_after)
+            {
+                let _ = channel.send(RealtimeEvent::RosterChanged {
+                    conversation_id,
+                    epoch_before,
+                    epoch_after,
+                    added,
+                    removed,
+                });
+            }
+        }
         Some("typing") => {
             if let Some(user_id) = data.get("user_id").and_then(|v| v.as_str()) {
                 let _ = channel.send(RealtimeEvent::Typing {
