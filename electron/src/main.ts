@@ -416,6 +416,23 @@ void app.whenReady().then(async () => {
     // after the UI transitions through the "installing" / "relaunching"
     // states — keep that flow intact.
     autoUpdater.quitAndInstall(false, true);
+    // Force-exit fallback. quitAndInstall on macOS fires before-quit +
+    // closes windows + hands off to Squirrel.Mac's ShipIt helper, which
+    // waits for the parent PID to die before swapping the bundle. If
+    // pollis-node has background Tokio tasks alive (media server, event
+    // emitters, livekit connections), the Node process won't exit even
+    // after windows close, ShipIt times out, and the UI sits on
+    // "Relaunching…" forever. A 10-second wall-clock cap is well past
+    // any legitimate graceful-quit window — past that point the only
+    // working path is to nuke the process so ShipIt can take over.
+    // Mirrors the same pattern as `Tray.markQuittingFromTray` does for
+    // the close-to-tray escape hatch.
+    setTimeout(() => {
+      console.warn(
+        "[updater] graceful quit did not exit within 10s — forcing app.exit so ShipIt can swap binaries",
+      );
+      app.exit(0);
+    }, 10_000);
   });
   autoUpdater.on("error", (e) => {
     console.error("[updater] error:", e);
