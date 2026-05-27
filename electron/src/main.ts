@@ -22,6 +22,8 @@ import {
   setupTray,
   setTrayUnread,
   setCloseToTray,
+  setTrayEnabled,
+  setTrayVoiceState,
   shouldHideOnClose,
 } from "./tray";
 
@@ -483,6 +485,27 @@ void app.whenReady().then(async () => {
       console.warn("[tray] setCloseToTray handler failed:", err);
     }
   });
+  // macOS-only opt-in. Linux/Windows ignore this — they always show the
+  // tray (when supported) per the existing close-to-tray UX.
+  ipcMain.handle("tray:setEnabled", (_e, enabled: boolean) => {
+    try {
+      setTrayEnabled(!!enabled);
+    } catch (err) {
+      console.warn("[tray] setEnabled handler failed:", err);
+    }
+  });
+  // Renderer pushes voice-call + mute state so the tray menu can show
+  // an accurate "Mute mic" / "Unmute mic" / "(not in a call)" label.
+  ipcMain.handle(
+    "tray:setVoiceState",
+    (_e, inCall: boolean, muted: boolean) => {
+      try {
+        setTrayVoiceState(!!inCall, !!muted);
+      } catch (err) {
+        console.warn("[tray] setVoiceState handler failed:", err);
+      }
+    },
+  );
 
   // ── Monitor enumeration ──────────────────────────────────────────────────
   // Tauri returns physical-pixel size + position with a scaleFactor. Electron's
