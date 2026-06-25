@@ -112,12 +112,6 @@ pub struct AppState {
     /// own receiver. Capacity is small and lagged receivers drop old frames —
     /// latest-frame-wins, never back-pressure the decoder.
     pub screenshare_frame_tx: tokio::sync::broadcast::Sender<std::sync::Arc<Vec<u8>>>,
-    /// TEST-ONLY fault injection (issue #411): when set, the next commit submit
-    /// performs its DB write (the commit LANDS canonically) but then reports a
-    /// network error — simulating a lost success-response. Exercises the
-    /// idempotent-adopt path in reconcile. One-shot: cleared when it fires.
-    #[cfg(any(test, feature = "test-harness"))]
-    pub fault_lose_next_submit: AtomicBool,
 }
 
 impl AppState {
@@ -164,8 +158,6 @@ impl AppState {
             // Receiver dropped immediately; subscribers are created per
             // WebSocket connection via `screenshare_frame_tx.subscribe()`.
             screenshare_frame_tx: tokio::sync::broadcast::channel(8).0,
-            #[cfg(any(test, feature = "test-harness"))]
-            fault_lose_next_submit: AtomicBool::new(false),
         }
     }
 

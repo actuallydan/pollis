@@ -202,8 +202,11 @@ async fn external_join_attempt(
         }
     };
 
-    // 2. Run the external commit inside the local_db sync scope.
-    let commit_bytes: Vec<u8> = {
+    // 2. Run the external commit inside the local_db sync scope. Capture both
+    //    the commit and its resulting-epoch GroupInfo so they land atomically
+    //    through the delivery seam (Slice 1). Welcomes are empty — an external
+    //    join only adds self.
+    let (commit_bytes, new_group_info_bytes): (Vec<u8>, Option<Vec<u8>>) = {
         let guard = state.local_db.lock().await;
         let db = guard.as_ref().ok_or_else(|| {
             crate::error::Error::Other(anyhow::anyhow!("Not signed in"))
@@ -262,6 +265,7 @@ async fn external_join_attempt(
             .map_err(|e| crate::error::Error::Other(anyhow::anyhow!(
                 "external commit load_psks: {e}"
             )))?
+            .create_group_info(true)
             .build(provider.rand(), provider.crypto(), &sig_keys, |_| true)
             .map_err(|e| crate::error::Error::Other(anyhow::anyhow!(
                 "external commit build: {e}"
@@ -271,10 +275,19 @@ async fn external_join_attempt(
                 "external commit finalize: {e}"
             )))?;
 
-        let (commit_msg, _welcome_msg, _new_group_info) = commit_bundle.into_contents();
-        commit_msg
+        let (commit_msg, _welcome_msg, new_group_info) = commit_bundle.into_contents();
+        let commit_bytes = commit_msg
             .tls_serialize_detached()
-            .map_err(|e| crate::error::Error::Other(anyhow::anyhow!("commit serialize: {e}")))?
+            .map_err(|e| crate::error::Error::Other(anyhow::anyhow!("commit serialize: {e}")))?;
+        let group_info_bytes = match new_group_info {
+            Some(gi) => Some(
+                gi.tls_serialize_detached().map_err(|e| {
+                    crate::error::Error::Other(anyhow::anyhow!("external commit group_info serialize: {e}"))
+                })?,
+            ),
+            None => None,
+        };
+        (commit_bytes, group_info_bytes)
     };
 
     // 3. Claim this epoch in mls_commit_log via compare-and-swap. If another
@@ -297,6 +310,9 @@ async fn external_join_attempt(
         &commit_bytes,
         Some(user_id),
         Some(&device_id),
+        new_group_info_bytes.as_deref(),
+        // External join adds only self — no Welcomes to deliver.
+        &[],
     )
     .await
     {
