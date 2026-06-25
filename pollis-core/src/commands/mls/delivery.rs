@@ -77,6 +77,19 @@ async fn direct_submit(
             ],
         )
         .await?;
+    // TEST-ONLY (issue #411): the write above LANDED, but pretend the
+    // success-response was lost on the wire. The caller must recover by
+    // observing the commit is canonical and adopting it — not roll back.
+    #[cfg(any(test, feature = "test-harness"))]
+    if affected > 0
+        && state
+            .fault_lose_next_submit
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+    {
+        return Err(Error::Other(anyhow::anyhow!(
+            "simulated lost submit response (test fault injection)"
+        )));
+    }
     Ok(if affected == 0 {
         SubmitResult::LostRace
     } else {

@@ -770,38 +770,62 @@ pub(crate) async fn process_pending_commits_locked(
                 }
                 Err(e) => {
                     let msg = format!("{e}");
-                    // Two distinct recoverable failures, both handled by
-                    // dropping the local group so the external-rejoin below
-                    // rebuilds it from the latest published GroupInfo:
-                    //
-                    //   1. Eviction — we were removed; our keys can't open the
-                    //      commit. Re-join only if we're still a roster member
-                    //      (external_join no-ops cleanly if GroupInfo is gone).
-                    //
-                    //   2. Fork — the commit is at our CURRENT epoch (it passed
-                    //      the epoch-gap check above) yet still won't apply, so
-                    //      our local tree has diverged from the canonical
-                    //      branch. This is the residue of a historical
-                    //      concurrent-commit race (prod incident: group
-                    //      `01KQYX89…`); the UNIQUE(conversation_id, epoch)
-                    //      constraint stops new forks, but already-forked
-                    //      devices only heal by re-joining the live branch.
-                    //
-                    // Deleting drops only this device's MLS crypto state, not
-                    // its decrypted message history (that lives in the local
-                    // `message` table). The rejoin lands at the latest epoch,
-                    // so the next pass filters `epoch >= new_epoch` and can't
-                    // re-fail on the same commit — no recovery loop.
-                    if msg.contains("evicted") {
-                        eprintln!("[mls] process_pending_commits: evicted from {mls_group_id} — deleting local group for recovery");
-                    } else {
+                    // Our OWN commit is canonical at this epoch — e.g. we
+                    // submitted it but a lost response made us converge instead
+                    // of merging (issue #411). openmls refuses to process its own
+                    // commit ("...created by this client"); the right move is to
+                    // ADOPT it by merging our pending commit, not delete the group
+                    // and try to re-join from a possibly-stale GroupInfo. This
+                    // advances us to the same epoch as everyone else.
+                    if msg.contains("created by this client") {
+                        if let Err(merge_err) = group.merge_pending_commit(&provider) {
+                            eprintln!(
+                                "[mls] process_pending_commits: own commit at epoch {} for {mls_group_id} but merge_pending failed ({merge_err}) — deleting to recover",
+                                commit.epoch
+                            );
+                            let _ = group.delete(provider.storage());
+                            break;
+                        }
                         eprintln!(
-                            "[mls] process_pending_commits: commit at epoch {} for {mls_group_id} failed to apply ({e}) — local state diverged from canonical branch; deleting local group to re-join",
+                            "[mls] process_pending_commits: adopted our own commit at epoch {} for {mls_group_id}",
                             commit.epoch
                         );
+                        // Fall through (no break) so this counts as applied and
+                        // the epoch advances.
+                    } else {
+                        // Two distinct recoverable failures, both handled by
+                        // dropping the local group so the external-rejoin below
+                        // rebuilds it from the latest published GroupInfo:
+                        //
+                        //   1. Eviction — we were removed; our keys can't open the
+                        //      commit. Re-join only if we're still a roster member
+                        //      (external_join no-ops cleanly if GroupInfo is gone).
+                        //
+                        //   2. Fork — the commit is at our CURRENT epoch (it passed
+                        //      the epoch-gap check above) yet still won't apply, so
+                        //      our local tree has diverged from the canonical
+                        //      branch. This is the residue of a historical
+                        //      concurrent-commit race (prod incident: group
+                        //      `01KQYX89…`); the UNIQUE(conversation_id, epoch)
+                        //      constraint stops new forks, but already-forked
+                        //      devices only heal by re-joining the live branch.
+                        //
+                        // Deleting drops only this device's MLS crypto state, not
+                        // its decrypted message history (that lives in the local
+                        // `message` table). The rejoin lands at the latest epoch,
+                        // so the next pass filters `epoch >= new_epoch` and can't
+                        // re-fail on the same commit — no recovery loop.
+                        if msg.contains("evicted") {
+                            eprintln!("[mls] process_pending_commits: evicted from {mls_group_id} — deleting local group for recovery");
+                        } else {
+                            eprintln!(
+                                "[mls] process_pending_commits: commit at epoch {} for {mls_group_id} failed to apply ({e}) — local state diverged from canonical branch; deleting local group to re-join",
+                                commit.epoch
+                            );
+                        }
+                        let _ = group.delete(provider.storage());
+                        break;
                     }
-                    let _ = group.delete(provider.storage());
-                    break;
                 }
             }
 

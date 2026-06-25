@@ -20,10 +20,123 @@ use super::provider::{parse_credential_device_id, parse_credential_user_id, Poll
 
 /// Result of the compare-and-swap commit submission in `reconcile_group_mls_impl`.
 enum SubmitOutcome {
-    /// Our commit claimed its epoch and was persisted (welcomes too).
+    /// Our commit claimed its epoch.
     Committed,
     /// Another member already committed this epoch; nothing was written.
     LostRace,
+}
+
+/// Is the byte-for-byte commit we submitted already canonical at `epoch`?
+///
+/// Makes submission idempotent (issue #411). A submit outcome can be ambiguous:
+/// a network error may mean the commit LANDED and only the response was lost,
+/// and a stale `LostRace` can be a retry of our OWN already-accepted commit. The
+/// canonical log is the arbiter — if our exact commit bytes sit at this epoch,
+/// we won and must adopt, not roll back and wedge. Any read failure returns
+/// `false` (safe: fall back to the rollback/converge path).
+async fn our_commit_is_canonical(
+    state: &Arc<AppState>,
+    conversation_id: &str,
+    epoch: i64,
+    our_commit: &[u8],
+) -> bool {
+    let conn = match state.remote_db.conn().await {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let mut rows = match conn
+        .query(
+            "SELECT commit_data FROM mls_commit_log WHERE conversation_id = ?1 AND epoch = ?2",
+            libsql::params![conversation_id.to_string(), epoch],
+        )
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    match rows.next().await {
+        Ok(Some(row)) => match row.get::<Vec<u8>>(0) {
+            Ok(stored) => stored == our_commit,
+            Err(_) => false,
+        },
+        _ => false,
+    }
+}
+
+/// Apply the side effects of a commit that won its epoch — whether confirmed
+/// synchronously (`Committed`) or discovered canonical after an ambiguous
+/// failure (lost response). Writes Welcomes for added members, merges the
+/// pending commit to advance the local epoch, and republishes GroupInfo. The
+/// pending commit must still be staged (we never cleared it on a win).
+async fn finalize_won_commit(
+    state: &Arc<AppState>,
+    conversation_id: &str,
+    added: &[(String, String)],
+    welcome_bytes: Option<&[u8]>,
+) -> crate::error::Result<()> {
+    if let Some(welcome_bytes) = welcome_bytes {
+        let write_conn = state.remote_db.conn().await?;
+        for (uid, did) in added {
+            let welcome_id = Ulid::new().to_string();
+            write_conn
+                .execute(
+                    "INSERT INTO mls_welcome (id, conversation_id, recipient_id, recipient_device_id, welcome_data) \
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    libsql::params![
+                        welcome_id,
+                        conversation_id.to_string(),
+                        uid.clone(),
+                        did.clone(),
+                        welcome_bytes.to_vec()
+                    ],
+                )
+                .await?;
+        }
+    }
+
+    // Merge to advance the epoch. Scope the !Send provider/group so neither
+    // crosses an await.
+    {
+        let guard = state.local_db.lock().await;
+        if let Some(db) = guard.as_ref() {
+            let provider = PollisProvider::new(db.conn());
+            let group_id = GroupId::from_slice(conversation_id.as_bytes());
+            let mut group = MlsGroup::load(provider.storage(), &group_id)
+                .map_err(|e| crate::error::Error::Other(anyhow::anyhow!("mls load for merge: {e}")))?
+                .ok_or_else(|| {
+                    crate::error::Error::Other(anyhow::anyhow!("group missing at merge time"))
+                })?;
+            group
+                .merge_pending_commit(&provider)
+                .map_err(|e| crate::error::Error::Other(anyhow::anyhow!("reconcile merge: {e}")))?;
+        }
+    }
+
+    // Republish GroupInfo so external-join (new-device enrollment) uses the
+    // latest tree state. Non-fatal.
+    if let Err(e) = publish_group_info(state, conversation_id).await {
+        eprintln!("[mls] reconcile: publish_group_info failed (non-fatal): {e}");
+    }
+    Ok(())
+}
+
+/// Roll back a staged-but-unconfirmed pending commit (best effort; logs on
+/// failure). Used only when our commit genuinely did not land.
+async fn clear_pending_best_effort(state: &Arc<AppState>, conversation_id: &str) {
+    let guard = state.local_db.lock().await;
+    if let Some(db) = guard.as_ref() {
+        let provider = PollisProvider::new(db.conn());
+        let group_id = GroupId::from_slice(conversation_id.as_bytes());
+        match MlsGroup::load(provider.storage(), &group_id) {
+            Ok(Some(mut group)) => {
+                if let Err(e) = group.clear_pending_commit(provider.storage()) {
+                    eprintln!("[mls] reconcile: clear_pending_commit failed: {e}");
+                }
+            }
+            Ok(None) => eprintln!("[mls] reconcile: group vanished during rollback"),
+            Err(e) => eprintln!("[mls] reconcile: group load failed during rollback: {e}"),
+        }
+    }
 }
 
 // NOTE: the former `repair_mls_group` (nuke-and-rebuild: re-create the group at
@@ -605,86 +718,70 @@ pub async fn reconcile_group_mls_impl(
             )
             .await?
             {
-                super::delivery::SubmitResult::LostRace => return Ok(SubmitOutcome::LostRace),
-                super::delivery::SubmitResult::Committed => {}
+                super::delivery::SubmitResult::LostRace => Ok(SubmitOutcome::LostRace),
+                super::delivery::SubmitResult::Committed => Ok(SubmitOutcome::Committed),
             }
-
-            if let Some(welcome_bytes) = data.welcome_bytes {
-                let write_conn = state.remote_db.conn().await?;
-                for (uid, did) in &outcome.added {
-                    let welcome_id = Ulid::new().to_string();
-                    write_conn.execute(
-                        "INSERT INTO mls_welcome (id, conversation_id, recipient_id, recipient_device_id, welcome_data) \
-                         VALUES (?1, ?2, ?3, ?4, ?5)",
-                        libsql::params![welcome_id, conversation_id.clone(), uid.clone(), did.clone(), welcome_bytes.clone()],
-                    )
-                    .await?;
-                }
-            }
-            Ok(SubmitOutcome::Committed)
         }
         .await;
 
-        match remote_result {
-            Err(e) => {
-                // Remote failed — clear the local pending commit so the
-                // next reconcile doesn't merge a commit the remote never
-                // saw. Without this, the top-of-block `merge_pending_commit`
-                // on the next run would re-introduce the exact split-brain
-                // this reordering is designed to prevent.
-                eprintln!(
-                    "[mls] reconcile: remote persist failed, clearing local pending commit: {e}"
-                );
-                let guard = state.local_db.lock().await;
-                if let Some(db) = guard.as_ref() {
-                    let provider = PollisProvider::new(db.conn());
-                    let group_id = GroupId::from_slice(conversation_id.as_bytes());
-                    match MlsGroup::load(provider.storage(), &group_id) {
-                        Ok(Some(mut group)) => {
-                            if let Err(clear_err) = group.clear_pending_commit(provider.storage()) {
-                                eprintln!(
-                                    "[mls] reconcile: clear_pending_commit failed after remote error: {clear_err}"
-                                );
-                            }
-                        }
-                        Ok(None) => {
-                            eprintln!("[mls] reconcile: group vanished during rollback");
-                        }
-                        Err(load_err) => {
-                            eprintln!("[mls] reconcile: group load failed during rollback: {load_err}");
-                        }
-                    }
-                }
-                return Err(e);
-            }
+        // Decide commit-or-abort. The submit outcome can be ambiguous: a network
+        // error may mean the commit landed and only the RESPONSE was lost, and a
+        // `LostRace` can be a stale retry of our OWN already-accepted commit. The
+        // canonical log is the arbiter — if our exact commit is at this epoch we
+        // WON and must adopt it (merge + Welcomes + GroupInfo) rather than roll
+        // back and wedge (issue #411). Roll back only when it truly didn't land.
+        enum Resolution {
+            Won,
+            LostRace,
+            Failed(crate::error::Error),
+        }
+        let epoch = outcome.epoch_before as i64;
+        let resolution = match remote_result {
+            Ok(SubmitOutcome::Committed) => Resolution::Won,
             Ok(SubmitOutcome::LostRace) => {
-                // Another member committed this epoch first. Our staged commit
-                // is on a branch no one will adopt, so roll it back (same as
-                // the remote-failure path) — do NOT merge, or we'd fork. We
-                // were already a member on the canonical branch; we just lost a
-                // commit race.
-                eprintln!(
-                    "[mls] reconcile: lost epoch {} race for {conversation_id} — rolling back local pending commit and converging on the winner",
-                    outcome.epoch_before
-                );
-                {
-                    let guard = state.local_db.lock().await;
-                    if let Some(db) = guard.as_ref() {
-                        let provider = PollisProvider::new(db.conn());
-                        let group_id = GroupId::from_slice(conversation_id.as_bytes());
-                        if let Ok(Some(mut group)) = MlsGroup::load(provider.storage(), &group_id) {
-                            if let Err(clear_err) = group.clear_pending_commit(provider.storage()) {
-                                eprintln!(
-                                    "[mls] reconcile: clear_pending_commit failed after lost race: {clear_err}"
-                                );
-                            }
-                        }
-                    }
+                if our_commit_is_canonical(state, &conversation_id, epoch, &data.commit_bytes).await {
+                    eprintln!(
+                        "[mls] reconcile: LostRace at epoch {epoch} for {conversation_id} but our commit is canonical — adopting (lost success-response)"
+                    );
+                    Resolution::Won
+                } else {
+                    Resolution::LostRace
                 }
-                // Apply the winning commit so we advance to the current epoch.
-                // The lock is already held, so use the unlocked variant. The
-                // pending invite / membership row persists, so a later
-                // reconcile re-applies our change at the new epoch.
+            }
+            Err(e) => {
+                if our_commit_is_canonical(state, &conversation_id, epoch, &data.commit_bytes).await {
+                    eprintln!(
+                        "[mls] reconcile: submit errored but our commit is canonical at epoch {epoch} for {conversation_id} — adopting (lost response): {e}"
+                    );
+                    Resolution::Won
+                } else {
+                    Resolution::Failed(e)
+                }
+            }
+        };
+
+        match resolution {
+            // We own this epoch (confirmed, or discovered canonical after an
+            // ambiguous failure). Write Welcomes, merge to advance, republish
+            // GroupInfo — then fall through to roster banners / voice rotation.
+            Resolution::Won => {
+                finalize_won_commit(
+                    state,
+                    &conversation_id,
+                    &outcome.added,
+                    data.welcome_bytes.as_deref(),
+                )
+                .await?;
+            }
+            // Another member committed this epoch first; our staged commit is on
+            // a branch no one will adopt. Roll it back and converge on the
+            // winner. The pending invite / membership row persists, so a later
+            // reconcile re-applies our change at the new epoch.
+            Resolution::LostRace => {
+                eprintln!(
+                    "[mls] reconcile: lost epoch {epoch} race for {conversation_id} — rolling back local pending commit and converging on the winner"
+                );
+                clear_pending_best_effort(state, &conversation_id).await;
                 if let Err(e) =
                     process_pending_commits_locked(state, &conversation_id, &actor_user_id).await
                 {
@@ -694,36 +791,15 @@ pub async fn reconcile_group_mls_impl(
                 }
                 return Ok(ReconcileOutcome::default());
             }
-            Ok(SubmitOutcome::Committed) => {
-                // Remote persisted — now merge locally to advance the epoch.
-                // Scope the provider + group tightly so neither crosses an
-                // await (PollisProvider wraps &rusqlite::Connection which
-                // is not Send).
-                {
-                    let guard = state.local_db.lock().await;
-                    let db = match guard.as_ref() {
-                        Some(db) => db,
-                        None => {
-                            return Ok(outcome);
-                        }
-                    };
-                    let provider = PollisProvider::new(db.conn());
-                    let group_id = GroupId::from_slice(conversation_id.as_bytes());
-                    let mut group = MlsGroup::load(provider.storage(), &group_id)
-                        .map_err(|e| crate::error::Error::Other(anyhow::anyhow!("mls load for merge: {e}")))?
-                        .ok_or_else(|| {
-                            crate::error::Error::Other(anyhow::anyhow!("group missing at merge time"))
-                        })?;
-                    group
-                        .merge_pending_commit(&provider)
-                        .map_err(|e| crate::error::Error::Other(anyhow::anyhow!("reconcile merge: {e}")))?;
-                }
-
-                // Publish updated GroupInfo so external-join (new device
-                // enrollment) uses the latest tree state. Non-fatal.
-                if let Err(e) = publish_group_info(state, &conversation_id).await {
-                    eprintln!("[mls] reconcile: publish_group_info failed (non-fatal): {e}");
-                }
+            // The commit genuinely did not land. Clear the staged pending commit
+            // so a later reconcile doesn't merge a commit the remote never saw,
+            // then surface the error.
+            Resolution::Failed(e) => {
+                eprintln!(
+                    "[mls] reconcile: remote persist failed for {conversation_id}, clearing local pending commit: {e}"
+                );
+                clear_pending_best_effort(state, &conversation_id).await;
+                return Err(e);
             }
         }
     }
