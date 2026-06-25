@@ -34,7 +34,7 @@ enum SubmitOutcome {
 /// canonical log is the arbiter — if our exact commit bytes sit at this epoch,
 /// we won and must adopt, not roll back and wedge. Any read failure returns
 /// `false` (safe: fall back to the rollback/converge path).
-async fn our_commit_is_canonical(
+pub(super) async fn our_commit_is_canonical(
     state: &Arc<AppState>,
     conversation_id: &str,
     epoch: i64,

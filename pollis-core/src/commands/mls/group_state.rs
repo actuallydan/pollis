@@ -284,6 +284,11 @@ async fn external_join_attempt(
     // Submit through the delivery seam (Direct today, the Delivery Service once
     // POLLIS_DELIVERY_URL is set). LostRace → another member committed this
     // epoch first; discard our doomed local branch and retry.
+    // Resolve the outcome against the canonical log (issue #411). A network
+    // error may mean our external commit LANDED and only the response was lost,
+    // and a stale `LostRace` can be a retry of our own accepted commit — in both
+    // cases our exact commit bytes at `stored_epoch` prove we won and must keep
+    // the locally-finalized join, not discard it and wedge.
     match super::delivery::submit_commit(
         state,
         conversation_id,
@@ -293,10 +298,45 @@ async fn external_join_attempt(
         Some(user_id),
         Some(&device_id),
     )
-    .await?
+    .await
     {
-        super::delivery::SubmitResult::LostRace => return Ok(ExternalJoinResult::LostRace),
-        super::delivery::SubmitResult::Committed => {}
+        Ok(super::delivery::SubmitResult::Committed) => {}
+        Ok(super::delivery::SubmitResult::LostRace) => {
+            if super::reconcile::our_commit_is_canonical(
+                state,
+                conversation_id,
+                stored_epoch,
+                &commit_bytes,
+            )
+            .await
+            {
+                eprintln!(
+                    "[mls] external_join: LostRace at epoch {stored_epoch} for {conversation_id} but our commit is canonical — adopting (lost success-response)"
+                );
+            } else {
+                return Ok(ExternalJoinResult::LostRace);
+            }
+        }
+        Err(e) => {
+            if super::reconcile::our_commit_is_canonical(
+                state,
+                conversation_id,
+                stored_epoch,
+                &commit_bytes,
+            )
+            .await
+            {
+                eprintln!(
+                    "[mls] external_join: submit errored but our commit is canonical at epoch {stored_epoch} for {conversation_id} — adopting (lost response): {e}"
+                );
+            } else {
+                // Genuine failure — discard the locally-finalized (orphaned)
+                // join group for symmetry with the LostRace path (the caller
+                // only forgets on LostRace), then surface the error.
+                let _ = forget_local_mls_group(state, conversation_id).await;
+                return Err(e);
+            }
+        }
     }
 
     // 4. Refresh the stored GroupInfo at the new epoch so any NEXT
@@ -835,6 +875,31 @@ pub(crate) async fn process_pending_commits_locked(
         if applied {
             current_epoch += 1;
             any_applied = true;
+        }
+    }
+
+    // Resolve any commit left DANGLING by an interrupted submit (a crash, or a
+    // `clear_pending_commit` that itself failed). If our commit had actually
+    // landed, the replay loop above would have adopted it (OwnCommit → merge),
+    // so a commit still pending here never made it into the canonical log.
+    // Clear it — otherwise a later blind `merge_pending_commit`
+    // (`load_group_with_signer` / reconcile) would advance us to a phantom epoch
+    // no other member can see, and our messages would become undecryptable to
+    // the group (issue #411 item 2). Safe even if it *had* landed: a future
+    // pass re-adopts it from the log.
+    {
+        let guard = state.local_db.lock().await;
+        if let Some(db) = guard.as_ref() {
+            let provider = PollisProvider::new(db.conn());
+            let group_id = GroupId::from_slice(mls_group_id.as_bytes());
+            if let Ok(Some(mut group)) = MlsGroup::load(provider.storage(), &group_id) {
+                if group.pending_commit().is_some() {
+                    eprintln!(
+                        "[mls] process_pending_commits: clearing a dangling pending commit for {mls_group_id} (never landed) to avoid a phantom-epoch merge"
+                    );
+                    let _ = group.clear_pending_commit(provider.storage());
+                }
+            }
         }
     }
 
