@@ -1,20 +1,25 @@
 # Manual deploy of the static marketing site (website/) to Cloudflare Pages.
 #
 # Moves the website off auto-on-merge onto the deploy-button pattern (#406):
-# `main` stays always-deployable, publishing is a deliberate manual act. Disable
-# the Cloudflare Pages git auto-deploy in the CF dashboard so this is the only
-# path that ships the site.
+# `main` stays always-deployable, publishing is a deliberate manual act.
+#
+# The Pages project (`pollis`) is GIT-CONNECTED (root dir `website/`, production
+# branch `main`), so deployments are git builds — not wrangler direct uploads
+# (which Cloudflare rejects on a git-connected project). The manual trigger is
+# therefore a Pages **Deploy Hook**: a POST kicks a build of the connected
+# production branch, same pipeline as before, just on-demand.
 #
 # Manual only — no push/tag trigger. See #406.
+#
+# One-time setup in the Cloudflare dashboard (Pages → pollis → Settings):
+#   1. Branch control → Automatic deployments → OFF (so merges to main no longer
+#      auto-deploy; this workflow becomes the only path that ships the site).
+#   2. Deploy Hooks → create one for branch `main`; store its URL as the GitHub
+#      secret `CF_PAGES_DEPLOY_HOOK` (the URL embeds the project + a token).
 name: Deploy Website
 
 on:
   workflow_dispatch:
-    inputs:
-      ref:
-        description: Git ref to deploy (branch, tag, or SHA)
-        required: false
-        default: main
 
 permissions:
   contents: read
@@ -29,28 +34,18 @@ jobs:
     # Optional manual-approval gate + audit trail, matching the other deploys.
     environment: website-prod
     steps:
-      - name: Checkout ${{ inputs.ref }}
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
-
-      - name: Preflight — required config present
+      - name: Preflight — deploy hook configured
         run: |
           set -euo pipefail
-          missing=()
-          [ -n "${{ secrets.CLOUDFLARE_API_TOKEN }}" ] || missing+=("secrets.CLOUDFLARE_API_TOKEN")
-          [ -n "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ] || missing+=("secrets.CLOUDFLARE_ACCOUNT_ID")
-          [ -n "${{ vars.CF_PAGES_PROJECT }}" ] || missing+=("vars.CF_PAGES_PROJECT")
-          if [ "${#missing[@]}" -ne 0 ]; then
-            printf '::error::Missing required config: %s\n' "${missing[*]}"
+          if [ -z "${{ secrets.CF_PAGES_DEPLOY_HOOK }}" ]; then
+            echo "::error::Missing required config: secrets.CF_PAGES_DEPLOY_HOOK"
             exit 1
           fi
 
-      # The static site is plain HTML/CSS/JS — no build step; publish website/ as-is.
-      - name: Publish website/ to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # --branch=main marks this as a production deployment for the project.
-          command: pages deploy website --project-name=${{ vars.CF_PAGES_PROJECT }} --branch=main
+      # Kicks a git build of the connected production branch (main). The build
+      # runs async on Cloudflare — watch progress in the Pages dashboard, same as
+      # the delivery deploys poke Watchtower and return.
+      - name: Trigger Cloudflare Pages build
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST "${{ secrets.CF_PAGES_DEPLOY_HOOK }}" ; echo
