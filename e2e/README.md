@@ -55,14 +55,41 @@ Nothing talks to prod. No OTP email is ever sent.
   baked in and will silently ignore the local-DS override.
 
 - **`.env.test`** must point at a **writable, disposable** Turso DB with the
-  schema current. `.env.development`'s Turso token is read-only — signup fails
-  on it — which is why all Turso access is redirected to the test DB. If a run
-  fails with `no such table: …`, apply the missing migrations:
+  schema applied. `.env.development`'s Turso token is read-only — signup fails
+  on it — which is why all Turso access is redirected to the test DB.
 
-  ```bash
-  set -a; . .env.test; set +a
-  turso db shell "$TURSO_URL" < pollis-core/src/db/migrations/00000N_the_missing_one.sql
-  ```
+  > **Schema bootstrap is a manual, one-time step** (see "Known limitation"
+  > below). The integration test harness already bootstraps `.env.test`
+  > idempotently, so the simplest way to get a current schema is to run it once:
+  >
+  > ```bash
+  > cargo test --features test-harness --test flows
+  > ```
+  >
+  > (Any single scenario is enough — it stamps the baseline + all migrations
+  > into the DB.) Alternatively, apply migrations by hand against a fresh DB:
+  >
+  > ```bash
+  > set -a; . .env.test; set +a
+  > for f in pollis-core/src/db/migrations/0*.sql; do
+  >   turso db shell "$TURSO_URL" < "$f"
+  > done
+  > ```
+  >
+  > If a run fails with `no such table: …`, the test DB is behind on migrations
+  > — re-run the harness (or apply the missing file).
+
+## Known limitation — no automatic schema bootstrap
+
+`e2e.js` does **not** bring the test DB's schema up itself; it assumes the
+schema is already applied (see above). Auto-bootstrapping was deliberately
+deferred: the `pollis-core` test harness — the source of truth for schema
+setup — is under active change, and duplicating its migration logic here now
+would create churn/conflicts. Once that settles, `e2e.js` should apply the
+baseline + numbered migrations at startup (reading `pollis-core/src/db/
+migrations/*.sql`, gated on `schema_migrations`) so a fresh clone / CI works
+with no manual step. Until then this harness is **not** fully self-contained
+for CI.
 
 ## Gotchas encoded in e2e.js (learned the hard way)
 
