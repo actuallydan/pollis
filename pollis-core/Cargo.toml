@@ -11,10 +11,19 @@ name = "pollis_core"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
-default = ["media"]
+default = ["media", "os-keystore"]
 # When enabled, emits a `uniffi-bindgen` bin target so we can run the
 # binding generator without installing a separate crate.
 cli = ["uniffi/cli"]
+# OS keychain backend (release desktop: macOS Keychain / Windows Credential
+# Manager / Linux Secret Service). ON by default. Pulls in `keyring`, which
+# unconditionally links `dbus-secret-service -> dbus -> libdbus-sys` (the
+# system `dbus-1` C lib) even in debug/test builds where the runtime backend
+# is the file store — so a headless box with no `dbus-1` still fails to link.
+# Turning this OFF (`--no-default-features`) drops the `keyring` dependency and
+# forces the file-backed keystore everywhere. A normal RELEASE desktop build
+# keeps default features, so its OS-keychain path is bit-for-bit unchanged.
+os-keystore = ["dep:keyring"]
 # Exposes test helpers (Config::for_test, InMemoryKeystore) for the
 # integration harness in src-tauri/tests/flows.rs.
 test-harness = []
@@ -65,7 +74,11 @@ argon2 = "0.5"
 chacha20poly1305 = "0.10"
 rand = "0.8"
 rand_core = { version = "0.6", features = ["getrandom"] }
-keyring = { version = "3", features = ["apple-native", "sync-secret-service", "windows-native", "crypto-rust"] }
+# Optional — pulled in only by the `os-keystore` feature (on by default). See
+# the feature comment above: keyring hard-links `libdbus-sys` on Linux, so the
+# headless/box build drops it via `--no-default-features` and uses the file
+# store. Feature-on cfg reproduces today's desktop keychain build exactly.
+keyring = { version = "3", features = ["apple-native", "sync-secret-service", "windows-native", "crypto-rust"], optional = true }
 base64 = "0.22"
 hex = "0.4"
 ulid = "1"
