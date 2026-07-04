@@ -1,8 +1,9 @@
 # Media Permissions
 
-OS-level camera / microphone / screen-share access controls, surfaced in
-Preferences: a live status line per device, a "revoke on quit" preference, and a
-manual "Revoke now" button. Issue #443.
+OS-level camera / microphone / screen-share access controls, surfaced on the
+**Security** page (next to Devices — it is an access-control concern, not a
+cosmetic preference): a live status line per device, a "revoke on quit"
+preference, and a manual "Revoke now" button. Issue #443.
 
 The design bar is honesty: an OS grant means different things on each platform,
 so Pollis reports what is actually true rather than faking a uniform model.
@@ -19,9 +20,12 @@ bundle identifier). So it lives entirely in `src-tauri`, the same rationale as
 - Backend: `src-tauri/src/commands/media_permissions.rs`
 - Exit hook: `src-tauri/src/lib.rs` (`RunEvent::ExitRequested`)
 - Frontend hook: `frontend/src/hooks/queries/useMediaPermissions.ts`
-- UI: the "Media permissions" section of `frontend/src/pages/PreferencesPage.tsx`
+- UI: the "Media permissions" section of `frontend/src/pages/SecurityPage.tsx`
+  (reachable via Cmd+K — the Security entry's keywords include camera/microphone/
+  screen/permission/revoke/privacy so a media-minded search still lands here)
 - Preference persistence: `revoke_media_on_exit` in the prefs blob
-  (`frontend/src/hooks/queries/usePreferences.ts`)
+  (`frontend/src/hooks/queries/usePreferences.ts`); pushed to the host on load
+  by `useApplyPreferences` and on toggle by the Security page handler
 
 ## Commands
 
