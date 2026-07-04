@@ -29,8 +29,35 @@ import { Button } from "../components/ui/Button";
 import { appStore } from "../stores/appStore";
 import { observer } from "mobx-react-lite";
 import { loadDeviceCallRingtone, saveDeviceCallRingtone } from "../utils/notify";
-import { isMac } from "../utils/platform";
+import { isMac, isLinux, isWindows } from "../utils/platform";
+import {
+  useMediaPermissions,
+  useRevokeMediaPermissions,
+  type PermissionState,
+} from "../hooks/queries/useMediaPermissions";
 import { useShortcutLabel } from "../keyboard";
+
+// Map a PermissionState onto a human label + solid token color for the status
+// pill. No neon/glow — solid text colors only.
+function permissionPill(state: PermissionState | undefined): {
+  label: string;
+  color: string;
+} {
+  switch (state) {
+    case "granted":
+      return { label: "Granted", color: "var(--c-accent)" };
+    case "denied":
+      return { label: "Denied", color: "var(--c-danger)" };
+    case "notDetermined":
+      return { label: "Not set", color: "var(--c-text-muted)" };
+    case "perSession":
+      return { label: "Per session", color: "var(--c-text-dim)" };
+    case "unsupported":
+      return { label: "Not applicable", color: "var(--c-text-muted)" };
+    default:
+      return { label: "Checking…", color: "var(--c-text-muted)" };
+  }
+}
 
 function getRootVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -56,10 +83,16 @@ export const PreferencesPage: React.FC = observer(() => {
   const [sidebarOpenByDefault, setSidebarOpenByDefault] = useState<boolean>(true);
   const [closeToTray, setCloseToTray] = useState<boolean>(true);
   const [menubarIcon, setMenubarIcon] = useState<boolean>(false);
+  const [revokeMediaOnExit, setRevokeMediaOnExit] = useState<boolean>(false);
+  const [confirmingRevoke, setConfirmingRevoke] = useState<boolean>(false);
   const [accentHexInput, setAccentHexInput] = useState<string>(() => hslToHex(38, 90, 62));
   const [bgHexInput, setBgHexInput] = useState<string>(() => hslToHex(38, 20, 4));
 
   const { query, save: savePrefs } = usePreferences();
+
+  // Live OS permission status (refetches on window focus) + the revoke mutation.
+  const mediaPermissions = useMediaPermissions();
+  const revokeMedia = useRevokeMediaPermissions();
 
   // Device-local message retention window (see useMessageRetention). Selecting
   // an option fires the mutation immediately — the backend sweep is immediate.
@@ -87,6 +120,9 @@ export const PreferencesPage: React.FC = observer(() => {
       }
       if (query.data.menubar_icon !== undefined) {
         setMenubarIcon(query.data.menubar_icon);
+      }
+      if (query.data.revoke_media_on_exit !== undefined) {
+        setRevokeMediaOnExit(query.data.revoke_media_on_exit);
       }
     }
   }, [query.data, currentUser?.id]);
@@ -125,6 +161,7 @@ export const PreferencesPage: React.FC = observer(() => {
     sidebarOpenByDefault?: boolean;
     closeToTray?: boolean;
     menubarIcon?: boolean;
+    revokeMediaOnExit?: boolean;
   }) => {
     const ah = opts.accentH ?? hue;
     const as_ = opts.accentS ?? saturation;
@@ -136,6 +173,7 @@ export const PreferencesPage: React.FC = observer(() => {
     const sidebar = opts.sidebarOpenByDefault ?? sidebarOpenByDefault;
     const tray = opts.closeToTray ?? closeToTray;
     const menubar = opts.menubarIcon ?? menubarIcon;
+    const revokeMediaExit = opts.revokeMediaOnExit ?? revokeMediaOnExit;
     const accentHex = hslToHex(ah, as_, 62);
     const bgHex = hslToHex(bh, bs, bl);
     // font_size is intentionally NOT included — it's device-local now,
@@ -153,8 +191,9 @@ export const PreferencesPage: React.FC = observer(() => {
       sidebar_open_by_default: sidebar,
       close_to_tray: tray,
       menubar_icon: menubar,
+      revoke_media_on_exit: revokeMediaExit,
     });
-  }, [savePrefs, query.data, hue, saturation, bgHue, bgSaturation, bgLightness, allowDesktopNotifications, allowSoundEffects, sidebarOpenByDefault, closeToTray, menubarIcon]);
+  }, [savePrefs, query.data, hue, saturation, bgHue, bgSaturation, bgLightness, allowDesktopNotifications, allowSoundEffects, sidebarOpenByDefault, closeToTray, menubarIcon, revokeMediaOnExit]);
 
   const handleAccentColor = (hex: string) => {
     const [h, s] = hexToHsl(hex);
@@ -212,6 +251,21 @@ export const PreferencesPage: React.FC = observer(() => {
     void setTrayEnabled(val).catch((err) => {
       console.warn("[tray] setTrayEnabled failed:", err);
     });
+  };
+
+  const handleRevokeMediaOnExit = (val: boolean) => {
+    setRevokeMediaOnExit(val);
+    save({ revokeMediaOnExit: val });
+    // Push immediately so a quit right after toggling picks up the new value,
+    // without waiting for the throttled prefs round-trip (mirrors close-to-tray).
+    void invoke("set_revoke_media_on_exit", { enabled: val }).catch((err) => {
+      console.warn("[media-permissions] set_revoke_media_on_exit failed:", err);
+    });
+  };
+
+  const handleRevokeNow = () => {
+    setConfirmingRevoke(false);
+    revokeMedia.mutate(["camera", "microphone", "screen"]);
   };
 
   const handleAllowCallRingtone = (val: boolean) => {
@@ -572,6 +626,109 @@ export const PreferencesPage: React.FC = observer(() => {
                 messages are deleted from local storage to save space. This does
                 not affect your other devices or the people you're talking to, and
                 you'll still receive new messages normally.
+              </p>
+            </section>
+
+            {/* Media permissions */}
+            <section className="flex flex-col gap-4 mb-12">
+              <h2
+                className="text-xs font-mono font-medium uppercase tracking-widest pb-1 border-b"
+                style={{ color: "var(--c-text)", borderColor: "var(--c-border)" }}
+              >
+                Media permissions
+              </h2>
+
+              {/* Live OS status for each media device. */}
+              <div className="flex flex-col gap-2">
+                {[
+                  { label: "Camera", state: mediaPermissions.data?.camera },
+                  { label: "Microphone", state: mediaPermissions.data?.microphone },
+                  { label: "Screen share", state: mediaPermissions.data?.screen },
+                ].map((row) => {
+                  const pill = permissionPill(row.state);
+                  return (
+                    <div
+                      key={row.label}
+                      className="flex items-center justify-between"
+                    >
+                      <span className="text-sm" style={{ color: "var(--c-text)" }}>
+                        {row.label}
+                      </span>
+                      <span
+                        className="text-xs font-mono px-2 py-0.5 rounded"
+                        style={{
+                          color: pill.color,
+                          border: `1px solid ${pill.color}`,
+                        }}
+                      >
+                        {pill.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Switch
+                  id="pref-revoke-media-on-exit"
+                  label="Revoke system permissions when Pollis quits"
+                  checked={revokeMediaOnExit}
+                  onChange={handleRevokeMediaOnExit}
+                />
+                <p className="text-xs font-mono" style={{ color: "var(--c-text-muted)" }}>
+                  When on, Pollis clears its saved camera / microphone / screen
+                  permissions as it quits, so the OS asks again next time.
+                </p>
+              </div>
+
+              {/* Inline confirm (NO modal) — clicking "Revoke now" swaps the
+                  button for a Confirm/Cancel row in place. */}
+              <div className="self-start">
+                {confirmingRevoke ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-mono" style={{ color: "var(--c-text-dim)" }}>
+                      This clears Pollis's saved permissions.
+                    </span>
+                    <Button variant="primary" size="sm" onClick={handleRevokeNow}>
+                      Confirm
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setConfirmingRevoke(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={revokeMedia.isPending}
+                    onClick={() => setConfirmingRevoke(true)}
+                  >
+                    Revoke now
+                  </Button>
+                )}
+              </div>
+
+              {/* Result note from the last revoke, when the platform has one. */}
+              {revokeMedia.data?.note && (
+                <p className="text-xs font-mono" style={{ color: "var(--c-text-muted)" }}>
+                  {revokeMedia.data.note}
+                </p>
+              )}
+
+              {/* Honest, per-OS explanation of what "Revoke now" does. */}
+              <p className="text-xs font-mono" style={{ color: "var(--c-text-muted)" }}>
+                {isMac &&
+                  "Clears Pollis's saved permission; macOS will ask again next time you use each feature."}
+                {isLinux &&
+                  "Linux grants media access per session — Pollis stores no standing grant, so there's nothing to revoke here."}
+                {isWindows &&
+                  "Camera and microphone status comes from Windows privacy settings. “Revoke now” opens those settings so you can turn Pollis off; screen sharing isn't tracked there."}
+                {!isMac && !isLinux && !isWindows &&
+                  "Media permission controls aren't available on this platform."}
               </p>
             </section>
 
