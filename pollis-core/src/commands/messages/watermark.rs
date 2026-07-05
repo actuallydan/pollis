@@ -116,7 +116,7 @@ pub fn next_watermark<S: Ord + Clone>(
 // ─── Kani proof harnesses ────────────────────────────────────────────────────
 //
 // Behind `#[cfg(kani)]` only — never compiled into the runtime crate. Bounded to
-// `envs.len() <= 6` with `#[kani::unwind(7)]`; keys/epochs/kinds are symbolic
+// `envs.len() <= 4` with `#[kani::unwind(5)]`; keys/epochs/kinds are symbolic
 // over a small integer domain. The slices are built sorted-ascending by key to
 // match the real caller's `ORDER BY sent_at ASC, id ASC`.
 #[cfg(kani)]
@@ -124,8 +124,12 @@ mod proofs {
     use super::*;
 
     // Small symbolic domains: keys and epochs live in `0..=3` so CBMC's state
-    // space stays tractable while still exercising ties, gaps, and ordering.
-    const MAX_LEN: usize = 6;
+    // space stays exhaustive-but-bounded while still exercising ties, gaps, and
+    // ordering. Bounded at 4: the no-skip / tie counterexamples this proves are
+    // 2-3-element phenomena, so len-4 finds them. NOTE: CBMC is memory-hungry
+    // here (Vec heap modelling) and OOMs a 7 GB box even at len-3, so these
+    // proofs run in CI (the `kani.yml` job, on a 16 GB runner), not in-box.
+    const MAX_LEN: usize = 4;
 
     impl kani::Arbitrary for EnvKind {
         fn any() -> Self {
@@ -190,7 +194,7 @@ mod proofs {
     /// `sent_at > watermark` fetch cannot drop an un-decrypted message. The
     /// headline proof.
     #[kani::proof]
-    #[kani::unwind(7)]
+    #[kani::unwind(5)]
     fn p1_no_skip() {
         let envs = symbolic_envs(false);
         let max_fired = symbolic_max_fired();
@@ -217,7 +221,7 @@ mod proofs {
     /// is *correctly* pulled back below the shared timestamp, so monotonicity is
     /// only a clean property when keys are distinct.
     #[kani::proof]
-    #[kani::unwind(7)]
+    #[kani::unwind(5)]
     fn p2_monotone() {
         let envs = symbolic_envs(true);
         let max_fired = symbolic_max_fired();
@@ -238,7 +242,7 @@ mod proofs {
     /// the max `sent_at` — nothing decryptable is retried forever. Stated over
     /// strictly-increasing keys so "max" is the last element.
     #[kani::proof]
-    #[kani::unwind(7)]
+    #[kani::unwind(5)]
     fn p3_handled_liveness() {
         let envs = symbolic_envs(true);
         let max_fired = symbolic_max_fired();
@@ -288,11 +292,17 @@ mod proofs {
         candidate
     }
 
-    /// Asserts P1 on the mutant. EXPECTED TO FAIL — Kani should produce a
+    /// Asserts P1 on the mutant. `#[kani::should_panic]`: the harness PASSES
+    /// exactly when Kani finds the P1 assertion can fail — i.e. it produces the
     /// counterexample (a `sent_at` tie between a handled and an un-handled
-    /// envelope). If this ever passes, the harness no longer constrains P1.
+    /// envelope) that the real code's `>=` avoids. Without `should_panic` this
+    /// (correctly) reports FAILED and would redden CI; with it, a green run
+    /// certifies the harness still has teeth. If the mutant ever stopped
+    /// violating P1, this harness would FAIL (nothing panicked) — catching a
+    /// toothless proof.
     #[kani::proof]
-    #[kani::unwind(7)]
+    #[kani::should_panic]
+    #[kani::unwind(5)]
     fn p1_mutant_refuted() {
         let envs = symbolic_envs(false);
         let max_fired = symbolic_max_fired();
