@@ -112,3 +112,202 @@ pub fn next_watermark<S: Ord + Clone>(
     }
     candidate
 }
+
+// ─── Kani proof harnesses ────────────────────────────────────────────────────
+//
+// Behind `#[cfg(kani)]` only — never compiled into the runtime crate. Bounded to
+// `envs.len() <= 6` with `#[kani::unwind(7)]`; keys/epochs/kinds are symbolic
+// over a small integer domain. The slices are built sorted-ascending by key to
+// match the real caller's `ORDER BY sent_at ASC, id ASC`.
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    // Small symbolic domains: keys and epochs live in `0..=3` so CBMC's state
+    // space stays tractable while still exercising ties, gaps, and ordering.
+    const MAX_LEN: usize = 6;
+
+    impl kani::Arbitrary for EnvKind {
+        fn any() -> Self {
+            match kani::any::<u8>() % 4 {
+                0 => EnvKind::Message,
+                1 => EnvKind::Edit,
+                2 => EnvKind::Delete,
+                _ => EnvKind::Other,
+            }
+        }
+    }
+
+    /// Build a symbolic, `sent_at`-ascending (ties allowed) envelope slice with a
+    /// symbolic length in `0..=MAX_LEN`. Keys and epochs are bounded so the
+    /// domain is small; `distinct_keys` forces strictly-increasing keys for the
+    /// harnesses (P2/P3) whose statement is only clean without `sent_at` ties.
+    fn symbolic_envs(distinct_keys: bool) -> Vec<(u8, EnvKind, Option<u64>)> {
+        let len: usize = kani::any();
+        kani::assume(len <= MAX_LEN);
+
+        let mut out: Vec<(u8, EnvKind, Option<u64>)> = Vec::with_capacity(len);
+        let mut prev: Option<u8> = None;
+        for _ in 0..len {
+            let key: u8 = kani::any();
+            kani::assume(key <= 3);
+            if let Some(p) = prev {
+                if distinct_keys {
+                    kani::assume(key > p);
+                } else {
+                    kani::assume(key >= p);
+                }
+            }
+            prev = Some(key);
+
+            let kind: EnvKind = kani::any();
+            // Epoch only meaningful for message/edit; keep it bounded and present
+            // only where the real parser would produce one.
+            let epoch: Option<u64> = if kani::any() {
+                let e: u64 = kani::any();
+                kani::assume(e <= 3);
+                Some(e)
+            } else {
+                None
+            };
+            out.push((key, kind, epoch));
+        }
+        out
+    }
+
+    fn symbolic_max_fired() -> Option<u64> {
+        if kani::any() {
+            let m: u64 = kani::any();
+            kani::assume(m <= 3);
+            Some(m)
+        } else {
+            None
+        }
+    }
+
+    /// P1 (no-skip / anti-F3): the returned watermark is STRICTLY LESS than the
+    /// `sent_at` of the first un-handled envelope. ⇒ the next
+    /// `sent_at > watermark` fetch cannot drop an un-decrypted message. The
+    /// headline proof.
+    #[kani::proof]
+    #[kani::unwind(7)]
+    fn p1_no_skip() {
+        let envs = symbolic_envs(false);
+        let max_fired = symbolic_max_fired();
+
+        let first_unhandled = envs
+            .iter()
+            .find(|(_, kind, epoch)| !is_handled(*kind, *epoch, max_fired))
+            .map(|(k, _, _)| *k);
+
+        let wm = next_watermark(&envs, max_fired);
+
+        if let Some(stop) = first_unhandled {
+            // Whether or not the watermark advanced, it must sit strictly below
+            // the first envelope we still owe a retry.
+            if let Some(w) = wm {
+                assert!(w < stop);
+            }
+        }
+    }
+
+    /// P2 (monotone): `next_watermark` over a prefix `<=` over the full slice — a
+    /// superset never regresses the cursor. Stated over strictly-increasing keys
+    /// (distinct `sent_at`); under a handled/un-handled `sent_at` TIE the cursor
+    /// is *correctly* pulled back below the shared timestamp, so monotonicity is
+    /// only a clean property when keys are distinct.
+    #[kani::proof]
+    #[kani::unwind(7)]
+    fn p2_monotone() {
+        let envs = symbolic_envs(true);
+        let max_fired = symbolic_max_fired();
+
+        let cut: usize = kani::any();
+        kani::assume(cut <= envs.len());
+        let prefix = &envs[..cut];
+
+        let wm_prefix = next_watermark(prefix, max_fired);
+        let wm_full = next_watermark(&envs, max_fired);
+
+        // Option ordering: None < Some(_), so a prefix that produced no cursor
+        // never exceeds the full slice's cursor.
+        assert!(wm_prefix <= wm_full);
+    }
+
+    /// P3 (handled-liveness): if EVERY envelope is handled, the watermark equals
+    /// the max `sent_at` — nothing decryptable is retried forever. Stated over
+    /// strictly-increasing keys so "max" is the last element.
+    #[kani::proof]
+    #[kani::unwind(7)]
+    fn p3_handled_liveness() {
+        let envs = symbolic_envs(true);
+        let max_fired = symbolic_max_fired();
+
+        let all_handled = envs
+            .iter()
+            .all(|(_, kind, epoch)| is_handled(*kind, *epoch, max_fired));
+        kani::assume(all_handled);
+
+        let wm = next_watermark(&envs, max_fired);
+
+        match envs.last() {
+            // Strictly-increasing keys ⇒ the last element carries the max sent_at.
+            Some((max_key, _, _)) => assert!(wm == Some(*max_key)),
+            None => assert!(wm.is_none()),
+        }
+    }
+
+    // ─── Negative test: the harness has teeth ────────────────────────────────
+    //
+    // A deliberately-broken variant of `next_watermark` that breaks on
+    // `sent_at > stop` instead of `sent_at >= stop`. On a `sent_at` tie between a
+    // handled and an un-handled envelope it lets the cursor advance ONTO the
+    // shared timestamp, so the next `sent_at > watermark` fetch skips the
+    // un-handled envelope — exactly the F3 message-loss bug. `p1_mutant_refuted`
+    // asserts P1 on it; Kani must find a counterexample (see the report). This is
+    // test-only and unreachable from any runtime code.
+    fn next_watermark_mutant<S: Ord + Clone>(
+        envs: &[(S, EnvKind, Option<u64>)],
+        max_fired_epoch: Option<u64>,
+    ) -> Option<S> {
+        let stop_at: Option<&S> = envs
+            .iter()
+            .find(|(_, kind, epoch)| !is_handled(*kind, *epoch, max_fired_epoch))
+            .map(|(sent_at, _, _)| sent_at);
+
+        let mut candidate: Option<S> = None;
+        for (sent_at, _, _) in envs {
+            if let Some(stop) = stop_at {
+                // BUG: `>` lets a tie through where the real code uses `>=`.
+                if sent_at > stop {
+                    break;
+                }
+            }
+            candidate = Some(sent_at.clone());
+        }
+        candidate
+    }
+
+    /// Asserts P1 on the mutant. EXPECTED TO FAIL — Kani should produce a
+    /// counterexample (a `sent_at` tie between a handled and an un-handled
+    /// envelope). If this ever passes, the harness no longer constrains P1.
+    #[kani::proof]
+    #[kani::unwind(7)]
+    fn p1_mutant_refuted() {
+        let envs = symbolic_envs(false);
+        let max_fired = symbolic_max_fired();
+
+        let first_unhandled = envs
+            .iter()
+            .find(|(_, kind, epoch)| !is_handled(*kind, *epoch, max_fired))
+            .map(|(k, _, _)| *k);
+
+        let wm = next_watermark_mutant(&envs, max_fired);
+
+        if let Some(stop) = first_unhandled {
+            if let Some(w) = wm {
+                assert!(w < stop);
+            }
+        }
+    }
+}
