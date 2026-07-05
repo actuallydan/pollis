@@ -142,17 +142,23 @@ mod proofs {
         }
     }
 
-    /// Build a symbolic, `sent_at`-ascending (ties allowed) envelope slice with a
-    /// symbolic length in `0..=MAX_LEN`. Keys and epochs are bounded so the
-    /// domain is small; `distinct_keys` forces strictly-increasing keys for the
-    /// harnesses (P2/P3) whose statement is only clean without `sent_at` ties.
-    fn symbolic_envs(distinct_keys: bool) -> Vec<(u8, EnvKind, Option<u64>)> {
+    /// Build a symbolic, `sent_at`-ascending (ties allowed) envelope table into a
+    /// FIXED-SIZE stack array plus a symbolic valid length `0..=MAX_LEN`. The
+    /// harnesses use `&arr[..len]`. Using an array rather than a `Vec` is
+    /// load-bearing: CBMC models `Vec`'s heap allocation at ruinous memory/time
+    /// cost (it OOMs/​times-out even at small bounds), while a stack array is
+    /// cheap. Every slot is constrained, so the used prefix is a valid ascending
+    /// sequence. `distinct_keys` forces strictly-increasing keys for the
+    /// harnesses (P2/P3) whose statement is only clean without `sent_at` ties;
+    /// with keys in `0..=3` and `MAX_LEN == 4` a distinct fill is exactly
+    /// `[0,1,2,3]` (satisfiable — do not raise MAX_LEN past the key domain).
+    fn symbolic_envs(distinct_keys: bool) -> ([(u8, EnvKind, Option<u64>); MAX_LEN], usize) {
         let len: usize = kani::any();
         kani::assume(len <= MAX_LEN);
 
-        let mut out: Vec<(u8, EnvKind, Option<u64>)> = Vec::with_capacity(len);
+        let mut arr = [(0u8, EnvKind::Message, None); MAX_LEN];
         let mut prev: Option<u8> = None;
-        for _ in 0..len {
+        for slot in arr.iter_mut() {
             let key: u8 = kani::any();
             kani::assume(key <= 3);
             if let Some(p) = prev {
@@ -174,9 +180,9 @@ mod proofs {
             } else {
                 None
             };
-            out.push((key, kind, epoch));
+            *slot = (key, kind, epoch);
         }
-        out
+        (arr, len)
     }
 
     fn symbolic_max_fired() -> Option<u64> {
@@ -196,7 +202,8 @@ mod proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn p1_no_skip() {
-        let envs = symbolic_envs(false);
+        let (arr, len) = symbolic_envs(false);
+        let envs = &arr[..len];
         let max_fired = symbolic_max_fired();
 
         let first_unhandled = envs
@@ -204,7 +211,7 @@ mod proofs {
             .find(|(_, kind, epoch)| !is_handled(*kind, *epoch, max_fired))
             .map(|(k, _, _)| *k);
 
-        let wm = next_watermark(&envs, max_fired);
+        let wm = next_watermark(envs, max_fired);
 
         if let Some(stop) = first_unhandled {
             // Whether or not the watermark advanced, it must sit strictly below
@@ -223,7 +230,8 @@ mod proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn p2_monotone() {
-        let envs = symbolic_envs(true);
+        let (arr, len) = symbolic_envs(true);
+        let envs = &arr[..len];
         let max_fired = symbolic_max_fired();
 
         let cut: usize = kani::any();
@@ -231,7 +239,7 @@ mod proofs {
         let prefix = &envs[..cut];
 
         let wm_prefix = next_watermark(prefix, max_fired);
-        let wm_full = next_watermark(&envs, max_fired);
+        let wm_full = next_watermark(envs, max_fired);
 
         // Option ordering: None < Some(_), so a prefix that produced no cursor
         // never exceeds the full slice's cursor.
@@ -244,7 +252,8 @@ mod proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn p3_handled_liveness() {
-        let envs = symbolic_envs(true);
+        let (arr, len) = symbolic_envs(true);
+        let envs = &arr[..len];
         let max_fired = symbolic_max_fired();
 
         let all_handled = envs
@@ -252,7 +261,7 @@ mod proofs {
             .all(|(_, kind, epoch)| is_handled(*kind, *epoch, max_fired));
         kani::assume(all_handled);
 
-        let wm = next_watermark(&envs, max_fired);
+        let wm = next_watermark(envs, max_fired);
 
         match envs.last() {
             // Strictly-increasing keys ⇒ the last element carries the max sent_at.
@@ -304,7 +313,8 @@ mod proofs {
     #[kani::should_panic]
     #[kani::unwind(5)]
     fn p1_mutant_refuted() {
-        let envs = symbolic_envs(false);
+        let (arr, len) = symbolic_envs(false);
+        let envs = &arr[..len];
         let max_fired = symbolic_max_fired();
 
         let first_unhandled = envs
@@ -312,7 +322,7 @@ mod proofs {
             .find(|(_, kind, epoch)| !is_handled(*kind, *epoch, max_fired))
             .map(|(k, _, _)| *k);
 
-        let wm = next_watermark_mutant(&envs, max_fired);
+        let wm = next_watermark_mutant(envs, max_fired);
 
         if let Some(stop) = first_unhandled {
             if let Some(w) = wm {
