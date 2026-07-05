@@ -28,11 +28,15 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      # Prebuilt binaries — no compile step, keeps the gate fast.
+      # Prebuilt binaries — no compile step, keeps the gate fast. Versions are
+      # PINNED: cargo-vet's imports.lock format is version-specific, so CI must
+      # run the same version that generated the committed supply-chain/ files
+      # (else --locked fails to parse). Bump these deliberately, regenerating
+      # supply-chain/ in the same commit.
       - name: Install cargo-deny + cargo-vet
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-deny,cargo-vet
+          tool: cargo-deny@0.19.9,cargo-vet@0.10.2
 
       # Advisories need the RustSec DB (fetched over the network on CI).
       - name: cargo deny check
