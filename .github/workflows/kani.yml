@@ -1,0 +1,41 @@
+# Machine-checked-correctness gate (docs/machine-checked-correctness-design.md).
+# Runs the Kani bounded-model-checking proofs on the load-bearing pure functions
+# of pollis-core. M1 covers the delivery-watermark no-skip invariant
+# (`next_watermark` in commands/messages/watermark.rs): P1 no-skip / P2 monotone
+# / P3 liveness. Kani builds its own harness toolchain (CBMC backend) and is slow,
+# so this is a dedicated job. The proofs are pure — they take the already-computed
+# epochs/kinds/keys as symbolic inputs — so NO native media/Tauri stack is needed;
+# this job stays light and doesn't pull the webkit/libwebrtc deps the flows gate
+# does.
+name: Kani proofs
+
+on:
+  pull_request:
+    # Only the pure proof surface matters here. Any change to pollis-core or the
+    # workflow itself re-runs the proofs; unrelated surfaces are exempt.
+    paths:
+      - 'pollis-core/**'
+      - '.github/workflows/kani.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: kani-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kani:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Runs `cargo kani` over pollis-core. The action installs the pinned Kani
+      # toolchain (kani-verifier + `cargo-kani setup`, which fetches CBMC) and
+      # caches it. `--package pollis-core` scopes to the crate that holds the
+      # proof harnesses; the pure harnesses need none of the workspace's native
+      # deps.
+      - name: Run Kani proofs (pollis-core)
+        uses: model-checking/kani-github-action@v1
+        with:
+          args: '--package pollis-core'
