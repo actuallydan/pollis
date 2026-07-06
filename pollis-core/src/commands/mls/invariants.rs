@@ -104,6 +104,52 @@ pub fn resolve(outcome: SubmitOutcome, ours: &[u8], stored_at_epoch: Option<&[u8
     }
 }
 
+// ─── I1: client-side gap detection ───────────────────────────────────────────
+
+/// What the replay loop should do with the next commit row, given where the
+/// local group currently is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ReplayStep {
+    /// The next row bridges `current_epoch → current_epoch + 1`: apply it.
+    Apply,
+    /// The bridging commit is missing while a higher epoch is present — a
+    /// permanent gap. Drop the local group and recover via external-join.
+    GapRecover,
+    /// No further commit row to replay this pass (caught up).
+    Wait,
+}
+
+/// Classify the next step of the commit-replay loop, given `current_epoch` (the
+/// local group's epoch) and `next_row_epoch` (the epoch of the next
+/// `mls_commit_log` row in `epoch ASC` order, or `None` when the loop is out of
+/// rows). Mirrors the gap detector in
+/// `group_state::process_pending_commits_locked_impl` exactly:
+/// `if commit.epoch != current_epoch → gap-recover, else apply`.
+///
+/// The Kani harness proves the load-bearing property: **replay never `Apply`s
+/// across a gap** — `Apply` is returned ONLY when the next row's epoch is exactly
+/// `current_epoch`. A missing bridge (higher epoch present) always yields
+/// `GapRecover`, never a silent skip that would wedge a member.
+///
+/// NOTE (deviation from the design sketch `§4.2`, which typed this as
+/// `classify(current_epoch, next_row_epoch, head)`): the real client gap detector
+/// consults neither the log head nor any other state — its decision is purely
+/// `next_row_epoch == current_epoch`. Threading an unused `head` would be less
+/// faithful, so it is omitted here. The head arithmetic the design attaches to I1
+/// is the *DS-side* concern and is proved separately as
+/// `pollis_delivery::commit::head_epoch_of`.
+pub fn classify(current_epoch: u64, next_row_epoch: Option<u64>) -> ReplayStep {
+    match next_row_epoch {
+        // Out of rows: nothing left to replay this pass.
+        None => ReplayStep::Wait,
+        // The next row bridges current_epoch → current_epoch + 1: apply it.
+        Some(e) if e == current_epoch => ReplayStep::Apply,
+        // The bridging commit is missing while a different (higher, by the log's
+        // ascending order) epoch is present: a permanent gap — recover.
+        Some(_) => ReplayStep::GapRecover,
+    }
+}
+
 // ─── Kani proof harnesses ────────────────────────────────────────────────────
 #[cfg(kani)]
 mod proofs {
@@ -248,6 +294,72 @@ mod proofs {
 
         if let Resolution::Adopt = resolve_mutant(outcome, &ours[..], stored) {
             assert!(stored == Some(&ours[..]));
+        }
+    }
+
+    // ── I1: client-side gap detection ────────────────────────────────────────
+    //
+    // Symbolic current_epoch + next_row_epoch over the tiny domain 0..=3 (Some or
+    // None). The no-gap-apply property is universal, so the small domain loses no
+    // generality while keeping CBMC fast.
+
+    fn symbolic_epoch_opt() -> Option<u64> {
+        if kani::any() {
+            let e: u64 = kani::any();
+            kani::assume(e <= 3);
+            Some(e)
+        } else {
+            None
+        }
+    }
+
+    /// I1: `classify` never `Apply`s across a gap — `Apply` ⟺ the next row's
+    /// epoch is exactly `current_epoch`; any mismatch is `GapRecover` and `None`
+    /// is `Wait`.
+    #[kani::proof]
+    fn i1_classify_no_gap_apply() {
+        let current: u64 = kani::any();
+        kani::assume(current <= 3);
+        let next = symbolic_epoch_opt();
+
+        match classify(current, next) {
+            // The headline: an Apply is only ever the exact bridging commit.
+            ReplayStep::Apply => assert!(next == Some(current)),
+            // A gap is a present-but-non-bridging row — never silently skipped.
+            ReplayStep::GapRecover => {
+                assert!(next.is_some());
+                assert!(next != Some(current));
+            }
+            // Wait is exactly "no more rows".
+            ReplayStep::Wait => assert!(next.is_none()),
+        }
+    }
+
+    /// Negative harness: a broken classifier that applies ANY present row (even a
+    /// non-bridging one) — the exact gap-skip that wedges a member. `should_panic`:
+    /// Kani must find the `Apply` across a gap that the real `e == current_epoch`
+    /// guard prevents.
+    fn classify_mutant(current_epoch: u64, next_row_epoch: Option<u64>) -> ReplayStep {
+        match next_row_epoch {
+            None => ReplayStep::Wait,
+            // BUG: applies regardless of whether the row bridges the current
+            // epoch — a forward-gap row is applied across the hole.
+            Some(_) => {
+                let _ = current_epoch;
+                ReplayStep::Apply
+            }
+        }
+    }
+
+    #[kani::proof]
+    #[kani::should_panic]
+    fn i1_mutant_refuted() {
+        let current: u64 = kani::any();
+        kani::assume(current <= 3);
+        let next = symbolic_epoch_opt();
+
+        if let ReplayStep::Apply = classify_mutant(current, next) {
+            assert!(next == Some(current));
         }
     }
 }

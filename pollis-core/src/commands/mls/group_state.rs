@@ -892,7 +892,12 @@ async fn process_pending_commits_locked_impl(
     let mut current_epoch = initial_epoch;
     let mut any_applied = false;
     for commit in pending {
-        if commit.epoch as u64 != current_epoch {
+        // Gap classification (I1), proved by Kani (`invariants::classify`) never
+        // to `Apply` across a gap: `Apply` iff this row's epoch is exactly
+        // `current_epoch`, else `GapRecover`.
+        if super::invariants::classify(current_epoch, Some(commit.epoch as u64))
+            != super::invariants::ReplayStep::Apply
+        {
             // The commit that would bridge `current_epoch` -> next is missing
             // from the log while a HIGHER epoch is present. The commit log is
             // append-only and Turso reads are consistent, so a missing-but-
