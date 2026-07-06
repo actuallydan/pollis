@@ -13,7 +13,7 @@ use pollis_delivery::{build_router_with_state, AppState};
 use tower::ServiceExt as _;
 
 // The commit-log table the resubmit path writes, plus the UNIQUE recipient index
-// migration 000009 adds (the ON CONFLICT target the upsert keys on).
+// migration 000002 (commit-log DB) adds (the ON CONFLICT target the upsert keys on).
 const SCHEMA: &str = "\
 CREATE TABLE mls_welcome (\
   id TEXT PRIMARY KEY,\

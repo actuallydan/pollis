@@ -250,7 +250,7 @@ pub async fn submit_commit(conn: &Connection, body: &SubmitBody) -> Result<Submi
     }
     for (w, welcome) in &welcomes {
         // Idempotent on the UNIQUE (conversation_id, recipient_id,
-        // recipient_device_id) tuple (migration 000009): a re-sent Welcome for
+        // recipient_device_id) tuple (migration 000002 (commit-log DB)): a re-sent Welcome for
         // the same recipient/device refreshes the blob and re-arms delivery
         // (`delivered = 0`) instead of erroring or stacking a duplicate row — so
         // a resubmit/retry of this commit bundle can never wedge on a dup.

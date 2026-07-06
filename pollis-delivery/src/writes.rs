@@ -552,7 +552,7 @@ pub async fn welcomes_resubmit(
 
 /// Idempotent (re)insert of a Welcome, keyed on the UNIQUE
 /// `(conversation_id, recipient_id, recipient_device_id)` tuple added in
-/// migration 000009: a resend for the same tuple refreshes the blob and re-arms
+/// migration 000002 (commit-log DB): a resend for the same tuple refreshes the blob and re-arms
 /// delivery (`delivered = 0`) rather than duplicating or erroring. Mirrors the
 /// inline Welcome insert in the commit bundle so both writers of `mls_welcome`
 /// obey one rule. Pure conn-level write reused by the harness.

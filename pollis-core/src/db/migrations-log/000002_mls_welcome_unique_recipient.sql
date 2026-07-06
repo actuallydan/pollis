@@ -1,17 +1,20 @@
--- Welcome idempotency/dedupe (issue #430 P2). `mls_welcome` had only a per-row
--- ULID PK, so a re-sent Welcome for the same recipient/device stacked up as a
--- fresh duplicate row and the plain INSERT in the submit bundle could never be
--- made idempotent. This adds the UNIQUE tuple the ON CONFLICT upsert keys on:
--- one live Welcome per (conversation_id, recipient_id, recipient_device_id).
+-- Welcome idempotency/dedupe (issue #430 P2). Commit-log DB migration.
+--
+-- `mls_welcome` (defined in 000001_commit_log_db.sql) had only a per-row ULID PK,
+-- so a re-sent Welcome for the same recipient/device stacked up as a fresh
+-- duplicate row and the plain INSERT in the DS submit bundle could never be made
+-- idempotent. This adds the UNIQUE tuple the ON CONFLICT upsert keys on: one live
+-- Welcome per (conversation_id, recipient_id, recipient_device_id).
+--
+-- This is a COMMIT-LOG-DB migration (mls_welcome lives on the log DB post-#420),
+-- applied by desktop-release.yml's second db-apply step (MIGRATIONS_DIR=
+-- pollis-core/src/db/migrations-log). It must NOT go in the main-DB dir.
 --
 -- Additive/backward-compatible (CLAUDE.md migration constraint): a dedupe DELETE
 -- + a new UNIQUE INDEX, no DROP of the table, no column/nullability change. The
 -- previously-shipped app's plain INSERT keeps working — a duplicate now conflicts
 -- instead of stacking, which the new client treats as the intended idempotent
 -- resend.
---
--- Migration number: 000009 (000007 is a deliberately-skipped reverted number;
--- see 000008's header).
 
 -- Prod rows may already contain duplicates, so collapse them FIRST — keep the
 -- newest per tuple (MAX(id): ULIDs are time-ordered, so the lexicographically
