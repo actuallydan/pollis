@@ -76,6 +76,10 @@ fn redirect_stderr_to_log() -> Option<std::path::PathBuf> {
     let dir = std::env::var_os("POLLIS_DATA_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
+    // First run: the data dir may not exist yet (pollis-core creates it later,
+    // during identity setup) — without this the redirect would silently no-op
+    // and the whole first session would render over log spam.
+    std::fs::create_dir_all(&dir).ok();
     let path = dir.join("pollis-tui.log");
     let file = std::fs::OpenOptions::new()
         .create(true)
