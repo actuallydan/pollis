@@ -299,11 +299,15 @@ Local dev currently feeds real credentials to the Rust bridge via
 the APK/IPA in plaintext — `unzip` + grep recovers them. This is fine for a dev
 build on a trusted device; it is **not shippable**. What leaks today:
 
-- **Turso token** — full read/write to the production DB (all users' metadata,
-  membership, message envelopes). The worst one.
-- **LiveKit API secret** — lets anyone mint a join token for any room.
-- **Resend key** — send email as Pollis.
-- (R2 keys too, once media is configured.)
+- **Turso token** — now a **read-only** token (writes go through the DS). Still
+  reads all metadata, so per-user scoping is further hardening (see #393).
+- **LiveKit API secret** — lets anyone mint a join token for any room. **Still
+  on-device** (`get_livekit_token`) — the one remaining bundle secret to cut over.
+- ✅ **Resend key** — DONE, moved server-side (OTP runs on the DS).
+- ✅ **R2 keys** — DONE (#393). `r2_access_key_id` / `r2_secret_access_key` are
+  gone from the bundle; `commands/r2.rs` presigns every get/put/delete via the DS
+  (`POST /v1/r2/presign`) and only the non-secret `EXPO_PUBLIC_R2_ENDPOINT` /
+  `_R2_PUBLIC_URL` remain. Never re-add the R2 secret env vars here.
 
 The fix is an **authorized-secrets broker** — a thin server-side endpoint (a
 Cloudflare Worker fits; CF is already in the stack) that holds the real secrets
@@ -318,7 +322,7 @@ and never ships them to the client:
    - **LiveKit:** the server signs the room JWT (the API secret stays
      server-side); the phone calls `/livekit/token?room=…` with its session and
      gets back only the JWT. This moves `get_livekit_token`'s signing off-device.
-   - **R2:** server returns presigned URLs (already the right shape).
+   - **R2:** ✅ DONE — the DS returns presigned URLs; the client holds no R2 keys.
 
 Note the tension with the repo's "no backend server — Rust talks to Turso
 directly (1 hop)" principle (root `CLAUDE.md`). That model is tenable for a

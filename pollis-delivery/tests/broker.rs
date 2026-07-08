@@ -183,6 +183,30 @@ fn presign_put_encodes_key_slash_and_space() {
 }
 
 #[test]
+fn presign_delete_signature_binds_the_method() {
+    // DELETE (attachment cleanup) presign — the HTTP method is part of the SigV4
+    // canonical request, so a DELETE URL must carry a signature distinct from an
+    // otherwise-identical GET. Guards against the handler ever mapping delete to
+    // the wrong verb.
+    let common = |method| {
+        presign_r2_url(
+            R2_ENDPOINT, R2_BUCKET, R2_REGION, R2_ACCESS, R2_SECRET, method,
+            "media/abc123/file.enc", 900, R2_DATE,
+        )
+    };
+    let del = common("DELETE");
+    let get = common("GET");
+    let sig = |u: &str| u.rsplit_once("X-Amz-Signature=").unwrap().1.to_string();
+    assert_ne!(sig(&del), sig(&get), "DELETE must not reuse the GET signature");
+    // Everything up to the signature (path + canonical query) is method-agnostic,
+    // so the two URLs are identical there.
+    assert_eq!(
+        del.split_once("&X-Amz-Signature=").unwrap().0,
+        get.split_once("&X-Amz-Signature=").unwrap().0,
+    );
+}
+
+#[test]
 fn presign_canonical_query_is_sorted() {
     // SigV4 requires the canonical query params sorted by name. X-Amz-Signature
     // is appended AFTER signing, so it's the only param allowed out of order.

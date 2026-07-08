@@ -115,7 +115,7 @@ Every path that produces a fresh `account_id_key` (signup, approval, Secret-Key 
 - `download_file(key)` → bytes
 - `presign_upload(key, content_type)` → presigned URL
 - `upload_media(path, filename, content_type)` / `download_media(r2_key, content_hash)` — convergent-encryption media path; dedups via `attachment_object` on Turso.
-- Internal: `delete_r2_object(state, r2_key)` — SigV4 DELETE used by `delete_message` to purge orphaned attachments. Treats 404 as success.
+- Internal: `delete_r2_object(state, r2_key)` — DS-presigned DELETE (via `presign_r2`) used by `delete_message` to purge orphaned attachments. Treats 404 as success. The client holds no R2 credentials — every get/put/delete is presigned by the DS secrets broker (`POST /v1/r2/presign`, #393).
 
 ---
 _Back to [index.md](./index.md)_

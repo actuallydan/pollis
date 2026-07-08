@@ -319,7 +319,8 @@ pub fn sign_livekit_token(
 
 #[derive(Deserialize)]
 pub struct R2PresignBody {
-    /// `"get"` → presign a GET (download); `"put"` → presign a PUT (upload).
+    /// `"get"` → presign a GET (download); `"put"` → presign a PUT (upload);
+    /// `"delete"` → presign a DELETE (attachment cleanup).
     pub operation: String,
     /// The R2 object key (within the bucket), e.g. `media/<hash>/<file>.enc`.
     pub key: String,
@@ -363,7 +364,8 @@ pub async fn r2_presign(
     let http_method = match parsed.operation.as_str() {
         "get" => "GET",
         "put" => "PUT",
-        _ => return Ok(bad_request("operation must be \"get\" or \"put\"")),
+        "delete" => "DELETE",
+        _ => return Ok(bad_request("operation must be \"get\", \"put\", or \"delete\"")),
     };
     if parsed.key.trim().is_empty() {
         return Ok(bad_request("key required"));

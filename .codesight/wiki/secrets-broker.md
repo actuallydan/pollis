@@ -24,11 +24,16 @@ answers, like OTP with no Resend key).
 | Endpoint | Does | Env (all required, else `503`) |
 |----------|------|--------------------------------|
 | `POST /v1/livekit/token` | HS256 JWT for the signer's identity; room authz (own `inbox-<user_id>` always ok, else current membership) | `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_URL` |
-| `POST /v1/r2/presign` | SigV4 query-string presigned URL (GET/PUT), path-style, `UNSIGNED-PAYLOAD`, `host`-only signed header | `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` (`R2_REGION` defaults `auto`) |
+| `POST /v1/r2/presign` | SigV4 query-string presigned URL (GET/PUT/DELETE), path-style, `UNSIGNED-PAYLOAD`, `host`-only signed header | `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` (`R2_REGION` defaults `auto`) |
 
 The request/response JSON shapes are the contract the frontend `bridge` and
-mobile uniffi will call once the on-device LiveKit/R2 paths are removed (the
-client cutover is the follow-up to #393).
+mobile uniffi call once the on-device LiveKit/R2 paths are removed.
+
+**R2 client cutover: DONE (#393).** `pollis-core/src/commands/r2.rs` holds no R2
+credentials — `presign_r2` asks the DS to presign every get/put/delete and the
+client does a plain HTTP call against the returned URL; `r2_access_key_id` /
+`r2_secret_access_key` are gone from `Config` and both bridges. **LiveKit token
+cutover still pending** (`get_livekit_token` still mints on-device).
 
 ## Why R2 presign has no per-object authz
 

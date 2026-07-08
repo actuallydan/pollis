@@ -117,12 +117,6 @@ struct InitConfig {
     #[serde(default)]
     r2_endpoint: String,
     #[serde(default)]
-    r2_access_key_id: String,
-    #[serde(default)]
-    r2_secret_access_key: String,
-    #[serde(default)]
-    r2_region: Option<String>,
-    #[serde(default)]
     r2_public_url: String,
     #[serde(default)]
     livekit_url: String,
@@ -160,9 +154,6 @@ async fn init_pollis_inner(config_json: String) -> Result<(), BridgeError> {
                 log_db_url: parsed.log_db_url.filter(|s| !s.is_empty()),
                 log_db_token: parsed.log_db_token.filter(|s| !s.is_empty()),
                 r2_endpoint: parsed.r2_endpoint,
-                r2_access_key_id: parsed.r2_access_key_id,
-                r2_secret_access_key: parsed.r2_secret_access_key,
-                r2_region: parsed.r2_region.unwrap_or_else(|| "auto".into()),
                 r2_public_url: parsed.r2_public_url,
                 livekit_url: parsed.livekit_url,
                 livekit_api_key: parsed.livekit_api_key,

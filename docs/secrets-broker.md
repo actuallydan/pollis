@@ -39,8 +39,15 @@ failing at startup.
 ## Endpoints
 
 These request/response shapes **are the contract** the frontend `bridge` (and
-mobile, via uniffi) will call once the on-device LiveKit/R2 paths are removed
+mobile, via uniffi) calls once the on-device LiveKit/R2 paths are removed
 (the client cutover is the follow-up to #393).
+
+**R2 client cutover: DONE.** `pollis-core`'s `commands/r2.rs` no longer signs
+SigV4 on-device or holds R2 credentials — every upload/download/delete asks the
+DS to presign (`presign_r2` → `POST /v1/r2/presign`) and then does a plain HTTP
+GET/PUT/DELETE against the returned URL. `r2_access_key_id` / `r2_secret_access_key`
+are gone from `Config` and both bridges. **LiveKit token cutover is still
+pending** (`get_livekit_token` still mints on-device).
 
 ### `POST /v1/livekit/token`
 
@@ -84,10 +91,10 @@ else `503`. The secret is never logged.
 
 ### `POST /v1/r2/presign`
 
-Return a **SigV4 query-string presigned URL** for a GET (download) or PUT
-(upload) against the configured R2 bucket. Requires an authenticated device
-(when auth is on, `gate` rejects an unsigned request with `401`). There is **no
-per-object authz** — see below.
+Return a **SigV4 query-string presigned URL** for a GET (download), PUT
+(upload), or DELETE (attachment cleanup) against the configured R2 bucket.
+Requires an authenticated device (when auth is on, `gate` rejects an unsigned
+request with `401`). There is **no per-object authz** — see below.
 
 Request:
 
@@ -100,7 +107,7 @@ Request:
 }
 ```
 
-- `operation` (required) — `"get"` or `"put"`; anything else → `400`.
+- `operation` (required) — `"get"`, `"put"`, or `"delete"`; anything else → `400`.
 - `key` (required) — the R2 object key within the bucket.
 - `content_type` (optional) — accepted for forward-compat; the presigned URL
   signs only `host`, so the client sets Content-Type at upload time.
