@@ -15,9 +15,10 @@ pub struct Config {
     /// DS secrets broker (`/v1/r2/presign`); the client holds none. See #393.
     pub r2_endpoint: String,
     pub r2_public_url: String,
+    /// LiveKit ws URL. Non-secret — the client SDK dials it and the DS also
+    /// returns it with each minted token. The LiveKit API key/secret moved
+    /// server-side to the DS broker (#393); the client holds neither.
     pub livekit_url: String,
-    pub livekit_api_key: String,
-    pub livekit_api_secret: String,
     /// Delivery Service base URL (e.g. `https://api.pollis.com`). When set, MLS
     /// commit submission routes through the DS (serialized, race/gap-free);
     /// when `None`, commits write direct to Turso. See `commands::mls::delivery`.
@@ -55,14 +56,6 @@ impl Config {
             livekit_url: option_env!("LIVEKIT_URL")
                 .map(|s| s.to_string())
                 .or_else(|| std::env::var("LIVEKIT_URL").ok())
-                .unwrap_or_default(),
-            livekit_api_key: option_env!("LIVEKIT_API_KEY")
-                .map(|s| s.to_string())
-                .or_else(|| std::env::var("LIVEKIT_API_KEY").ok())
-                .unwrap_or_default(),
-            livekit_api_secret: option_env!("LIVEKIT_API_SECRET")
-                .map(|s| s.to_string())
-                .or_else(|| std::env::var("LIVEKIT_API_SECRET").ok())
                 .unwrap_or_default(),
             // Optional: absent → direct Turso writes; present → route through the DS.
             pollis_delivery_url: option_env!("POLLIS_DELIVERY_URL")
@@ -122,8 +115,6 @@ impl Config {
             r2_endpoint: String::new(),
             r2_public_url: String::new(),
             livekit_url: String::new(),
-            livekit_api_key: String::new(),
-            livekit_api_secret: String::new(),
             // Default None; the flows harness overrides this to its in-process
             // DS URL, so integration tests exercise the real (signed) DS write
             // path. There is no remaining direct-write path to exercise.

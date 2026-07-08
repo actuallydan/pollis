@@ -95,9 +95,10 @@ export interface InitConfig {
   // bundle no longer carries them. Only the non-secret endpoint/public URL remain.
   r2Endpoint?: string;
   r2PublicUrl?: string;
+  // LiveKit API key/secret moved server-side to the DS broker (#393); the bundle
+  // no longer carries them. Only the non-secret ws URL remains (the SFU dial URL,
+  // also returned by the DS token endpoint).
   livekitUrl?: string;
-  livekitApiKey?: string;
-  livekitApiSecret?: string;
   resendApiKey?: string;
 }
 
@@ -132,8 +133,6 @@ export async function initializeNativeBridge(config: InitConfig): Promise<void> 
     r2_endpoint: config.r2Endpoint ?? "",
     r2_public_url: config.r2PublicUrl ?? "",
     livekit_url: config.livekitUrl ?? "",
-    livekit_api_key: config.livekitApiKey ?? "",
-    livekit_api_secret: config.livekitApiSecret ?? "",
     resend_api_key: config.resendApiKey ?? "",
   });
   await pollisNative.initPollis(configJson);
