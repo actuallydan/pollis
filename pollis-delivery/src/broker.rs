@@ -68,8 +68,9 @@ pub struct BrokerConfig {
     pub livekit_api_secret: Option<String>,
     /// LiveKit ws URL handed back to the client (env `LIVEKIT_URL`).
     pub livekit_url: Option<String>,
-    /// R2 S3 endpoint, e.g. `https://<acct>.r2.cloudflarestorage.com`
-    /// (env `R2_ENDPOINT`).
+    /// R2 S3 endpoint, e.g. `https://<acct>.r2.cloudflarestorage.com` (a trailing
+    /// `/<bucket>` path segment is fine — the presigner uses only the host). Read
+    /// from `R2_ENDPOINT`, falling back to the established `R2_S3_ENDPOINT`.
     pub r2_endpoint: Option<String>,
     /// R2 region — SigV4 scope; defaults to `auto` (env `R2_REGION`).
     pub r2_region: String,
@@ -77,7 +78,8 @@ pub struct BrokerConfig {
     pub r2_bucket: Option<String>,
     /// R2 access key id (env `R2_ACCESS_KEY_ID`).
     pub r2_access_key_id: Option<String>,
-    /// R2 secret access key — SigV4 signing secret (env `R2_SECRET_ACCESS_KEY`).
+    /// R2 secret access key — SigV4 signing secret. Read from
+    /// `R2_SECRET_ACCESS_KEY`, falling back to the established `R2_SECRET_KEY`.
     /// NEVER logged.
     pub r2_secret_access_key: Option<String>,
     /// Turso Platform API token (env `TURSO_PLATFORM_TOKEN`) — bearer for
@@ -98,11 +100,14 @@ impl BrokerConfig {
             livekit_api_key: var("LIVEKIT_API_KEY"),
             livekit_api_secret: var("LIVEKIT_API_SECRET"),
             livekit_url: var("LIVEKIT_URL"),
-            r2_endpoint: var("R2_ENDPOINT"),
+            // Accept the established client env names (`R2_S3_ENDPOINT` /
+            // `R2_SECRET_KEY`) so the DS reuses the same Doppler secrets instead
+            // of duplicating them under new keys.
+            r2_endpoint: var("R2_ENDPOINT").or_else(|| var("R2_S3_ENDPOINT")),
             r2_region: var("R2_REGION").unwrap_or_else(|| "auto".to_string()),
             r2_bucket: var("R2_BUCKET"),
             r2_access_key_id: var("R2_ACCESS_KEY_ID"),
-            r2_secret_access_key: var("R2_SECRET_ACCESS_KEY"),
+            r2_secret_access_key: var("R2_SECRET_ACCESS_KEY").or_else(|| var("R2_SECRET_KEY")),
             turso_platform_token: var("TURSO_PLATFORM_TOKEN"),
             turso_org: var("TURSO_ORG"),
             turso_db: var("TURSO_DB"),
