@@ -564,7 +564,7 @@ column is only where we also want it gated on every PR.
 | **M2 — Kani gate + canonicalization (I5/I2/I1)** | extract `may_rejoin`, `resolve`, `classify`; prove leak-freedom + no-foreign-adopt + no-gap-apply | ~3 d | ✅ | ✅ same job |
 | **M3 — continuous soak (Track A)** | promote marathon to `schedule:`/`loop`; "persist failing op sequence as regression" helper | ~2 d | ✅ | ✅ scheduled |
 | **M4 — TLA+ epoch model (I1/I2)** | Spec A (`CommitLog`), invariants, TLC small-config, commit `.tla`+`.cfg`, cross-reference comments in `submit_commit`/`process_pending_commits` | ~1.5–2.5 wk | ✅ (JVM) | ✅ TLC small-config gate |
-| **M5 — TLA+ delivery model + fuzz targets (I3/I4 + Track B)** | ✅ **Spec B done** (`specs/tla/Delivery.tla` + teeth cfg, TLC gate `.github/workflows/tla.yml`, #481) — landed before the #539 floor code. ⏳ **Remaining:** `cargo-fuzz` targets over the §4 pure fns (`next_watermark`/`classify`/`resolve`/`may_rejoin`); optional OSS-Fuzz onboarding | ~1.5–2 wk | ✅ | ✅ fuzz smoke + TLC |
+| **M5 — TLA+ delivery model + fuzz targets (I3/I4 + Track B)** | ✅ **Spec B done** (`specs/tla/Delivery.tla` + teeth cfg, TLC gate `.github/workflows/tla.yml`, #481) — landed before the #539 floor code. ✅ **Track-B `cargo-fuzz` done**: the detached `fuzz/` crate carries a target per §4 pure fn (`next_watermark`/`classify`/`resolve`/`may_rejoin`), each asserting its Kani property with a `--cfg fuzz_mutant` teeth variant + a seed corpus (OSS-Fuzz-eligible), run via `scripts/fuzz-check.sh`. ⏳ **Remaining:** optional OSS-Fuzz onboarding | ~1.5–2 wk | ✅ | ✅ fuzz smoke + TLC |
 
 **Recommended cut if budget is tight:** M0 + M1 + M2 + M3 deliver ~80% of the
 value for ~2 weeks of work — supply-chain assurance, the three highest-consequence

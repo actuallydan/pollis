@@ -425,8 +425,29 @@ concrete `NoLossForCurrentMember` counterexample), so a spec can't rot into a
 vacuous pass. The `.github/workflows/tla.yml` gate runs both the sound pass and
 the teeth-refutation on every PR touching the spec surface. Spec B was authored
 **before** the #539 retention-floor code, per the "model the floor before you
-ship it" rule. Track-B `cargo-fuzz` targets over the §4 pure fns are the
-remaining M5 work. Honest scope + roadmap: `docs/machine-checked-correctness-design.md`.
+ship it" rule.
+
+## Track-B fuzzing (`fuzz/`, #481)
+
+The same load-bearing pure fns the Kani harnesses prove also carry `cargo-fuzz`
+targets in the `fuzz/` crate — continuous, coverage-guided sampling that
+complements Kani's bounded exhaustive proof and makes the fns OSS-Fuzz-eligible
+(they're seedable; a seed `corpus/` ships per target). One target per fn
+(`next_watermark`, `classify`, `resolve`, `may_rejoin`), each asserting the SAME
+property its Kani harness proves (P1/P2/P3 no-skip·monotone·liveness;
+no-gap-apply; no-foreign-adopt / no-own-rollback; the recovery-gate biconditional)
+— a violation is a fuzzer crash.
+
+**Detached on purpose.** `cargo-fuzz` needs nightly, but this repo pins Rust
+1.96.0 stable for reproducible release builds, so `fuzz/` has its own
+`[workspace]` and sits in the root `Cargo.toml`'s `workspace.exclude` — it never
+affects `cargo build` or the release path, and runs out of band (OSS-Fuzz-style).
+`scripts/fuzz-check.sh` builds + short-runs every target on nightly;
+`FUZZ_MUTANT=1 scripts/fuzz-check.sh` builds each target's `--cfg fuzz_mutant`
+variant and asserts the fuzzer trips it fast (teeth — a mutant that doesn't crash
+is itself a failure).
+
+Honest scope + roadmap: `docs/machine-checked-correctness-design.md`.
 
 ## Behaviors the scenarios exercise
 
