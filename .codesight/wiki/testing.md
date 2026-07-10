@@ -417,7 +417,7 @@ can re-check with the public TLA+ tools.
 | Spec | Models | Invariants | Status |
 |---|---|---|---|
 | `Delivery.tla` (**Spec B**, I3+I4) | the delivery-watermark + retention-floor machine: `Advance` abstracts `next_watermark`, `GC` the retention floor | `NoLossForCurrentMember` (retention never drops a message a current member-device still needs), `CursorMonotone`, `AcceptedLossesOnly` (the two accepted losses, nothing weaker) | ✅ authored + TLC-checked |
-| Spec A (`CommitLog`, I1/I2) | the DS `submit_commit` epoch machine under concurrency | `OnePerEpoch ∧ Gapless ∧ HeadMonotone ∧ NoForeignAdopt` | ⏳ M4, not yet authored |
+| `CommitLog.tla` (**Spec A**, I1/I2) | the DS `submit_commit` epoch machine under N-client concurrency: `Submit` (conditional-insert-at-head), `Apply`, `ExternalJoin` | `OnePerEpoch ∧ Gapless ∧ HeadMonotone ∧ NoForeignAdopt` | ✅ authored + TLC-checked |
 
 Each spec ships with a **teeth** config that must FAIL (e.g. `DeliveryBroken.cfg`
 guards the floor by the *fastest* member instead of the slowest → TLC produces a
