@@ -1,0 +1,5 @@
+# TLC run output (fingerprints, state graph, error traces) — scratch, never committed
+states/
+*.st
+*.fp
+Delivery_TTrace_*

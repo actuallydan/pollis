@@ -1,0 +1,51 @@
+name: TLA+ specs
+
+# Machine-checked-correctness gate — Layer 1 / TLA+
+# (docs/machine-checked-correctness-design.md §3).
+#
+# Runs TLC exhaustively over the small config of Spec B (Delivery / retention,
+# invariants I3+I4). This is a fast, JVM-only gate: no Rust build, no native
+# deps — just a JRE + tla2tools.jar (the script fetches the pinned jar). The
+# sound spec must pass all three invariants; the teeth check confirms the
+# broken-GC variant still produces a counterexample, so the gate can't rot into
+# a vacuous pass.
+
+on:
+  pull_request:
+    # Only the spec surface + its runner matter here.
+    paths:
+      - 'specs/tla/**'
+      - 'scripts/tlc-check.sh'
+      - '.github/workflows/tla.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tla-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tlc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JRE
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Sound spec: NoLossForCurrentMember ∧ CursorMonotone ∧ AcceptedLossesOnly
+      # must all hold exhaustively over the small config.
+      - name: TLC — Delivery (sound, all invariants pass)
+        run: scripts/tlc-check.sh
+
+      # Teeth: the broken (fastest-member) retention guard MUST fail — a clean
+      # pass here means the invariant lost its teeth and is a regression.
+      - name: TLC — Delivery (broken variant must be refuted)
+        run: scripts/tlc-check.sh --broken
