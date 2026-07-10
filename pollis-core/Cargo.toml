@@ -55,6 +55,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["fs", "sync", "rt-multi-thread", "time", "macros", "io-util", "net", "process", "signal"] }
 async-trait = "0.1"
+# LRU cap for the per-conversation ReplicaPool (#261). Already in the lockfile
+# transitively; declared direct here for db/replica_pool.rs.
+lru = "0.12"
 # NOTE: rusqlite is declared *per target* below — desktop links the system
 # libcrypto via `bundled-sqlcipher`, mobile vendors OpenSSL into SQLCipher
 # via `bundled-sqlcipher-vendored-openssl`. Both feature sets share the

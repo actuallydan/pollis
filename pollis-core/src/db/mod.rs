@@ -1,5 +1,8 @@
 pub mod local;
 pub mod remote;
+// #261 phases 3–4 skeleton — per-conversation local-first replicas. Not yet wired
+// into AppState or the command path (see the module's status note).
+pub mod replica_pool;
 
 /// Frozen baseline schema for the remote Turso DB. Embedded at compile time
 /// so the integration test harness can stamp a fresh database without an

@@ -6376,6 +6376,7 @@ dependencies = [
  "libsql",
  "libwebrtc",
  "livekit",
+ "lru",
  "nix 0.30.1",
  "nnnoiseless",
  "openmls",
