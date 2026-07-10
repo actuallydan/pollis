@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Run the TLA+ machine-checked-correctness specs through TLC.
 #
-# Spec B — Delivery / retention (invariants I3 + I4),
-# docs/machine-checked-correctness-design.md §3. This is the fast CI gate:
-# TLC exhaustively checks the small config in seconds.
+# Two specs, both fast CI gates — TLC exhaustively checks each small config in
+# seconds (docs/machine-checked-correctness-design.md §3):
+#   Spec A — CommitLog (epoch/commit-log machine, invariants I1 + I2)
+#   Spec B — Delivery  (delivery/retention,        invariants I3 + I4)
 #
 # Usage:
-#   scripts/tlc-check.sh            # check the sound spec (must PASS)
-#   scripts/tlc-check.sh --broken   # check the teeth config (must FAIL)
+#   scripts/tlc-check.sh            # check both SOUND specs (all must PASS)
+#   scripts/tlc-check.sh --broken   # check both TEETH configs (each must FAIL)
 #
 # Requirements: a JRE (java on PATH, or JAVA_HOME set) and tla2tools.jar. If the
 # jar is absent it is downloaded to $TLA_TOOLS_DIR (default: this script's dir).
@@ -35,28 +36,48 @@ if [[ ! -f "$JAR" ]]; then
     "https://github.com/tlaplus/tlaplus/releases/download/${TLA2TOOLS_VERSION}/tla2tools.jar"
 fi
 
+# run_tlc <module> <cfg> [extra TLC flags...]
 run_tlc() {
-  local cfg="$1"
+  local module="$1"; local cfg="$2"; shift 2
   "$JAVA_BIN" -XX:+UseParallelGC -cp "$JAR" tlc2.TLC \
-    -config "$cfg" -cleanup Delivery.tla
+    "$@" -config "$cfg" -cleanup "$module"
+}
+
+# check_sound <label> <module> <cfg> [extra flags...] — must PASS.
+check_sound() {
+  local label="$1"; shift
+  echo "== TLC check ($label) — all invariants must pass =="
+  run_tlc "$@"
+  echo "OK: $label passed."
+}
+
+# check_teeth <label> <module> <cfg> [extra flags...] — must FAIL (be refuted).
+# We invert the exit code: a TLC failure here is SUCCESS for us (the invariant
+# has teeth), and a clean pass is a regression (the check went vacuous).
+check_teeth() {
+  local label="$1"; shift
+  echo "== TLC teeth check ($label) — expecting a violation =="
+  if run_tlc "$@"; then
+    echo "ERROR: $label unexpectedly PASSED — the invariant has no teeth." >&2
+    exit 1
+  fi
+  echo "OK: $label produced the expected counterexample."
 }
 
 cd "$SPEC_DIR"
 
+# CommitLog reaches quiescent terminal states (all members removed, or the epoch
+# bound hit with everyone caught up), which is expected, not a bug — so disable
+# TLC's deadlock check for it. Delivery has a live action in every state.
 if [[ "${1:-}" == "--broken" ]]; then
-  # Teeth check: the broken (fastest-member) retention guard MUST produce a
-  # NoLossForCurrentMember counterexample. We invert the exit code: a TLC
-  # failure here is SUCCESS for us, and a clean pass is a regression.
-  echo "== TLC teeth check (DeliveryBroken.cfg) — expecting a violation =="
-  if run_tlc DeliveryBroken.cfg; then
-    echo "ERROR: broken config unexpectedly PASSED — the invariant has no teeth." >&2
-    exit 1
-  else
-    echo "OK: broken config produced the expected counterexample."
-    exit 0
-  fi
+  check_teeth "CommitLog (broken submit-guard)" CommitLog.tla CommitLogBroken.cfg -deadlock
+  check_teeth "Delivery (broken retention-guard)" Delivery.tla DeliveryBroken.cfg
+  echo "OK: both teeth configs produced the expected counterexamples."
+  exit 0
 fi
 
-echo "== TLC check (Delivery.cfg) — all invariants must pass =="
-run_tlc Delivery.cfg
-echo "OK: Delivery spec passed (NoLossForCurrentMember, CursorMonotone, AcceptedLossesOnly)."
+check_sound "CommitLog (OnePerEpoch, Gapless, HeadMonotone, NoForeignAdopt)" \
+  CommitLog.tla CommitLog.cfg -deadlock
+check_sound "Delivery (NoLossForCurrentMember, CursorMonotone, AcceptedLossesOnly)" \
+  Delivery.tla Delivery.cfg
+echo "OK: both specs passed."

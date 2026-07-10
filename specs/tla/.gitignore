@@ -2,4 +2,5 @@
 states/
 *.st
 *.fp
-Delivery_TTrace_*
+# TLC error-trace exploration specs (both *.tla and *.bin), for any spec
+*_TTrace_*

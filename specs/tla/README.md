@@ -12,23 +12,47 @@ complement to the Kani proofs on the real Rust pure functions
 
 | File | Spec | Invariants | Status |
 |---|---|---|---|
+| `CommitLog.tla` + `CommitLog.cfg` | **Spec A — CommitLog / epoch machine** | I1 (`OnePerEpoch`, `Gapless`, `HeadMonotone`) + I2 (`NoForeignAdopt`) | authored + TLC-checked |
 | `Delivery.tla` + `Delivery.cfg` | **Spec B — Delivery / retention** | I3 (`NoLossForCurrentMember`, `CursorMonotone`) + I4 (retention floor) + `AcceptedLossesOnly` | authored + TLC-checked |
-
-Spec A (`CommitLog`, I1/I2 — M4) is not authored yet; this slice is Spec B only.
 
 ## Running TLC
 
 Fast, headless, JVM-only. From the repo root:
 
 ```bash
-scripts/tlc-check.sh            # sound spec — all invariants must PASS
-scripts/tlc-check.sh --broken   # teeth — must produce a counterexample
+scripts/tlc-check.sh            # both sound specs — all invariants must PASS
+scripts/tlc-check.sh --broken   # both teeth configs — each must produce a counterexample
 ```
 
 The script downloads a pinned `tla2tools.jar` if absent and needs only a JRE
 (`java` on `PATH` or `JAVA_HOME`). A third party can re-check the `.tla`/`.cfg`
 files with the public [TLA+ tools](https://github.com/tlaplus/tlaplus) — nothing
 here is Pollis-specific tooling.
+
+## CommitLog (Spec A) at a glance
+
+State: per-key append-only `log` of commits (`[epoch, seq, author]`, `seq` a
+globally-unique byte-identity nonce), per-`(key, client)` `localEpoch` (how far
+the client has applied), the `member` I5 gate flag, and `adopted` (the `seq` a
+client installed at each epoch, for `NoForeignAdopt`). Actions: `Submit` (the DS
+`submit_commit` conditional-insert — append at the head iff `based_on = head`,
+else the stale client is rejected and must catch up), `Apply` (replay the next
+commit, the `classify` decision), `ExternalJoin` (recovery jump to the head,
+gated by `member`), and `Remove` (eviction).
+
+Invariants:
+
+- **`OnePerEpoch`** (I1): no two distinct commits share an epoch — no fork.
+- **`Gapless`** (I1): the epochs present are exactly `0..Head-1`, no hole.
+- **`HeadMonotone`** (I1): the head epoch never decreases — append-only.
+- **`NoForeignAdopt`** (I2): a commit a client adopted at epoch `e` byte-equals
+  (`seq`-equals) the log's commit at `e` — no phantom epoch, no fork adopted.
+
+**Teeth.** `CommitLogBroken.cfg` flips `SoundSubmit` to `FALSE`, dropping the
+conditional-insert guard so a stale client appends a second commit at an
+already-occupied epoch. TLC then reports a concrete `OnePerEpoch` counterexample
+(two clients landing distinct commits at one epoch), proving the invariant is not
+vacuously true.
 
 ## Delivery (Spec B) at a glance
 
