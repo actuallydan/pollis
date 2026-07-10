@@ -404,8 +404,29 @@ worthless, so the mutant guarantees the property has teeth. Proven functions:
 The proofs are the pure *model of record*: e.g. `accepts` is NOT wired into the
 real `submit_commit` (the race-free decision must stay inside the single
 conditional INSERT), it is proved alongside as the specification the SQL
-implements. Honest scope: this is machine-checked proof of these pure functions,
-**not** a TLA+/whole-protocol model (tracked in #481).
+implements.
+
+## TLA+ design models (#481)
+
+Kani proves the *code* (pure fns) correct; TLA+ proves the *design* (the abstract
+state machine) correct — the complement. The specs live in `specs/tla/` and are
+checked exhaustively by TLC over a small configuration (a JRE + `tla2tools.jar`;
+`scripts/tlc-check.sh` fetches the pinned jar). They read as math a third party
+can re-check with the public TLA+ tools.
+
+| Spec | Models | Invariants | Status |
+|---|---|---|---|
+| `Delivery.tla` (**Spec B**, I3+I4) | the delivery-watermark + retention-floor machine: `Advance` abstracts `next_watermark`, `GC` the retention floor | `NoLossForCurrentMember` (retention never drops a message a current member-device still needs), `CursorMonotone`, `AcceptedLossesOnly` (the two accepted losses, nothing weaker) | ✅ authored + TLC-checked |
+| Spec A (`CommitLog`, I1/I2) | the DS `submit_commit` epoch machine under concurrency | `OnePerEpoch ∧ Gapless ∧ HeadMonotone ∧ NoForeignAdopt` | ⏳ M4, not yet authored |
+
+Each spec ships with a **teeth** config that must FAIL (e.g. `DeliveryBroken.cfg`
+guards the floor by the *fastest* member instead of the slowest → TLC produces a
+concrete `NoLossForCurrentMember` counterexample), so a spec can't rot into a
+vacuous pass. The `.github/workflows/tla.yml` gate runs both the sound pass and
+the teeth-refutation on every PR touching the spec surface. Spec B was authored
+**before** the #539 retention-floor code, per the "model the floor before you
+ship it" rule. Track-B `cargo-fuzz` targets over the §4 pure fns are the
+remaining M5 work. Honest scope + roadmap: `docs/machine-checked-correctness-design.md`.
 
 ## Behaviors the scenarios exercise
 
