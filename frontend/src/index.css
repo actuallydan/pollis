@@ -59,6 +59,51 @@
 
     --font-mono: 'DM Mono', ui-monospace, monospace;
     --font-sans: 'Atkinson Hyperlegible Next', system-ui, sans-serif;
+
+    /* ── Corner radii ──────────────────────────────────────────────── */
+    /* Terminal keeps corners tight; the refined skin softens them (brief §6:
+       6–10px). Primitives read these instead of hard-coding a radius so a
+       skin can retune them in one place. Terminal values match the current
+       look (chip = rounded-sm 2px, control = Button's 4px); panels are
+       already soft (10px rounded-panel) and unchanged. */
+    --radius-chip: 2px;
+    --radius-control: 4px;
+  }
+
+  /* ══ Refined skin ════════════════════════════════════════════════════
+     Friendlier, non-terminal alternate (issue #565). Overrides the same
+     `--c-*` tokens the whole app already routes through, so re-skinning the
+     colors is free — including the legacy inline `var(--c-…)` call sites.
+     Values still derive from the user's accent/bg knobs, so accent and
+     background stay independently configurable (brief §5). The signature
+     change: `--c-text` is no longer amber (in terminal it equals
+     `--c-accent`) — it becomes a warm near-white so the amber wash lifts and
+     the accent is used sparingly. */
+  :root[data-skin="refined"] {
+    /* Warm charcoal surfaces — lift the near-black floor for a softer dark.
+       Offsets ride on the bg-lightness knob so a custom background still
+       shifts the whole ramp together. */
+    --c-bg: hsl(var(--bg-h) var(--bg-s) calc(var(--bg-l) + 9%));
+    --c-surface: hsl(var(--bg-h) var(--bg-s) calc(var(--bg-l) + 12%));
+    --c-surface-raised: hsl(var(--bg-h) var(--bg-s) calc(var(--bg-l) + 15%));
+    --c-surface-high: hsl(var(--bg-h) var(--bg-s) calc(var(--bg-l) + 18%));
+
+    /* Neutral text (low chroma, tied to the bg hue) — kills the amber wash. */
+    --c-text: hsl(var(--bg-h) 8% 91%);
+    --c-text-dim: hsl(var(--bg-h) 8% 67%);
+    --c-text-muted: hsl(var(--bg-h) 6% 49%);
+
+    /* Neutral 1px separators instead of amber-tinted borders. */
+    --c-border: hsl(var(--bg-h) 8% 100% / 11%);
+    --c-border-active: hsl(var(--bg-h) 8% 100% / 22%);
+
+    /* Neutral hover; accent-tinted active row (brief's selected-nav formula). */
+    --c-hover: hsl(var(--bg-h) 8% 100% / 5%);
+    --c-active: color-mix(in srgb, var(--c-accent) 13%, transparent);
+
+    /* Softer corners. */
+    --radius-chip: 6px;
+    --radius-control: 8px;
   }
 
   html,
@@ -154,7 +199,8 @@ input[type="range"]::-moz-range-thumb {
 
   /* Sidebar nav item ───────────────────────────────────────────── */
   .sidebar-item {
-    @apply flex items-center gap-2.5 w-full px-3 py-1.5 text-left text-xs transition-colors duration-100 cursor-pointer select-none rounded-sm;
+    @apply flex items-center gap-2.5 w-full px-3 py-1.5 text-left text-xs transition-colors duration-100 cursor-pointer select-none;
+    border-radius: var(--radius-chip);
     color: var(--c-text-dim);
   }
 
@@ -172,7 +218,8 @@ input[type="range"]::-moz-range-thumb {
 
   /* Icon buttons ───────────────────────────────────────────────── */
   .icon-btn {
-    @apply flex items-center justify-center w-8 h-8 rounded cursor-pointer transition-colors duration-100;
+    @apply flex items-center justify-center w-8 h-8 cursor-pointer transition-colors duration-100;
+    border-radius: var(--radius-control);
     color: var(--c-text-muted);
   }
 
@@ -182,7 +229,8 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .icon-btn-sm {
-    @apply flex items-center justify-center w-6 h-6 rounded cursor-pointer transition-colors duration-100;
+    @apply flex items-center justify-center w-6 h-6 cursor-pointer transition-colors duration-100;
+    border-radius: var(--radius-control);
     color: var(--c-text-muted);
   }
 
@@ -285,6 +333,36 @@ input[type="range"]::-moz-range-thumb {
 /* Only the 500-weight face is loaded; set it explicitly so the intent is clear */
 .font-mono {
   font-weight: 500;
+}
+
+/* ── Refined skin: monospace becomes a tool, not a uniform (brief §4) ──
+   In terminal, `font-mono` is on ~300 sites (labels, buttons, prose). Rather
+   than demote every one, the refined skin swaps the family to sans by default
+   and keeps mono only where a site opts in with `.font-machine` — reserved for
+   genuinely machine-facing text: timestamps, kbd chips, `#slug`s, code,
+   metrics. Promote those ~30 sites to `font-machine`; everything else reads as
+   sans automatically. */
+:root[data-skin="refined"] .font-mono:not(.font-machine) {
+  font-family: var(--font-sans);
+}
+
+/* Machine-facing text stays monospace in BOTH skins. */
+.font-machine {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+/* Composer: terminal inverts the textarea to a solid accent fill on focus
+   (the "you're typing into the terminal" signal). Refined keeps it a normal
+   surface with an accent border instead. */
+:root[data-skin="refined"] .chat-input-textarea.is-focused {
+  background: var(--c-surface) !important;
+  color: var(--c-text) !important;
+  border-color: var(--c-border-active) !important;
+}
+
+:root[data-skin="refined"] .chat-input-textarea.is-focused::placeholder {
+  color: var(--c-text-muted);
 }
 
 /* ── Scrollbar ───────────────────────────────────────────────────── */

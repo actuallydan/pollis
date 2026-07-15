@@ -75,4 +75,19 @@
 - **VoiceSettingsPage** — `frontend/src/pages/VoiceSettingsPage.tsx`
 
 ---
+
+## Theming & skins
+
+All colors route through `--c-*` CSS custom properties defined in `frontend/src/index.css` and surfaced as semantic Tailwind utilities (`bg-bg`, `bg-surface`, `text-fg`, `border-line`, …) in `frontend/tailwind.config.js`. The palette is derived at runtime from six "knob" vars — `--accent-h/s/l` and `--bg-h/s/l` — plus `--font-size-base` (all `rem` sizes scale off it) and `--bar-h`. `applyAccentColor` / `applyBackgroundColor` / `applyFontSize` in `frontend/src/utils/colorUtils.ts` write the knobs; `applyPreferences` (`hooks/queries/usePreferences.ts`) drives them from the synced preferences blob. Corner radii are tokenized as `--radius-chip` / `--radius-control`.
+
+### UI skins (issue #565)
+
+Two skins share the same `--c-*` token names:
+
+- **`terminal`** (default) — the IRC/monospace look; base `:root`.
+- **`refined`** — a friendlier, proportional-sans, Slack/Discord-shaped alternate for users who dislike the terminal aesthetic. A `:root[data-skin="refined"]` block **overrides** the same tokens (warm-charcoal surfaces, neutral near-white text so the amber wash lifts, neutral borders, softer radii) and inverts the monospace default: `.font-mono:not(.font-machine)` renders as sans. Machine-facing text (timestamps, kbd chips, `#slug`s, code, metrics) opts back into mono with the `.font-machine` class — stays mono in **both** skins.
+
+The skin is a synced preference (`PreferencesData.skin`, rides in the opaque preferences JSON blob — no migration/Rust change), applied via `applySkin(skin)` → `document.documentElement.dataset.skin`. Toggle lives in the **Appearance** section of `PreferencesPage`. Because every surface already routes color through `--c-*`, the skin is an overlay that reskins the whole app (including legacy inline `var(--c-…)` call sites) without a parallel component tree; structural refined surfaces (message rows, sidebar profile, etc.) are being forked incrementally behind the same `data-skin` seam.
+
+---
 _Back to [index.md](./index.md)_
