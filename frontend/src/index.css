@@ -57,6 +57,9 @@
     /* ── Danger / error (validation errors, unverified states) ──── */
     --c-danger: #ff6b6b;
 
+    /* ── Voice-connected label (fixed, hue-independent) ─────────── */
+    --c-voice-connected: hsl(150 55% 62%);
+
     --font-mono: 'DM Mono', ui-monospace, monospace;
     --font-sans: 'Atkinson Hyperlegible Next', system-ui, sans-serif;
 
