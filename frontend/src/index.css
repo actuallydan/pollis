@@ -82,6 +82,7 @@
     --msg-header-gap: 0.933rem;
     --msg-divider-gap: 1.467rem;
     --msg-group-gap: 0.133rem;
+    --msg-row-pad-y: 0.15rem;
   }
 
   /* ══ Refined skin ════════════════════════════════════════════════════
@@ -122,23 +123,38 @@
     /* Density defaults to comfortable (more breathing room). The compact
        block below overrides when data-density="compact". */
     --side-w: 17rem;
-    --lh: 1.6;
-    --msg-header-gap: 0.933rem;
-    --msg-divider-gap: 1.467rem;
-    --msg-group-gap: 0.133rem;
+    --lh: 1.65;
+    --msg-header-gap: 1.25rem;
+    --msg-divider-gap: 1.75rem;
+    --msg-group-gap: 0.35rem;
+    --msg-row-pad-y: 0.3rem;
   }
 
   /* Refined + compact: denser, but still calmer than terminal. */
   :root[data-skin="refined"][data-density="compact"] {
-    --side-w: 14.933rem;
-    --lh: 1.45;
-    --msg-header-gap: 0.467rem;
-    --msg-divider-gap: 0.867rem;
+    --side-w: 14.25rem;
+    --lh: 1.35;
+    --msg-header-gap: 0.45rem;
+    --msg-divider-gap: 0.7rem;
+    --msg-group-gap: 0.05rem;
+    --msg-row-pad-y: 0.04rem;
   }
 
   /* Refined body picks up the density line-height. */
   :root[data-skin="refined"] body {
     line-height: var(--lh);
+  }
+
+  /* Refined: sidebar rows read as muted secondary text until hovered or
+     selected, matching Discord/Slack. Terminal keeps its full-accent rows
+     (where `text-fg` is the amber accent). The inner buttons use
+     `text-inherit`, so setting the row color cascades to them. */
+  :root[data-skin="refined"] .sidebar-row:not([data-active="true"]) {
+    color: var(--c-text-dim);
+  }
+
+  :root[data-skin="refined"] .sidebar-row:not([data-active="true"]):hover {
+    color: var(--c-text);
   }
 
   html,

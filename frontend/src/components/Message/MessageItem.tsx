@@ -128,7 +128,10 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
         data-testid={`message-${message.id}`}
         aria-label={`Message from ${authorUsername}`}
         className="group relative grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-2 items-start px-4 hover:bg-hover transition-colors duration-75"
-        style={{ paddingTop: isGroupStart ? "var(--msg-header-gap)" : "var(--msg-group-gap)" }}
+        style={{
+          paddingTop: isGroupStart ? "var(--msg-header-gap)" : "var(--msg-group-gap)",
+          paddingBottom: "var(--msg-row-pad-y)",
+        }}
       >
         {/* Left gutter: avatar on a group start, hover-only timestamp otherwise */}
         <div className="flex justify-center pt-0.5 select-none">
@@ -208,6 +211,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
             style={{
               color: isDeleted ? "var(--c-text-muted)" : "var(--c-text)",
               whiteSpace: "pre-wrap",
+              lineHeight: "var(--lh)",
             }}
           >
             <LinkifiedText text={content} />

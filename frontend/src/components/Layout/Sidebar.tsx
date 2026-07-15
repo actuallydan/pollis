@@ -382,7 +382,7 @@ const Row: React.FC<RowProps> = ({ indent, isActive, onClick, leading, chevron, 
   return (
     <div
       data-active={isActive ? "true" : "false"}
-      className={`flex w-full items-stretch border-l-2 transition-colors ${
+      className={`sidebar-row flex w-full items-stretch border-l-2 transition-colors ${
         isActive
           ? "bg-hover border-accent text-accent"
           : "bg-transparent border-transparent text-fg hover:bg-hover"
