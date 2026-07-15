@@ -1,5 +1,9 @@
 @import "@fontsource/atkinson-hyperlegible-next";
 @import "@fontsource/dm-mono/500.css";
+/* Geist Sans — the refined skin's UI sans (see the refined token block). */
+@import "@fontsource/geist-sans/400.css";
+@import "@fontsource/geist-sans/500.css";
+@import "@fontsource/geist-sans/600.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -115,6 +119,12 @@
     /* Neutral hover; accent-tinted active row (brief's selected-nav formula). */
     --c-hover: hsl(var(--bg-h) 8% 100% / 5%);
     --c-active: color-mix(in srgb, var(--c-accent) 13%, transparent);
+
+    /* Refined UI sans is Geist (the terminal skin keeps Atkinson). The
+       mono→sans inversion and the body both read `--font-sans`, so this one
+       override reskins all human-facing text. Machine-facing `.font-machine`
+       text stays on `--font-mono`. */
+    --font-sans: 'Geist Sans', system-ui, sans-serif;
 
     /* Softer corners. */
     --radius-chip: 6px;
