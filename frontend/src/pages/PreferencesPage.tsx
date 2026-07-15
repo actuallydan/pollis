@@ -21,13 +21,10 @@ import {
   applyBackgroundColor,
   applyFontSize,
   applySkin,
-  applyDensity,
   normalizeSkin,
-  normalizeDensity,
   loadDeviceFontSize,
   saveDeviceFontSize,
   type Skin,
-  type Density,
 } from "../utils/colorUtils";
 import { RangeSlider } from "../components/ui/RangeSlider";
 import { Switch } from "../components/ui/Switch";
@@ -51,7 +48,6 @@ export const PreferencesPage: React.FC = observer(() => {
   const currentUser = appStore.currentUser;
   const toggleSidebarLabel = useShortcutLabel("app.toggleSidebar");
   const [skin, setSkin] = useState<Skin>("terminal");
-  const [density, setDensity] = useState<Density>("comfortable");
   const [hue, setHue] = useState<number>(38);
   const [saturation, setSaturation] = useState<number>(90);
   const [bgHue, setBgHue] = useState<number>(38);
@@ -82,7 +78,6 @@ export const PreferencesPage: React.FC = observer(() => {
       // Font size is device-local; seed once from any legacy remote value.
       applyDeviceFontSize(currentUser?.id, query.data);
       setSkin(normalizeSkin(query.data.skin));
-      setDensity(normalizeDensity(query.data.density));
       if (query.data.allow_desktop_notifications !== undefined) {
         setAllowDesktopNotifications(query.data.allow_desktop_notifications);
       }
@@ -132,7 +127,6 @@ export const PreferencesPage: React.FC = observer(() => {
     accentH?: number; accentS?: number;
     bgH?: number; bgS?: number; bgL?: number;
     skin?: Skin;
-    density?: Density;
     notifications?: boolean; soundEffects?: boolean;
     sidebarOpenByDefault?: boolean;
     closeToTray?: boolean;
@@ -149,7 +143,6 @@ export const PreferencesPage: React.FC = observer(() => {
     const tray = opts.closeToTray ?? closeToTray;
     const menubar = opts.menubarIcon ?? menubarIcon;
     const skinVal = opts.skin ?? skin;
-    const densityVal = opts.density ?? density;
     const accentHex = hslToHex(ah, as_, 62);
     const bgHex = hslToHex(bh, bs, bl);
     // font_size is intentionally NOT included — it's device-local now,
@@ -163,14 +156,13 @@ export const PreferencesPage: React.FC = observer(() => {
       accent_color: accentHex,
       background_color: bgHex,
       skin: skinVal,
-      density: densityVal,
       allow_desktop_notifications: notif,
       allow_sound_effects: sfx,
       sidebar_open_by_default: sidebar,
       close_to_tray: tray,
       menubar_icon: menubar,
     });
-  }, [savePrefs, query.data, hue, saturation, bgHue, bgSaturation, bgLightness, skin, density, allowDesktopNotifications, allowSoundEffects, sidebarOpenByDefault, closeToTray, menubarIcon]);
+  }, [savePrefs, query.data, hue, saturation, bgHue, bgSaturation, bgLightness, skin, allowDesktopNotifications, allowSoundEffects, sidebarOpenByDefault, closeToTray, menubarIcon]);
 
   const handleAccentColor = (hex: string) => {
     const [h, s] = hexToHsl(hex);
@@ -196,12 +188,6 @@ export const PreferencesPage: React.FC = observer(() => {
     setSkin(val);
     applySkin(val);
     save({ skin: val });
-  };
-
-  const handleDensity = (val: Density) => {
-    setDensity(val);
-    applyDensity(val);
-    save({ density: val });
   };
 
   const handleFontSize = (val: number) => {
@@ -311,38 +297,6 @@ export const PreferencesPage: React.FC = observer(() => {
                 friendlier, proportional-sans layout for people who prefer a
                 more conventional chat app. Syncs across your devices.
               </p>
-
-              {skin === "refined" && (
-                <div className="flex flex-col gap-2">
-                  <span className="text-xs font-mono uppercase tracking-wider" style={{ color: "var(--c-text-dim)" }}>
-                    Density
-                  </span>
-                  <div role="radiogroup" aria-label="Layout density" className="flex gap-2 flex-wrap">
-                    {([
-                      { value: "comfortable", label: "Comfortable" },
-                      { value: "compact", label: "Compact" },
-                    ] as const).map((opt) => (
-                      <Button
-                        key={opt.value}
-                        variant={density === opt.value ? "primary" : "secondary"}
-                        size="sm"
-                        aria-label={opt.label}
-                        data-testid={`pref-density-${opt.value}`}
-                        onClick={() => {
-                          if (density !== opt.value) {
-                            handleDensity(opt.value);
-                          }
-                        }}
-                      >
-                        {opt.label}
-                      </Button>
-                    ))}
-                  </div>
-                  <p className="text-xs font-mono" style={{ color: "var(--c-text-muted)" }}>
-                    Comfortable gives more breathing room; Compact is denser. Only affects the Refined skin.
-                  </p>
-                </div>
-              )}
             </section>
 
             {/* Accent Color */}

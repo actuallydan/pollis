@@ -127,7 +127,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
       <div
         data-testid={`message-${message.id}`}
         aria-label={`Message from ${authorUsername}`}
-        className="group relative grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-2 items-start px-4 hover:bg-hover transition-colors duration-75"
+        className="group relative grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-2 items-start px-4 hover:bg-hover transition-colors duration-75"
         style={{
           paddingTop: isGroupStart ? "var(--msg-header-gap)" : "var(--msg-group-gap)",
           paddingBottom: "var(--msg-row-pad-y)",
@@ -140,7 +140,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
           ) : (
             <span
               title={formatFullTimestamp(toMs(message.created_at))}
-              className="font-machine text-2xs tabular-nums opacity-0 group-hover:opacity-100 transition-opacity"
+              className="font-machine text-2xs tabular-nums whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity"
               style={{ color: "var(--c-text-muted)" }}
             >
               {formatTimeOfDay(toMs(message.created_at))}

@@ -72,9 +72,9 @@
     --radius-chip: 2px;
     --radius-control: 4px;
 
-    /* ── Layout density ────────────────────────────────────────────── */
-    /* Only the refined skin retunes these (comfortable/compact). Terminal
-       keeps the defaults: its sidebar width is unchanged; the message-gap /
+    /* ── Layout spacing ────────────────────────────────────────────── */
+    /* Sidebar width + refined message rhythm. Terminal keeps its sidebar
+       width here; the refined block widens it and the message-gap /
        line-height tokens are consumed only by refined surfaces. Sizes are in
        rem so they track the font-size preference. */
     --side-w: 14.667rem;
@@ -120,24 +120,14 @@
     --radius-chip: 6px;
     --radius-control: 8px;
 
-    /* Density defaults to comfortable (more breathing room). The compact
-       block below overrides when data-density="compact". */
+    /* Roomier rhythm than terminal — wider sidebar, more line-height, and
+       breathing room between sender groups. */
     --side-w: 17rem;
     --lh: 1.65;
     --msg-header-gap: 1.25rem;
     --msg-divider-gap: 1.75rem;
     --msg-group-gap: 0.35rem;
     --msg-row-pad-y: 0.3rem;
-  }
-
-  /* Refined + compact: denser, but still calmer than terminal. */
-  :root[data-skin="refined"][data-density="compact"] {
-    --side-w: 14.25rem;
-    --lh: 1.35;
-    --msg-header-gap: 0.45rem;
-    --msg-divider-gap: 0.7rem;
-    --msg-group-gap: 0.05rem;
-    --msg-row-pad-y: 0.04rem;
   }
 
   /* Refined body picks up the density line-height. */

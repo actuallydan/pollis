@@ -8,13 +8,10 @@ import {
   applyBackgroundColor,
   applyFontSize,
   applySkin,
-  applyDensity,
   normalizeSkin,
-  normalizeDensity,
   loadDeviceFontSize,
   saveDeviceFontSize,
   type Skin,
-  type Density,
 } from "../../utils/colorUtils";
 import {
   setShortcutOverrides,
@@ -35,11 +32,6 @@ export interface PreferencesData {
    * like `accent_color`/`background_color`. Absent → terminal.
    */
   skin?: Skin;
-  /**
-   * Layout density (`comfortable` | `compact`) — only honored by the refined
-   * skin. Synced across devices. Absent → comfortable.
-   */
-  density?: Density;
   /**
    * Legacy: font size used to be synced via the remote preferences blob.
    * It is now device-local (see `loadDeviceFontSize` / `saveDeviceFontSize`
@@ -293,7 +285,6 @@ export function usePreferences() {
         accent_color: getPreference<string | undefined>(json, "accent_color", undefined),
         background_color: getPreference<string | undefined>(json, "background_color", undefined),
         skin: normalizeSkin(getPreference<string | undefined>(json, "skin", undefined)),
-        density: normalizeDensity(getPreference<string | undefined>(json, "density", undefined)),
         font_size: getPreference<string | undefined>(json, "font_size", undefined),
         allow_desktop_notifications: getPreference<boolean>(json, "allow_desktop_notifications", false),
         allow_sound_effects: getPreference<boolean>(json, "allow_sound_effects", true),
@@ -357,12 +348,6 @@ export function useSkin(): Skin {
   return normalizeSkin(query.data?.skin);
 }
 
-/** Reactive current layout density (refined skin only). See `useSkin`. */
-export function useDensity(): Density {
-  const { query } = usePreferences();
-  return normalizeDensity(query.data?.density);
-}
-
 /**
  * Apply loaded preferences (accent_color, background_color) to CSS vars.
  * Call this once after the preferences query resolves.
@@ -379,7 +364,6 @@ export function applyPreferences(prefs: PreferencesData): void {
     applyBackgroundColor(prefs.background_color);
   }
   applySkin(normalizeSkin(prefs.skin));
-  applyDensity(normalizeDensity(prefs.density));
   // Shortcut overrides flow through the same bindings module that
   // `useGlobalShortcut` resolves against on every keydown — no callsite
   // changes needed. An undefined map clears any previous override.
@@ -436,7 +420,7 @@ export function useApplyPreferences(): void {
       applyPreferences(data);
       applyDeviceFontSize(currentUser?.id, data);
     }
-  }, [data?.accent_color, data?.background_color, data?.skin, data?.density, data?.font_size, overridesKey, currentUser?.id]);
+  }, [data?.accent_color, data?.background_color, data?.skin, data?.font_size, overridesKey, currentUser?.id]);
 
   // Push close-to-tray to the host so the close handler can pick
   // hide-vs-quit synchronously. macOS ignores this (close already hides via

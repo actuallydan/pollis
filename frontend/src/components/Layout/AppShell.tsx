@@ -7,7 +7,6 @@ import { BreadcrumbNav } from "./BreadcrumbNav";
 import { MigrationBanner } from "../MigrationBanner";
 import { Sidebar } from "./Sidebar";
 import { StatusBarSummary } from "./StatusBarSummary";
-import { DensityToggle } from "./DensityToggle";
 import { VoiceBar } from "../Voice/VoiceBar";
 import { useSkin } from "../../hooks/queries/usePreferences";
 import { ScreenShareViewer } from "../Voice/ScreenShareViewer";
@@ -607,7 +606,6 @@ export const AppShell: React.FC = observer(() => {
       >
         <StatusBarSummary color={barInk} />
         <div className="flex items-center gap-3">
-        {refined && <DensityToggle />}
         {availableUpdateVersion && (
           <button
             data-testid="status-bar-update-available"
