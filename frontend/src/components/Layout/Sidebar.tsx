@@ -303,7 +303,7 @@ export const Sidebar: React.FC<SidebarProps> = observer(({ isOpen, onToggle }) =
         <span className="flex-1">Close</span>
         <kbd
           aria-hidden="true"
-          className="font-mono bg-bg px-1.5 py-px rounded-[3px] border border-line text-2xs leading-[1.2]"
+          className="font-mono font-machine bg-bg px-1.5 py-px rounded-[3px] border border-line text-2xs leading-[1.2]"
         >
           {toggleSidebarLabel}
         </kbd>

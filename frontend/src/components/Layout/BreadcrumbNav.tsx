@@ -228,7 +228,7 @@ export const BreadcrumbNav: React.FC = observer(() => {
         <SearchIcon size={16} />
         <kbd
           aria-hidden="true"
-          className="font-mono text-xs"
+          className="font-mono font-machine text-xs"
           style={{
             color: "inherit",
             background: "var(--c-bg)",

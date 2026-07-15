@@ -338,7 +338,7 @@ export const PreferencesPage: React.FC = observer(() => {
                   }}
                   maxLength={7}
                   spellCheck={false}
-                  className="text-xs font-mono px-2 py-1 focus:outline-none focus:ring-4 focus:ring-[var(--c-accent)] focus:ring-offset-2 focus:ring-offset-black"
+                  className="text-xs font-mono font-machine px-2 py-1 focus:outline-none focus:ring-4 focus:ring-[var(--c-accent)] focus:ring-offset-2 focus:ring-offset-black"
                   style={{
                     width: 90,
                     background: "var(--c-surface)",
@@ -422,7 +422,7 @@ export const PreferencesPage: React.FC = observer(() => {
                   }}
                   maxLength={7}
                   spellCheck={false}
-                  className="text-xs font-mono px-2 py-1 focus:outline-none focus:ring-4 focus:ring-[var(--c-accent)] focus:ring-offset-2 focus:ring-offset-black"
+                  className="text-xs font-mono font-machine px-2 py-1 focus:outline-none focus:ring-4 focus:ring-[var(--c-accent)] focus:ring-offset-2 focus:ring-offset-black"
                   style={{
                     width: 90,
                     background: "var(--c-surface)",
