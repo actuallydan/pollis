@@ -83,6 +83,27 @@ export function readSkin(): Skin {
   return normalizeSkin(document.documentElement.dataset.skin);
 }
 
+/**
+ * Layout density — only the `refined` skin honors it (terminal is fixed).
+ * `comfortable` gives more breathing room (larger line-height, wider sidebar,
+ * bigger message gaps); `compact` is denser but still calmer than terminal.
+ * Applied as `data-density` on <html>; refined surfaces read the density
+ * tokens (`--msg-header-gap`, `--msg-divider-gap`, `--lh`, `--side-w`) that
+ * the `:root[data-skin="refined"][data-density="…"]` blocks set. Synced across
+ * devices like the skin. See `PreferencesData.density`.
+ */
+export type Density = "comfortable" | "compact";
+
+/** Coerce a stored value to a valid Density, defaulting to comfortable. */
+export function normalizeDensity(v: unknown): Density {
+  return v === "compact" ? "compact" : "comfortable";
+}
+
+/** Apply the layout density by setting `data-density` on <html>. */
+export function applyDensity(density: Density): void {
+  document.documentElement.dataset.density = density;
+}
+
 /** Read the current accent color CSS vars as a hex string */
 export function readAccentHex(): string {
   const h = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--accent-h").trim() || "150", 10);
