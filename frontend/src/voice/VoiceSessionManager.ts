@@ -1,4 +1,5 @@
 import { errorMessage } from '../utils/errorMessage';
+import { logIgnored } from '../utils/log';
 import { Channel, invoke } from '../bridge';
 
 import { reaction } from 'mobx';
@@ -483,7 +484,7 @@ class VoiceSessionManager {
       console.error('[voice] join_voice_channel failed:', raw);
       // Best-effort cleanup in case the Rust side partially set up state
       // before failing.
-      invoke('leave_voice_channel').catch(() => {});
+      invoke('leave_voice_channel').catch((e) => console.warn('leave_voice_channel failed', e));
       this.localIdentity = null;
       this.setState({
         phase: 'idle',
@@ -553,7 +554,7 @@ class VoiceSessionManager {
           console.log(formatJoinTimings(timings, intentToInvokeMs));
         }
       })
-      .catch(() => {});
+      .catch(logIgnored);
 
     return true;
   }

@@ -96,8 +96,8 @@ export function useVoiceTest(): UseVoiceTestResult {
     return () => {
       // Leaving the page: kill anything still running on the Rust side so
       // the mic doesn't stay hot and tones don't keep playing.
-      invoke("stop_mic_test").catch(() => {});
-      invoke("stop_test_playback").catch(() => {});
+      invoke("stop_mic_test").catch((e) => console.warn("stop_mic_test failed", e));
+      invoke("stop_test_playback").catch((e) => console.warn("stop_test_playback failed", e));
     };
   }, []);
 

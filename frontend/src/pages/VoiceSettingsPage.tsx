@@ -231,7 +231,7 @@ export const VoiceSettingsPage: React.FC = observer(() => {
         setSelectedOutputState("default");
         void voiceSession.setOutputDevice("default");
       }
-    }).catch(() => { });
+    }).catch((e) => console.warn("list_audio_devices failed", e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

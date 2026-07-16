@@ -14,6 +14,7 @@ import { invalidateVoiceRoom, voiceQueryKeys } from './queries/useVoiceParticipa
 import { usePreferences } from './queries/usePreferences';
 import { groupQueryKeys, useUserGroupsWithChannels } from './queries/useGroups';
 import { notify, setNotifyPrefs, loadDeviceCallRingtone } from '../utils/notify';
+import { logIgnored } from '../utils/log';
 import { typingStore, typingRoomKey } from '../stores/typingStore';
 import { presenceStore } from '../stores/presenceStore';
 import { keyChangeStore } from '../stores/keyChangeStore';
@@ -674,13 +675,13 @@ export function useLiveKitRealtime() {
             }
             console.warn('[realtime] this device was revoked — signing out');
             return invoke('logout', { deleteData: false })
-              .catch(() => {})
+              .catch((e) => console.warn('logout failed', e))
               .then(() => {
                 appStore.logout();
               });
           })
           // Offline / transient error — never sign out on a blip.
-          .catch(() => {});
+          .catch(logIgnored);
         return;
       }
 
@@ -749,7 +750,7 @@ export function useLiveKitRealtime() {
         roomIds: [],
         userId: currentUser.id,
         username: currentUser.username ?? currentUser.id,
-      }).catch(() => { });
+      }).catch((e) => console.warn('connect_rooms failed', e));
     };
   }, [isTauriReady, currentUser?.id]);
 
