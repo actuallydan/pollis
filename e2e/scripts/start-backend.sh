@@ -102,11 +102,20 @@ fi
 # LOG_DB_* unset => the MLS control-plane tables share the single libsql DB
 # (pollis-delivery/src/main.rs). PORT/TURSO_URL/TURSO_TOKEN are read by main.rs.
 log "starting pollis-delivery on 127.0.0.1:$DS_PORT (DEV_OTP=000000)"
-env -u RESEND_API_KEY -u LOG_DB_URL -u LOG_DB_TOKEN -u LOG_DB_ADMIN_TOKEN \
+# FULLY DETACH the DS so it outlives THIS step. In CI (GitHub Actions) a step's
+# child processes are reaped with the step's process group when the step's shell
+# exits, so a plain `&` DS dies before the later e2e step can reach :8788. setsid
+# (new session, escapes the step's process group) + nohup (ignore SIGHUP) +
+# </dev/null (detach stdin) + disown keeps it alive until job end / stop-backend.sh.
+# Cleanup is by-name (`pkill -f target/debug/pollis-delivery` in stop-backend.sh),
+# so a possibly-imprecise $! here is only a best-effort record.
+setsid nohup env -u RESEND_API_KEY -u LOG_DB_URL -u LOG_DB_TOKEN -u LOG_DB_ADMIN_TOKEN \
   TURSO_URL="$TURSO_URL" TURSO_TOKEN="$TURSO_TOKEN" \
   PORT="$DS_PORT" DEV_OTP="000000" RUST_LOG="pollis_delivery=info" \
-  "$DS_BIN" > "$RUN_DIR/pollis-delivery.log" 2>&1 &
-echo $! > "$RUN_DIR/pollis-delivery.pid"
+  "$DS_BIN" > "$RUN_DIR/pollis-delivery.log" 2>&1 < /dev/null &
+DS_PID=$!
+echo "$DS_PID" > "$RUN_DIR/pollis-delivery.pid"
+disown "$DS_PID" 2>/dev/null || true
 
 # /health is an open (no-auth) 200 in pollis-delivery/src/lib.rs.
 log "waiting for pollis-delivery /health..."
