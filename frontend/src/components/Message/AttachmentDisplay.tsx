@@ -190,6 +190,13 @@ export const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
     return () => { mounted = false; cleanup(); };
   }, [isVideo, attachment.localPreviewUrl, downloadUrl]);
 
+  // Guard against a fetch-succeeds-but-render-fails loop: `<img onError>` nulls
+  // downloadUrl, which re-fires the auto-load effect below. A URL that fetches
+  // fine yet fails to render would otherwise loop forever (fetch→render→error→
+  // null→fetch). Cap how many render failures we retry before giving up.
+  const renderFailuresRef = useRef(0);
+  const MAX_RENDER_RETRIES = 1;
+
   // Auto-load images and audio from R2 once confirmed (object_key populated, no local URL).
   // One URL pattern across image and audio: the loopback media server
   // returns `http://127.0.0.1:<port>/<token>/<hash>`. Bytes never cross
@@ -197,6 +204,12 @@ export const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
   // db_key; HTTP Range works for `<audio>` / `<video>` natively.
   useEffect(() => {
     if ((!isImage && !isAudio) || isPending || downloadUrl) {
+      return;
+    }
+    // A previously fetched URL rendered and then errored past the retry cap —
+    // stop re-fetching, surface the failure instead of spinning.
+    if (renderFailuresRef.current > MAX_RENDER_RETRIES) {
+      setError("Failed to load");
       return;
     }
 
@@ -409,7 +422,10 @@ export const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
             <img
               src={downloadUrl}
               alt={attachment.filename}
-              onError={() => setDownloadUrl(null)}
+              onError={() => {
+                renderFailuresRef.current += 1;
+                setDownloadUrl(null);
+              }}
               style={{
                 width: "100%",
                 height: "100%",
