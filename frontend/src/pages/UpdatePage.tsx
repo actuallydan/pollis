@@ -59,7 +59,7 @@ export const UpdatePage: React.FC = observer(() => {
                 setAvailableUpdateVersion(null);
               }
             })
-            .catch(() => {});
+            .catch((e) => console.warn("checkForUpdate failed", e));
           return;
         }
 
@@ -94,7 +94,7 @@ export const UpdatePage: React.FC = observer(() => {
       return;
     }
     setIsInstalling(true);
-    await invoke("mark_update_required").catch(() => {});
+    await invoke("mark_update_required").catch((e) => console.warn("mark_update_required failed", e));
     setUpdateRequired(true);
   }, [status, setUpdateRequired]);
 

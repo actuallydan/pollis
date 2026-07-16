@@ -27,7 +27,7 @@ export const UpdateScreen: React.FC = () => {
         // guarantee LiveKit is disconnected with its 5s timeout before
         // the updater overwrites the binary.
         setPhase("preparing");
-        await invoke("leave_voice_channel").catch(() => {});
+        await invoke("leave_voice_channel").catch((e) => console.warn("leave_voice_channel failed", e));
         // Small settle window so any in-flight MLS commits / network
         // sends can finish before the process is replaced.
         await new Promise((r) => setTimeout(r, 300));
