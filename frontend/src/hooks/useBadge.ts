@@ -42,9 +42,7 @@ async function getWindowsNotifIcon(): Promise<PollisImage> {
  */
 export function useBadge() {
   const { isReady } = useTauriReady();
-  const unreadCounts = useObserver(() => appStore.unreadCounts);
-
-  const total = Object.values(unreadCounts).reduce((sum, n) => sum + n, 0);
+  const total = useObserver(() => appStore.totalUnread);
 
   useEffect(() => {
     if (!isReady) {
