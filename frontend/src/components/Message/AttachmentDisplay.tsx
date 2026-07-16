@@ -99,7 +99,10 @@ export const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
   // Without this, setting downloadUrl (on lightbox open) re-triggers the
   // effect and creates a second GStreamer pipeline on the same blob URL,
   // which races with the lightbox video and causes intermittent failures.
-  const posterAttemptedRef = useRef(false);
+  // Tracks the specific src we last attempted a poster capture for. A boolean
+  // latch here would block a late-arriving downloadUrl from ever producing a
+  // poster; keying on the src value lets a new src re-run exactly once.
+  const posterAttemptedSrcRef = useRef<string | null>(null);
 
   // Intercept Escape in the capture phase so AppShell's navigation handler
   // doesn't also fire while the lightbox is open.
@@ -130,11 +133,12 @@ export const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
   // Video: read duration + capture a poster frame via canvas.
   // Safe to seek now that gst-plugins-good is installed.
   useEffect(() => {
-    if (!isVideo || posterAttemptedRef.current) { return; }
+    if (!isVideo) { return; }
     const src = attachment.localPreviewUrl ?? downloadUrl;
-    if (!src) { return; }
-    // Mark before starting so concurrent dep changes don't trigger a second run.
-    posterAttemptedRef.current = true;
+    if (!src || posterAttemptedSrcRef.current === src) { return; }
+    // Mark this src before starting so concurrent dep changes don't trigger a
+    // second run for the same src, while a *new* src can still re-run.
+    posterAttemptedSrcRef.current = src;
     let mounted = true;
 
     const vid = document.createElement("video");
