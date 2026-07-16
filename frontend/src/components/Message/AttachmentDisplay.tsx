@@ -4,6 +4,7 @@ import { decode } from "blurhash";
 import { dialogSave, writeFile } from "../../bridge";
 import { Download, Film, Check } from "lucide-react";
 import { getFileIcon } from "../../utils/fileIcon";
+import { captureVideoPoster } from "../../utils/imageProcessing";
 import { formatFileSize, formatDuration } from "../../utils/format";
 import { downloadAndDecryptMedia, getMediaUrl } from "../../services/r2-upload";
 import { LoadingSpinner } from "../ui/LoaderSpinner";
@@ -142,53 +143,16 @@ export const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
     posterAttemptedSrcRef.current = src;
     let mounted = true;
 
-    const vid = document.createElement("video");
-    vid.muted = true;
-    vid.playsInline = true;
-    vid.preload = "metadata";
+    captureVideoPoster(src).then((result) => {
+      if (!result) { return; }
+      // Component unmounted mid-capture — drop the poster and revoke its blob
+      // URL so it doesn't leak (the poster-revoke effect only tracks state).
+      if (!mounted) { URL.revokeObjectURL(result.url); return; }
+      if (result.duration > 0) { setDuration(result.duration); }
+      setPoster(result.url);
+    });
 
-    const cleanup = () => { vid.src = ""; vid.load(); };
-
-    vid.addEventListener("loadedmetadata", () => {
-      if (!mounted) { cleanup(); return; }
-      if (isFinite(vid.duration) && vid.duration > 0) {
-        setDuration(vid.duration);
-        // Seek to ~10% of duration for a representative frame.
-        vid.currentTime = Math.min(0.5, vid.duration * 0.1);
-      } else {
-        cleanup();
-      }
-    }, { once: true });
-
-    vid.addEventListener("seeked", () => {
-      if (!mounted) { cleanup(); return; }
-      const canvas = document.createElement("canvas");
-      // Cap to 1280px to stay well within WebKit/GDK's native surface limits.
-      const MAX_DIM = 1280;
-      let cw = vid.videoWidth || 320;
-      let ch = vid.videoHeight || 180;
-      if (cw > MAX_DIM) { ch = Math.round(ch * MAX_DIM / cw); cw = MAX_DIM; }
-      if (ch > MAX_DIM) { cw = Math.round(cw * MAX_DIM / ch); ch = MAX_DIM; }
-      canvas.width = cw;
-      canvas.height = ch;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.drawImage(vid, 0, 0);
-        canvas.toBlob((blob) => {
-          if (blob && mounted) { setPoster(URL.createObjectURL(blob)); }
-          cleanup();
-        }, "image/jpeg", 0.75);
-      } else {
-        cleanup();
-      }
-    }, { once: true });
-
-    vid.addEventListener("error", () => { cleanup(); }, { once: true });
-
-    vid.src = src;
-    vid.load();
-
-    return () => { mounted = false; cleanup(); };
+    return () => { mounted = false; };
   }, [isVideo, attachment.localPreviewUrl, downloadUrl]);
 
   // Guard against a fetch-succeeds-but-render-fails loop: `<img onError>` nulls

@@ -10,6 +10,7 @@ import {
 } from "../../bridge";
 import { ChevronRight, Plus, X, Film, Music } from "lucide-react";
 import { getFileIcon } from "../../utils/fileIcon";
+import { captureVideoPoster } from "../../utils/imageProcessing";
 import { formatFileSize } from "../../utils/format";
 import { observer } from "mobx-react-lite";
 import { dropTargetStore } from "../../stores/dropTargetStore";
@@ -90,58 +91,6 @@ async function writeToTemp(file: File): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   await writeFile(path, bytes);
   return path;
-}
-
-/// Capture a poster frame from a video src URL.
-/// Returns a blob URL for a JPEG thumbnail, or undefined on failure.
-async function generateVideoPoster(src: string): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    const vid = document.createElement("video");
-    vid.muted = true;
-    vid.playsInline = true;
-    vid.preload = "metadata";
-
-    let resolved = false;
-    const finish = (url?: string) => {
-      if (resolved) { return; }
-      resolved = true;
-      vid.src = "";
-      resolve(url);
-    };
-
-    vid.addEventListener("loadedmetadata", () => {
-      vid.currentTime = Math.min(0.5, vid.duration > 0 ? vid.duration * 0.1 : 0.5);
-    }, { once: true });
-
-    vid.addEventListener("seeked", () => {
-      const canvas = document.createElement("canvas");
-      // Cap to 1280px to stay well within WebKit/GDK's native surface limits.
-      const MAX_DIM = 1280;
-      let cw = vid.videoWidth || 320;
-      let ch = vid.videoHeight || 180;
-      if (cw > MAX_DIM) { ch = Math.round(ch * MAX_DIM / cw); cw = MAX_DIM; }
-      if (ch > MAX_DIM) { cw = Math.round(cw * MAX_DIM / ch); ch = MAX_DIM; }
-      canvas.width = cw;
-      canvas.height = ch;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.drawImage(vid, 0, 0, cw, ch);
-        canvas.toBlob((blob) => {
-          finish(blob ? URL.createObjectURL(blob) : undefined);
-        }, "image/jpeg", 0.75);
-      } else {
-        finish(undefined);
-      }
-    }, { once: true });
-
-    vid.addEventListener("error", () => { finish(undefined); }, { once: true });
-
-    // Timeout guard — if nothing fires after 5s, give up.
-    setTimeout(() => { finish(undefined); }, 5000);
-
-    vid.src = src;
-    vid.load();
-  });
 }
 
 const PREVIEW_SIZE = 80;
@@ -351,7 +300,7 @@ const ChatInputInner: React.ForwardRefRenderFunction<ChatInputHandle, ChatInputP
           try {
             const bytes = await readFile(stub.path);
             const blobSrc = URL.createObjectURL(new Blob([bytes], { type: stub.mimeType }));
-            preview = await generateVideoPoster(blobSrc);
+            preview = (await captureVideoPoster(blobSrc))?.url;
             // Revoke the full-video blob URL — we only needed it for the poster.
             URL.revokeObjectURL(blobSrc);
           } catch {
@@ -416,7 +365,7 @@ const ChatInputInner: React.ForwardRefRenderFunction<ChatInputHandle, ChatInputP
     let videoPoster: string | undefined;
     if (isVid) {
       const blobSrc = URL.createObjectURL(file);
-      videoPoster = await generateVideoPoster(blobSrc).catch(() => undefined);
+      videoPoster = (await captureVideoPoster(blobSrc).catch(() => null))?.url;
       URL.revokeObjectURL(blobSrc);
     }
 
