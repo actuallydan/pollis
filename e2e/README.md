@@ -103,16 +103,61 @@ Nothing talks to prod. No OTP email is ever sent.
   > diagnose with a manual `SELECT sql FROM sqlite_master WHERE name = '…'`
   > against the DB before assuming the migration file itself is wrong.
 
-## Known limitation — no automatic schema bootstrap
+The scripts still fall back to `.env.test` for a purely local run (see
+Prerequisites), but the backend fixtures below are the supported path — they
+apply the schema for you and run the DS, so you don't hand-provision anything.
 
-`e2e.js` / `invalid-otp.js` do **not** bring the test DB's schema up
-themselves; they assume the schema is already applied (see above) — that's
-why CI (`.github/workflows/e2e-smoke.yml`) only runs `smoke.js`, which has no
-schema dependency at all. Auto-bootstrapping was deliberately deferred:
-duplicating `scripts/db-apply.sh`'s migration logic here now would create
-churn/conflicts. Until that lands, `e2e.js` and `invalid-otp.js` are for
-local use against a schema you've applied by hand; only `smoke.js` is
-self-contained enough for CI.
+## Automatic backend fixtures (`start-backend.sh` / `stop-backend.sh`)
+
+`e2e/scripts/start-backend.sh` (M1 of #570) stands up the whole backend the
+authenticated scripts need — no hand-provisioned Turso, no manual schema step:
+
+1. a real **libsql server** (Turso `libsql-server` / sqld) on `127.0.0.1:8080`,
+   in no-auth local mode (so `TURSO_TOKEN` is an ignored placeholder);
+2. the **schema**, applied by the repo's real migration runner
+   (`scripts/db-apply.sh` over `/v2/pipeline`) — the same thing prod CI runs, so
+   there's no second copy of the migration logic to drift;
+3. the **real `pollis-delivery` binary** on `127.0.0.1:8788` with
+   `DEV_OTP=000000` and Resend disabled (same knobs as the in-process DS in
+   `src-tauri/tests/flows/harness.rs`, just the shipped binary).
+
+It then exports `TURSO_URL` / `TURSO_TOKEN` / `POLLIS_DELIVERY_URL` /
+`R2_S3_ENDPOINT` / `R2_PUBLIC_URL` / `DEV_OTP` — to `$GITHUB_ENV` in CI and as
+`export …` lines on stdout locally. When `POLLIS_DELIVERY_URL` is already set,
+`e2e.js` / `invalid-otp.js` use that external DS instead of spawning their own.
+
+Needs Docker (for the libsql image) + `jq`/`curl` (in `scripts/db-apply.sh`).
+The R2 values are unreachable **placeholders**: signup never dials R2, but
+`Config::from_env()` requires the vars to be present. Real object storage
+(MinIO/R2) and LiveKit/media come in later milestones (M3), when a
+media/attachment test actually needs them.
+
+### Run the full authenticated flow locally
+
+```bash
+# Build both binaries with a CLEAN env (see Prerequisites — option_env! bakes
+# compile-time values that would beat the runtime overrides otherwise):
+env -u POLLIS_DELIVERY_URL -u TURSO_URL -u TURSO_TOKEN cargo build -p pollis -p pollis-delivery
+
+# Bring up libsql + schema + the real DS, and pull its exported env into your shell:
+eval "$(e2e/scripts/start-backend.sh)"
+
+# Drive the app against that backend:
+node e2e/e2e.js          # full signup -> app-ready
+node e2e/invalid-otp.js  # wrong OTP is rejected
+
+# Tear it all down (idempotent):
+e2e/scripts/stop-backend.sh
+```
+
+## CI history — schema bootstrap used to be manual
+
+Before M1, `e2e.js` / `invalid-otp.js` did **not** bring the test DB's schema up
+themselves — they assumed a hand-applied schema, which is why only `smoke.js`
+(no schema dependency) ran in CI. `start-backend.sh` closes that gap by running
+`scripts/db-apply.sh` against a fresh libsql server, so both scripts now run in
+CI via `.github/workflows/e2e-full.yml` (below). `smoke.js` remains the fast,
+backend-free launch check.
 
 ## Gotchas encoded in these scripts (learned the hard way)
 
@@ -191,6 +236,12 @@ still launches. It installs the system deps via the shared
 `e2e/scripts/install-system-deps.sh` (`webkit2gtk` + `webkit2gtk-driver` and
 the media libs) and `tauri-driver`, then runs the smoke through the
 `.github/actions/desktop-e2e` composite action, which wraps it in a dbus
-session + `xvfb-run` and reaps orphan processes before and after. It does not
-run `e2e.js` / `invalid-otp.js` — those need the shared writable test Turso,
-which isn't provisioned in CI yet.
+session + `xvfb-run` and reaps orphan processes before and after.
+
+`.github/workflows/e2e-full.yml` (issue #570, M1) runs the authenticated
+scripts — `e2e.js` and `invalid-otp.js` — also `workflow_dispatch`-only. It
+builds `pollis` **and** `pollis-delivery`, brings the backend up with
+`e2e/scripts/start-backend.sh` (libsql + schema + real DS), runs both scripts
+through the same `desktop-e2e` composite action, and tears the backend down in
+an `if: always()` step. No nightly schedule (cost); trigger it from the Actions
+tab when you want the full signup path exercised end-to-end.
