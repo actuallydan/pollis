@@ -17,12 +17,6 @@ name: E2E full (authenticated flow)
 
 on:
   workflow_dispatch:
-  # TEMPORARY (#570 M1 validation): run on pushes to the epic branch so the new
-  # workflow can be exercised in CI before it lands on the default branch.
-  # REMOVE this push trigger before merge — full E2E should stay dispatch-only.
-  push:
-    branches:
-      - auto/e2e-desktop-ci-m0
 
 permissions:
   contents: read
