@@ -507,7 +507,7 @@ export const MainContent: React.FC<MainContentProps> = observer(({ pendingDmRequ
             }}
             onEdit={handleEdit}
             onDelete={handleDelete}
-            onScrollToMessage={(id) => console.log("Scroll to:", id)}
+            // TODO: scroll-to-message not yet implemented; prop left unwired
             getAuthorUsername={(authorId, message) =>
               message?.sender_username || (authorId === currentUser?.id ? (currentUser?.username ?? authorId) : authorId)
             }
@@ -523,7 +523,7 @@ export const MainContent: React.FC<MainContentProps> = observer(({ pendingDmRequ
           messageId={replyToMessageId}
           allMessages={allMessages}
           onDismiss={() => setReplyToMessageId(null)}
-          onScrollToMessage={(id) => console.log("Scroll to:", id)}
+          // TODO: scroll-to-message not yet implemented; prop left unwired
         />
       )}
 
