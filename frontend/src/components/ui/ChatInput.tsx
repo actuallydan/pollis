@@ -9,7 +9,7 @@ import {
   readClipboardImageToTemp,
 } from "../../bridge";
 import { ChevronRight, Plus, X, Film, Music } from "lucide-react";
-import { getFileIcon } from "../../utils/fileIcon";
+import { getFileIcon, mimeFromName } from "../../utils/fileIcon";
 import { captureVideoPoster } from "../../utils/imageProcessing";
 import { formatFileSize } from "../../utils/format";
 import { observer } from "mobx-react-lite";
@@ -59,19 +59,6 @@ interface ChatInputProps {
   // out an `all_mention`). Gates the live "@all notifies everyone" composer
   // hint so it only appears where the mention does something.
   canNotifyAll?: boolean;
-}
-
-function mimeFromName(name: string): string {
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  const map: Record<string, string> = {
-    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
-    gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
-    mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm",
-    mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", m4a: "audio/mp4",
-    flac: "audio/flac", opus: "audio/opus", aac: "audio/aac",
-    pdf: "application/pdf", zip: "application/zip",
-  };
-  return map[ext] ?? "application/octet-stream";
 }
 
 function typeFromMime(mime: string): Attachment["type"] {
