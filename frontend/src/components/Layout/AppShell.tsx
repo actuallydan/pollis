@@ -235,6 +235,20 @@ export const AppShell: React.FC = observer(() => {
     });
   }, [currentUser?.id]);
 
+  // A stable signature of the (group, first-channel) membership. `groupsWithChannels`
+  // is a fresh array ref on every refetch, so keying the commit effect on it fired an
+  // invoke per group on every unrelated invalidation. This signature only changes when
+  // the actual membership shape does.
+  const membershipSignature = useMemo(() => {
+    if (!groupsWithChannels) {
+      return "";
+    }
+    return groupsWithChannels
+      .map((g) => `${g.id}:${g.channels[0]?.id ?? ""}`)
+      .sort()
+      .join(",");
+  }, [groupsWithChannels]);
+
   // When group membership changes (someone joins/leaves while we're online),
   // process any pending MLS commits so our epoch stays current.
   useEffect(() => {
@@ -250,7 +264,7 @@ export const AppShell: React.FC = observer(() => {
         console.warn(`[mls] process_pending_commits for group ${group.id}:`, err);
       });
     }
-  }, [groupsWithChannels]);
+  }, [membershipSignature, currentUser?.id]);
 
   // Maintain a LiveKit room connection for the active channel/conversation
   useLiveKitRealtime();
