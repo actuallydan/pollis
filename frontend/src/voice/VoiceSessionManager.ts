@@ -11,7 +11,7 @@ import { audioLevels } from './audioLevels';
 import { audioSetMuted, audioSetSpeaking } from './participantAudio';
 import { LOCAL_PREVIEW_KEY } from '../screenshare/screenShareSession';
 
-const VOICE_DEVICES_KEY = 'pollis:voice-devices';
+export const VOICE_DEVICES_KEY = 'pollis:voice-devices';
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -772,7 +772,7 @@ function sameIntent(a: VoiceIntent | null, b: VoiceIntent | null): boolean {
   return a.channelId === b.channelId && a.groupId === b.groupId;
 }
 
-function readDevicePrefs(): { input: string | null; output: string | null } {
+export function readDevicePrefs(): { input: string | null; output: string | null } {
   try {
     const prefs: Record<string, string> = JSON.parse(
       localStorage.getItem(VOICE_DEVICES_KEY) || '{}',
