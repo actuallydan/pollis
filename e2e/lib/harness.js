@@ -49,7 +49,14 @@ function tursoEnv() {
 }
 
 function reap() {
-  for (const p of ["tauri-driver", "WebKitWebDriver", "bin/vite", "target/debug/pollis-delivery"]) {
+  const procs = ["tauri-driver", "WebKitWebDriver", "bin/vite"];
+  // Only reap a delivery service we OWN (the self-spawn path). When
+  // POLLIS_DELIVERY_URL is set the DS is an EXTERNAL fixture managed by
+  // e2e/scripts/start-backend.sh — killing it here would break the run.
+  if (!process.env.POLLIS_DELIVERY_URL) {
+    procs.push("target/debug/pollis-delivery");
+  }
+  for (const p of procs) {
     spawnSync("pkill", ["-9", "-f", p], { stdio: "ignore" });
   }
   spawnSync("pkill", ["-9", "-x", "pollis"], { stdio: "ignore" });

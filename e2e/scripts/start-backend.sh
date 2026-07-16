@@ -97,6 +97,11 @@ if [ ! -x "$DS_BIN" ]; then
   (cd "$ROOT" && cargo build -p pollis-delivery) >&2
 fi
 
+# Clear any orphan DS from a prior run holding :$DS_PORT before we launch a fresh
+# one (start-backend OWNS the DS lifecycle; the per-run reaps deliberately leave
+# it alone). Harmless no-op on an ephemeral CI runner.
+pkill -9 -f "target/debug/pollis-delivery" >/dev/null 2>&1 || true
+
 # DEV_OTP=000000 + no RESEND_API_KEY => OTP email is skipped and 000000 is the
 # only code that verifies (pollis-delivery/src/otp.rs OtpConfig::from_env).
 # LOG_DB_* unset => the MLS control-plane tables share the single libsql DB

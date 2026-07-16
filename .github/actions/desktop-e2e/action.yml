@@ -42,13 +42,16 @@ runs:
   using: composite
   steps:
     # Same reap set as e2e/lib/harness.js. `|| true` so a clean environment
-    # (nothing to kill) doesn't fail the step.
+    # (nothing to kill) doesn't fail the step. NOTE: an EXTERNAL delivery
+    # service (POLLIS_DELIVERY_URL set by e2e/scripts/start-backend.sh) is a
+    # long-lived fixture this run depends on — do NOT reap it; only a DS a
+    # self-spawning script owns.
     - name: Reap orphan processes (pre)
       shell: bash
       run: |
-        for p in tauri-driver WebKitWebDriver bin/vite target/debug/pollis-delivery; do
-          pkill -9 -f "$p" || true
-        done
+        procs=(tauri-driver WebKitWebDriver bin/vite)
+        [ -z "${POLLIS_DELIVERY_URL:-}" ] && procs+=(target/debug/pollis-delivery)
+        for p in "${procs[@]}"; do pkill -9 -f "$p" || true; done
         pkill -9 -x pollis || true
 
     # dbus-run-session wraps the command with a private session bus; xvfb-run
@@ -69,12 +72,14 @@ runs:
         path: ${{ inputs.artifacts-path }}
         if-no-files-found: ignore
 
-    # Always reap so a failed/killed run can't poison the next job on a reused runner.
+    # Always reap so a failed/killed run can't poison the next job on a reused
+    # runner. Leaves an external delivery-service fixture alone (see pre-reap) —
+    # its lifecycle is owned by e2e/scripts/{start,stop}-backend.sh.
     - name: Reap orphan processes (post)
       if: always()
       shell: bash
       run: |
-        for p in tauri-driver WebKitWebDriver bin/vite target/debug/pollis-delivery; do
-          pkill -9 -f "$p" || true
-        done
+        procs=(tauri-driver WebKitWebDriver bin/vite)
+        [ -z "${POLLIS_DELIVERY_URL:-}" ] && procs+=(target/debug/pollis-delivery)
+        for p in "${procs[@]}"; do pkill -9 -f "$p" || true; done
         pkill -9 -x pollis || true
