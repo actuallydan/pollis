@@ -166,11 +166,14 @@ export const MainContent: React.FC<MainContentProps> = observer(({ pendingDmRequ
 
   // Initialise the cursor from the initial page load (only if no older pages
   // have been fetched yet — don't overwrite cursor mid-pagination).
+  // Include the selected channel/conversation so the cursor re-initialises on
+  // switch — keyed on nextCursor alone it could miss a re-init when the new
+  // channel's initial cursor equals the previous one.
   useEffect(() => {
     if (nextCursor && olderMessages.length === 0) {
       setPageCursor(nextCursor);
     }
-  }, [nextCursor]);
+  }, [nextCursor, selectedChannelId, selectedConversationId]);
 
   // MessageItem dispatches this when an attachment lightbox closes so focus
   // returns to the chat input — keeps the keyboard-driven flow intact.
