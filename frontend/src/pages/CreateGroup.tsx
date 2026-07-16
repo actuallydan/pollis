@@ -10,6 +10,7 @@ import { TextInput } from "../components/ui/TextInput";
 import { TextArea } from "../components/ui/TextArea";
 import { Button } from "../components/ui/Button";
 import { Switch } from "../components/ui/Switch";
+import type { Group } from "../types";
 
 interface CreateGroupProps {
   onSuccess?: (groupId: string) => void;
@@ -55,7 +56,7 @@ export const CreateGroup: React.FC<CreateGroupProps> = observer(({ onSuccess }) 
           createDefaultVoiceChannel: createVoiceChannel,
         },
       );
-      const groupData: any = {
+      const groupData: Group = {
         id: group.id,
         slug: finalSlug,
         name: group.name,

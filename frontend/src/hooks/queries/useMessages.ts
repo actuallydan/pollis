@@ -34,6 +34,19 @@ export const lastMessageQueryKeys = {
   conversation: (conversationId: string | null) => ["last-message", "conversation", conversationId] as const,
 };
 
+// Wire shape of a single attachment inside the `_att` array embedded in
+// message content JSON (see parseContent).
+interface AttachmentWire {
+  key: string;
+  hash: string;
+  name: string;
+  ct: string;
+  size: number;
+  bh?: string;
+  w?: number;
+  h?: number;
+}
+
 type RawMessage = {
   id: string;
   conversation_id: string;
@@ -44,7 +57,7 @@ type RawMessage = {
 };
 
 // Returned by get_channel_messages — fetches from Turso, decrypts, includes sender_username
-type RawChannelMessage = {
+export type RawChannelMessage = {
   id: string;
   conversation_id: string;
   sender_id: string;
@@ -83,17 +96,17 @@ function parseContent(raw: string | undefined): { text: string; attachments: Mes
     }
     return {
       text: parsed._txt ?? '',
-      attachments: (parsed._att as any[]).map((a) => ({
-        id: a.key as string,
-        object_key: a.key as string,
-        content_hash: a.hash as string,
-        filename: a.name as string,
-        content_type: a.ct as string,
-        file_size: a.size as number,
+      attachments: (parsed._att as AttachmentWire[]).map((a) => ({
+        id: a.key,
+        object_key: a.key,
+        content_hash: a.hash,
+        filename: a.name,
+        content_type: a.ct,
+        file_size: a.size,
         uploaded_at: Date.now(),
-        blurhash: a.bh as string | undefined,
-        width: a.w as number | undefined,
-        height: a.h as number | undefined,
+        blurhash: a.bh,
+        width: a.w,
+        height: a.h,
       })),
     };
   } catch {

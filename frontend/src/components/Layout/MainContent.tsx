@@ -12,7 +12,7 @@ import { ChatInput, type Attachment, type ChatInputHandle } from "../ui/ChatInpu
 import { LoadingSpinner } from "../ui/LoaderSpinner";
 import { Button } from "../ui/Button";
 import { useMessages, useSendMessage, messageQueryKeys, useDeleteMessage, useEditMessage, useAcceptDMRequest, useBlockUser } from "../../hooks/queries";
-import { transformChannelMessage } from "../../hooks/queries/useMessages";
+import { transformChannelMessage, type RawChannelMessage } from "../../hooks/queries/useMessages";
 import { useGroupMembers, useDeleteChannel } from "../../hooks/queries/useGroups";
 import type { Message, MessageAttachment } from "../../types";
 import { blurhashFromUrl } from "../../utils/imageProcessing";
@@ -43,7 +43,7 @@ type MediaUploadResult = {
 type PageCursor = { sent_at: string; id: string };
 
 type RawMessagePage = {
-  messages: unknown[];
+  messages: RawChannelMessage[];
   next_cursor: PageCursor | null;
 };
 
@@ -221,8 +221,7 @@ export const MainContent: React.FC<MainContentProps> = observer(({ pendingDmRequ
         return;
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const fetched = (page.messages as any[]).map(transformChannelMessage);
+      const fetched = page.messages.map(transformChannelMessage);
 
       setOlderMessages((prev) => {
         const existingIds = new Set(prev.map((m) => m.id));

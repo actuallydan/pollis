@@ -10,6 +10,7 @@ import { TextInput } from "../components/ui/TextInput";
 import { TextArea } from "../components/ui/TextArea";
 import { Button } from "../components/ui/Button";
 import { Switch } from "../components/ui/Switch";
+import type { Channel } from "../types";
 
 interface CreateChannelProps {
   onSuccess?: (channelId: string, channelType: "text" | "voice") => void;
@@ -42,7 +43,7 @@ export const CreateChannel: React.FC<CreateChannelProps> = observer(({ onSuccess
     const groupChannels = selectedGroupId ? channels[selectedGroupId] || [] : [];
     const channelSlugLower = finalSlug.toLowerCase();
     const duplicateExists = groupChannels.some((ch) => {
-      const existingSlug = (ch as any).slug?.toLowerCase() ?? deriveSlug(ch.name).toLowerCase();
+      const existingSlug = ch.slug?.toLowerCase() ?? deriveSlug(ch.name).toLowerCase();
       return existingSlug === channelSlugLower;
     });
     if (duplicateExists) {
@@ -64,13 +65,13 @@ export const CreateChannel: React.FC<CreateChannelProps> = observer(({ onSuccess
         'create_channel',
         { groupId: selectedGroupId, name: name.trim(), description: description.trim() || null, creatorId: currentUser.id, channelType },
       );
-      const channelData: any = {
+      const channelData: Channel = {
         id: channel.id,
         group_id: channel.group_id,
         slug: finalSlug,
         name: channel.name,
         description: channel.description || '',
-        channel_type: channel.channel_type,
+        channel_type: channel.channel_type as Channel['channel_type'],
         created_by: currentUser.id,
         created_at: Date.now(),
         updated_at: Date.now(),
