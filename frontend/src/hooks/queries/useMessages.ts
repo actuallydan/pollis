@@ -28,6 +28,12 @@ export const messageQueryKeys = {
   dmConversations: (userId: string | null) => ["dm-conversations", userId] as const,
 };
 
+export const lastMessageQueryKeys = {
+  all: ["last-message"] as const,
+  channel: (channelId: string | null) => ["last-message", "channel", channelId] as const,
+  conversation: (conversationId: string | null) => ["last-message", "conversation", conversationId] as const,
+};
+
 type RawMessage = {
   id: string;
   conversation_id: string;
@@ -293,8 +299,8 @@ export function useSendMessage() {
 
       // Update the last-message preview immediately.
       const lastMsgKey = variables.channelId
-        ? ["last-message", "channel", variables.channelId]
-        : ["last-message", "conversation", variables.conversationId];
+        ? lastMessageQueryKeys.channel(variables.channelId)
+        : lastMessageQueryKeys.conversation(variables.conversationId);
       queryClient.setQueryData(lastMsgKey, confirmedMessage);
 
       // Then invalidate in the background so we stay in sync with the server.
@@ -336,8 +342,8 @@ export function useLastMessage(channelId: string | null, conversationId: string 
   const currentUser = useObserver(() => appStore.currentUser);
   const isChannel = !!channelId;
   const queryKey = isChannel
-    ? (["last-message", "channel", channelId] as const)
-    : (["last-message", "conversation", conversationId] as const);
+    ? lastMessageQueryKeys.channel(channelId)
+    : lastMessageQueryKeys.conversation(conversationId);
 
   return useQuery({
     queryKey,
@@ -435,7 +441,7 @@ export function useDeleteMessage() {
     onSuccess: () => {
       // Invalidate all message caches so the deleted message disappears.
       queryClient.invalidateQueries({ queryKey: messageQueryKeys.all });
-      queryClient.invalidateQueries({ queryKey: ['last-message'] });
+      queryClient.invalidateQueries({ queryKey: lastMessageQueryKeys.all });
     },
   });
 }

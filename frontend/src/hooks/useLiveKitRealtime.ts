@@ -9,7 +9,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useObserver } from 'mobx-react-lite';
 import { appStore } from '../stores/appStore';
 import { useTauriReady } from './useTauriReady';
-import { messageQueryKeys, useDMConversations, markIngested } from './queries/useMessages';
+import { lastMessageQueryKeys, messageQueryKeys, useDMConversations, markIngested } from './queries/useMessages';
+import { invalidateVoiceRoom, voiceQueryKeys } from './queries/useVoiceParticipants';
 import { usePreferences } from './queries/usePreferences';
 import { groupQueryKeys, useUserGroupsWithChannels } from './queries/useGroups';
 import { notify, setNotifyPrefs, loadDeviceCallRingtone } from '../utils/notify';
@@ -335,10 +336,10 @@ export function useLiveKitRealtime() {
         .finally(() => {
           if (channelId) {
             queryClientRef.current.invalidateQueries({ queryKey: messageQueryKeys.channel(channelId) });
-            queryClientRef.current.invalidateQueries({ queryKey: ['last-message', 'channel', channelId] });
+            queryClientRef.current.invalidateQueries({ queryKey: lastMessageQueryKeys.channel(channelId) });
           } else if (conversationId) {
             queryClientRef.current.invalidateQueries({ queryKey: messageQueryKeys.conversation(conversationId) });
-            queryClientRef.current.invalidateQueries({ queryKey: ['last-message', 'conversation', conversationId] });
+            queryClientRef.current.invalidateQueries({ queryKey: lastMessageQueryKeys.conversation(conversationId) });
           }
         });
     };
@@ -440,8 +441,7 @@ export function useLiveKitRealtime() {
       }
 
       if (event.type === 'voice_joined' || event.type === 'voice_left') {
-        queryClientRef.current.invalidateQueries({ queryKey: ['voice-room-counts'] });
-        queryClientRef.current.invalidateQueries({ queryKey: ['voice-participants', event.channel_id] });
+        invalidateVoiceRoom(queryClientRef.current, event.channel_id);
         // LiveKit's data channel doesn't echo packets back to the sender,
         // so own-user join/leave is handled locally in voice/voiceBridge.ts.
         // Here we only fire for OTHER participants, and only when the user
@@ -464,15 +464,15 @@ export function useLiveKitRealtime() {
         // Ingest applies the type='delete' tombstone envelope as a
         // soft-delete on the local row; MessageList renders [deleted].
         ingestAndInvalidate(event.channel_id, event.conversation_id);
-        queryClientRef.current.invalidateQueries({ queryKey: ['last-message'] });
+        queryClientRef.current.invalidateQueries({ queryKey: lastMessageQueryKeys.all });
         return;
       }
 
       if (event.type === 'realtime_reconnected') {
         // The event stream doesn't replay missed events, so resync state
         // that may have drifted during the outage.
-        queryClientRef.current.invalidateQueries({ queryKey: ['voice-room-counts'] });
-        queryClientRef.current.invalidateQueries({ queryKey: ['voice-participants'] });
+        queryClientRef.current.invalidateQueries({ queryKey: voiceQueryKeys.allRoomCounts });
+        queryClientRef.current.invalidateQueries({ queryKey: voiceQueryKeys.allParticipants });
         // Wipe stale presence for the reconnected room — Rust will re-emit
         // a fresh participant snapshot right after.
         presenceStore.resetRoom(event.room_id);

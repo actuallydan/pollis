@@ -3,6 +3,7 @@ import { invoke } from '../bridge';
 
 import { notify } from '../utils/notify';
 import { appStore } from '../stores/appStore';
+import { invalidateVoiceRoom, voiceQueryKeys } from '../hooks/queries/useVoiceParticipants';
 import { voiceSession, type JoinedEvent, type LeftEvent } from './VoiceSessionManager';
 
 interface VoiceBridgeOptions {
@@ -67,8 +68,7 @@ export function installVoiceBridge(opts: VoiceBridgeOptions): BridgeHandle {
     // LiveKit doesn't echo our own broadcast back, so the observers in
     // other clients refetch but we don't. Invalidate locally so the
     // sidebar "N in call" label updates for the joining user too.
-    queryClient.invalidateQueries({ queryKey: ['voice-room-counts'] });
-    queryClient.invalidateQueries({ queryKey: ['voice-participants', event.channelId] });
+    invalidateVoiceRoom(queryClient, event.channelId);
   });
 
   const offLeft = voiceSession.on('left', (event: LeftEvent) => {
@@ -95,7 +95,7 @@ export function installVoiceBridge(opts: VoiceBridgeOptions): BridgeHandle {
     // refetch to round-trip. event.identity is our full per-device identity, so
     // a sibling device of ours still in the room is left in place.
     queryClient.setQueryData<Array<{ identity: string; name: string }>>(
-      ['voice-participants', event.channelId],
+      voiceQueryKeys.participants(event.channelId),
       (prev) => (prev ? prev.filter((p) => p.identity !== event.identity) : prev),
     );
 
@@ -116,12 +116,10 @@ export function installVoiceBridge(opts: VoiceBridgeOptions): BridgeHandle {
       })
         .catch(() => {})
         .finally(() => {
-          queryClient.invalidateQueries({ queryKey: ['voice-room-counts'] });
-          queryClient.invalidateQueries({ queryKey: ['voice-participants', event.channelId] });
+          invalidateVoiceRoom(queryClient, event.channelId);
         });
     } else {
-      queryClient.invalidateQueries({ queryKey: ['voice-room-counts'] });
-      queryClient.invalidateQueries({ queryKey: ['voice-participants', event.channelId] });
+      invalidateVoiceRoom(queryClient, event.channelId);
     }
   });
 
