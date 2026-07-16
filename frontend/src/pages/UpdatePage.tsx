@@ -1,3 +1,4 @@
+import { errorMessage as toErrorMessage } from "../utils/errorMessage";
 import React, { useState, useEffect, useCallback } from "react";
 import {
   getVersion,
@@ -80,7 +81,7 @@ export const UpdatePage: React.FC = observer(() => {
           return;
         }
         setStatus("error");
-        setErrorMessage(err instanceof Error ? err.message : "Failed to check for updates");
+        setErrorMessage(toErrorMessage(err, "Failed to check for updates"));
       }
     })();
     return () => {

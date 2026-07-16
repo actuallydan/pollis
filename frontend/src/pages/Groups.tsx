@@ -1,3 +1,4 @@
+import { errorMessage } from "../utils/errorMessage";
 import React, { useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Users, Plus, Search } from "lucide-react";
@@ -27,7 +28,7 @@ export const GroupsPage: React.FC = observer(() => {
   const groupItems: TerminalMenuItem[] = groupsLoading
     ? [{ id: "__loading__", label: "Loading…", disabled: true }]
     : groupsError
-      ? [{ id: "__error__", label: `Error: ${groupsError instanceof Error ? groupsError.message : "Failed to load"}`, disabled: true }]
+      ? [{ id: "__error__", label: `Error: ${errorMessage(groupsError, "Failed to load")}`, disabled: true }]
       : groups.map((g) => {
         const textChannels = g.channels.filter((ch) => ch.channel_type === "text");
         const totalUnread = textChannels.reduce((sum, ch) => sum + (unreadCounts[ch.id] ?? 0), 0);

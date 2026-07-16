@@ -1,3 +1,4 @@
+import { errorMessage } from "../utils/errorMessage";
 import React, { useState } from "react";
 import { appStore } from "../stores/appStore";
 import { observer } from "mobx-react-lite";
@@ -68,7 +69,7 @@ export const CreateGroup: React.FC<CreateGroupProps> = observer(({ onSuccess }) 
       queryClient.invalidateQueries({ queryKey: groupQueryKeys.userGroupsWithChannels(currentUser.id) });
       onSuccess?.(group.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create group");
+      setError(errorMessage(err, "Failed to create group"));
     } finally {
       setIsLoading(false);
     }
