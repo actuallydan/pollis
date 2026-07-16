@@ -140,13 +140,57 @@ self-contained enough for CI.
   If `Config::from_env()` grows a new required field, `smoke.js` needs a
   matching placeholder or it starts failing for an unrelated reason.
 
+## Run the environment locally
+
+The whole system environment this suite needs (WebKitGTK, the media/audio libs
+pollis-core links, the pinned Rust toolchain, `tauri-driver`, `meson`, `xvfb`)
+is packaged as a reusable Docker image — `e2e/Dockerfile` — so you can run the
+smoke on any plain Docker host without hand-installing WebKitGTK. This is the
+**single definition of the environment**; CI (`e2e-smoke.yml`) and later
+milestones (backend fixtures, two-client, media) extend the same image and the
+same shared setup rather than redefining it.
+
+It is a **build-environment** image: the source is *not* baked in — you mount
+your checkout at run time, so one image works across branches without a rebuild.
+
+```bash
+# Build the image once (from the repo root):
+docker build -f e2e/Dockerfile -t pollis-e2e .
+
+# Run the smoke inside it, mounting the current checkout:
+docker run --rm -v "$PWD":/work -w /work pollis-e2e bash -lc '
+  pnpm install --frozen-lockfile &&
+  cargo build -p pollis &&
+  dbus-run-session -- xvfb-run --auto-servernum pnpm --filter @pollis/e2e smoke
+'
+```
+
+The image bakes the WebKit env gotchas (`WEBKIT_DISABLE_COMPOSITING_MODE=1`,
+`GDK_BACKEND=x11`, `XDG_SESSION_TYPE=x11`), so a bare `docker run` inherits
+them. The `dbus-run-session -- xvfb-run --auto-servernum …` prefix mirrors
+exactly what CI does — it's the same wrapping the `desktop-e2e` composite
+action applies (see below), so local and CI runs are byte-for-byte the same
+environment.
+
+Where the pieces live (all shared between the image and CI, so nothing is
+duplicated):
+
+| piece | file | used by |
+|---|---|---|
+| system deps (the apt list) | `e2e/scripts/install-system-deps.sh` | `e2e/Dockerfile` **and** the CI workflow |
+| the whole build environment | `e2e/Dockerfile` | local Docker runs (and later milestones) |
+| run-time wrapping (dbus + xvfb + orphan reaping) | `.github/actions/desktop-e2e/action.yml` | `e2e-smoke.yml` |
+
 ## CI
 
 `.github/workflows/e2e-smoke.yml` runs `smoke.js` on Linux, triggered
 manually (`workflow_dispatch`) — not on every push, since it needs a real
 (virtual) display and a full `cargo build`, both slower than the rest of CI.
 Trigger it from the Actions tab when you want a smoke check that the app
-still launches. It installs `webkit2gtk` + `webkit2gtk-driver`, `tauri-driver`,
-and wraps the run in `xvfb-run` for a virtual X server. It does not run
-`e2e.js` / `invalid-otp.js` — those need the shared writable test Turso,
+still launches. It installs the system deps via the shared
+`e2e/scripts/install-system-deps.sh` (`webkit2gtk` + `webkit2gtk-driver` and
+the media libs) and `tauri-driver`, then runs the smoke through the
+`.github/actions/desktop-e2e` composite action, which wraps it in a dbus
+session + `xvfb-run` and reaps orphan processes before and after. It does not
+run `e2e.js` / `invalid-otp.js` — those need the shared writable test Turso,
 which isn't provisioned in CI yet.
