@@ -211,7 +211,10 @@ export const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
       if (mounted) { setIsLoading(false); }
     });
     return () => { mounted = false; };
-  }, [attachment.object_key]);
+    // Key on every input the guard reads, not just object_key. Previously a
+    // confirmed attachment (isPending flips false) or a downloadUrl reset back
+    // to null (failed load) never re-fired this effect, so the media never retried.
+  }, [isImage, isAudio, isPending, downloadUrl, attachment.object_key, attachment.content_hash, attachment.content_type]);
 
   // Revoke decrypted blob URLs we created when they're replaced or on unmount.
   // Skip non-blob URLs (e.g. tauri convertFileSrc paths) and skip the
