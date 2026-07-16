@@ -1,3 +1,4 @@
+import { errorMessage } from "../../utils/errorMessage";
 import React, { useState, useEffect, useRef } from "react";
 import { decode } from "blurhash";
 import { dialogSave, writeFile } from "../../bridge";
@@ -223,7 +224,7 @@ export const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
     fetchUrl.then((url) => {
       if (mounted) { setDownloadUrl(url); }
     }).catch((err) => {
-      if (mounted) { setError(err instanceof Error ? err.message : "Failed to load"); }
+      if (mounted) { setError(errorMessage(err, "Failed to load")); }
     }).finally(() => {
       if (mounted) { setIsLoading(false); }
     });
@@ -288,7 +289,7 @@ export const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
         setTimeout(() => setDownloadStatus("idle"), 2000);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to download");
+      setError(errorMessage(err, "Failed to download"));
       setDownloadStatus("idle");
     }
   };
@@ -311,7 +312,7 @@ export const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
       setDownloadUrl(url);
       setViewerOpen(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load");
+      setError(errorMessage(err, "Failed to load"));
     } finally {
       setIsLoading(false);
     }

@@ -1,3 +1,4 @@
+import { errorMessage } from '../utils/errorMessage';
 import { Channel, invoke } from '../bridge';
 
 import { reaction } from 'mobx';
@@ -477,7 +478,7 @@ class VoiceSessionManager {
         counterpartyUserId: target.counterpartyUserId ?? null,
       });
     } catch (e) {
-      const raw = e instanceof Error ? e.message : String(e);
+      const raw = errorMessage(e);
       const msg = friendlyJoinError(raw);
       console.error('[voice] join_voice_channel failed:', raw);
       // Best-effort cleanup in case the Rust side partially set up state

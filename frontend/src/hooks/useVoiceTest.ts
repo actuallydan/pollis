@@ -1,3 +1,4 @@
+import { errorMessage } from "../utils/errorMessage";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Channel, invoke } from "../bridge";
 
@@ -113,7 +114,7 @@ export function useVoiceTest(): UseVoiceTestResult {
         });
         setPhaseBoth("mic_listening");
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(errorMessage(e));
         setPhaseBoth("idle");
       }
     },
@@ -125,7 +126,7 @@ export function useVoiceTest(): UseVoiceTestResult {
     try {
       await invoke("stop_mic_test");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e));
     }
     setPhaseBoth("idle");
     resetMeter();
@@ -140,7 +141,7 @@ export function useVoiceTest(): UseVoiceTestResult {
           outputDeviceId,
         });
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(errorMessage(e));
       }
     },
     [],
@@ -159,7 +160,7 @@ export function useVoiceTest(): UseVoiceTestResult {
           durationMs,
         });
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(errorMessage(e));
         setPhaseBoth("idle");
       }
     },
@@ -176,7 +177,7 @@ export function useVoiceTest(): UseVoiceTestResult {
           kind,
         });
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(errorMessage(e));
         setPhaseBoth("idle");
       }
     },
@@ -188,7 +189,7 @@ export function useVoiceTest(): UseVoiceTestResult {
     try {
       await invoke("stop_test_playback");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e));
     }
     setPhaseBoth("idle");
   }, [setPhaseBoth]);

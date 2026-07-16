@@ -1,3 +1,4 @@
+import { errorMessage } from "../utils/errorMessage";
 import React, { useEffect, useState } from "react";
 import { check, relaunch, invoke } from "../bridge";
 import { hasElectron } from "../bridge/runtime";
@@ -91,7 +92,7 @@ export const UpdateScreen: React.FC = () => {
       } catch (err) {
         if (!cancelled) {
           console.error("[update] Auto-update failed:", err);
-          setError(err instanceof Error ? err.message : String(err));
+          setError(errorMessage(err));
           setPhase("error");
         }
       }
