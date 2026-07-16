@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { invoke } from '../bridge';
 
 import { notify } from '../utils/notify';
+import { logIgnored } from '../utils/log';
 import { appStore } from '../stores/appStore';
 import { invalidateVoiceRoom, voiceQueryKeys } from '../hooks/queries/useVoiceParticipants';
 import { voiceSession, type JoinedEvent, type LeftEvent } from './VoiceSessionManager';
@@ -62,7 +63,7 @@ export function installVoiceBridge(opts: VoiceBridgeOptions): BridgeHandle {
         userId: event.userId,
         displayName: event.displayName,
         joined: true,
-      }).catch(() => {});
+      }).catch(logIgnored);
     }
 
     // LiveKit doesn't echo our own broadcast back, so the observers in
@@ -87,7 +88,7 @@ export function installVoiceBridge(opts: VoiceBridgeOptions): BridgeHandle {
     if (outgoing && event.channelId === `call-${outgoing.callId}`) {
       const { callId, calleeId } = outgoing;
       appStore.setOutgoingCall(null);
-      invoke('cancel_call', { otherUserId: calleeId, callId }).catch(() => {});
+      invoke('cancel_call', { otherUserId: calleeId, callId }).catch((e) => console.warn('cancel_call failed', e));
     }
 
     // Optimistically remove ourselves from the cached observer list so the UI
@@ -114,7 +115,7 @@ export function installVoiceBridge(opts: VoiceBridgeOptions): BridgeHandle {
         displayName: event.displayName,
         joined: false,
       })
-        .catch(() => {})
+        .catch(logIgnored)
         .finally(() => {
           invalidateVoiceRoom(queryClient, event.channelId);
         });

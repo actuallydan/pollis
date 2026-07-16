@@ -24,6 +24,7 @@ import { useBadge } from "../../hooks/useBadge";
 import { AlertTriangle, Download, Mail, Phone, X } from "lucide-react";
 import { startUpdatePolling, stopUpdatePolling } from "../../services/updatePoller";
 import { loadDeviceCallRingtone } from "../../utils/notify";
+import { logIgnored } from "../../utils/log";
 import { usePreferences } from "../../hooks/queries/usePreferences";
 import { voiceSession } from "../../voice";
 import { userIdFromVoiceIdentity } from "../../voice/identity";
@@ -121,16 +122,16 @@ export const AppShell: React.FC = observer(() => {
   // notification (a single ping on arrival) is still fired from notify.ts.
   useEffect(() => {
     if (!incomingCall) {
-      invoke("stop_ring").catch(() => {});
+      invoke("stop_ring").catch(logIgnored);
       return;
     }
     const allowGlobal = prefsQuery.data?.allow_sound_effects ?? true;
     const allowDevice = loadDeviceCallRingtone(currentUser?.id ?? null);
     if (allowGlobal && allowDevice) {
-      invoke("start_ring").catch(() => {});
+      invoke("start_ring").catch(logIgnored);
     }
     return () => {
-      invoke("stop_ring").catch(() => {});
+      invoke("stop_ring").catch(logIgnored);
     };
   }, [incomingCall, currentUser?.id, prefsQuery.data?.allow_sound_effects]);
 
@@ -674,7 +675,7 @@ export const AppShell: React.FC = observer(() => {
                   invoke("dismiss_call_on_my_devices", {
                     userId: currentUser.id,
                     callId,
-                  }).catch(() => {});
+                  }).catch((e) => console.warn("dismiss_call_on_my_devices failed", e));
                 }
               }}
               aria-label={`Answer call from @${incomingCall.callerUsername}`}
@@ -689,14 +690,14 @@ export const AppShell: React.FC = observer(() => {
                 const callerId = incomingCall.callerId;
                 const callId = incomingCall.callId;
                 setIncomingCall(null);
-                invoke("cancel_call", { otherUserId: callerId, callId }).catch(() => {});
+                invoke("cancel_call", { otherUserId: callerId, callId }).catch((e) => console.warn("cancel_call failed", e));
                 // Stop ringing on this user's other devices — same idempotent
                 // path the answer button uses; see comment there.
                 if (currentUser) {
                   invoke("dismiss_call_on_my_devices", {
                     userId: currentUser.id,
                     callId,
-                  }).catch(() => {});
+                  }).catch((e) => console.warn("dismiss_call_on_my_devices failed", e));
                 }
               }}
               aria-label="Decline call"
