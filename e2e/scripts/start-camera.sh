@@ -121,6 +121,13 @@ if [ ! -e "$DEVICE" ]; then
 fi
 log "$DEVICE created"
 
+# The loopback node is created root:video mode 0660, but the runner user (and
+# the app that reads the device) isn't in the `video` group — ffmpeg then fails
+# to OPEN it for writing with "Permission denied". Group changes need a new
+# session mid-job, so just widen the node's perms: both the ffmpeg feeder
+# (writer) and pollis' V4L2 capture (reader) run as the unprivileged user.
+$SUDO chmod 0666 "$DEVICE" || true
+
 # Feed a MOVING test pattern (testsrc: a scrolling gradient + a running
 # frame/second counter) as raw YUYV422 at the app's preferred 1280x720@30. `-re`
 # paces it in real time so it streams continuously like a real camera rather
