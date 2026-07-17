@@ -24,7 +24,19 @@
 
 const fs = require("fs");
 const path = require("path");
+const { spawnSync } = require("child_process");
 const h = require("./lib/harness");
+
+// Kill this client's driver/webdriver/app but SPARE the shared Vite server and
+// the external DS — the relaunch loads its UI from that same Vite server, so a
+// full h.reap() (which pkills bin/vite) would leave the relaunch on a dead port
+// ("Connection refused"). Mirrors reap() minus vite/pollis-delivery.
+function reapClientKeepVite() {
+  for (const p of ["tauri-driver", "WebKitWebDriver"]) {
+    spawnSync("pkill", ["-9", "-f", p], { stdio: "ignore" });
+  }
+  spawnSync("pkill", ["-9", "-x", "pollis"], { stdio: "ignore" });
+}
 
 const ARTIFACTS = path.join(__dirname, "artifacts");
 const shot = h.makeShot(ARTIFACTS);
@@ -164,8 +176,10 @@ async function main() {
     // 2. Tear the app down but KEEP the data dir.
     await client.browser.deleteSession().catch(() => {});
     stop(client.tauriDriver);
-    h.reap();
+    reapClientKeepVite();
     await h.sleep(3000);
+    // Re-warm Vite's lazy transforms so the relaunch's one-shot page load is warm.
+    h.warmVite();
 
     // 3. Relaunch on the SAME data dir (no wipe).
     client = await h.startClient({
