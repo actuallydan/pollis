@@ -84,6 +84,15 @@ if ! modinfo v4l2loopback >/dev/null 2>&1; then
     "linux-headers-$(uname -r)" v4l2loopback-dkms v4l2loopback-utils >&2 || true
 fi
 
+# v4l2loopback links against the kernel V4L2 core (videodev.ko). GitHub-hosted
+# runners boot a minimal Azure kernel WITHOUT videodev loaded, so loading
+# v4l2loopback fails with "Unknown symbol video_ioctl2 / v4l2_* (err -2)".
+# linux-modules-extra-$(uname -r) ships videodev.ko for the EXACT running kernel;
+# install it and load videodev first so v4l2loopback's symbols resolve.
+log "ensuring V4L2 core (videodev) is present for $(uname -r)"
+$SUDO apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)" >&2 || true
+$SUDO modprobe videodev 2>>"$RUN_DIR/modprobe.err" || true
+
 # Load the module: ONE device, fixed node, friendly label. exclusive_caps=1
 # makes the node advertise CAPTURE (rather than both CAPTURE+OUTPUT at once)
 # once a producer is streaming — the config real apps (Chrome/OBS→Zoom) rely
