@@ -18,12 +18,6 @@ name: E2E two-client (cross-client convergence)
 
 on:
   workflow_dispatch:
-  # TEMPORARY: a brand-new workflow_dispatch workflow can't be dispatched on a
-  # feature branch until it's on the default branch, so this push trigger lets
-  # the outer agent validate the workflow via CI from the feature branch.
-  # REMOVE before merge.
-  push:
-    branches: [auto/e2e-two-client]
 
 permissions:
   contents: read
