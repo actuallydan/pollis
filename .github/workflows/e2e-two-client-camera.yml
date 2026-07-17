@@ -23,11 +23,6 @@ name: E2E two-client camera (virtual camera + LiveKit)
 
 on:
   workflow_dispatch:
-  # TEMPORARY: run on push to this feature branch so the flow can be validated in
-  # CI before review (v4l2loopback can't be exercised in the dev sandbox).
-  # REMOVE this `push:` block before merging to main — the job is manual-only.
-  push:
-    branches: [auto/e2e-two-client-camera]
 
 permissions:
   contents: read
