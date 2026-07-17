@@ -27,13 +27,6 @@ name: E2E two-client screenshare (audio + LiveKit + X11 capture)
 
 on:
   workflow_dispatch:
-  # TEMPORARY: validate this new module in CI on its feature branch, since a
-  # headless X11 screen-capture path can't be exercised in the dev sandbox.
-  # REMOVE this `push:` block before merging to main — the job stays
-  # workflow_dispatch-only there, matching e2e-two-client-call.yml /
-  # e2e-two-client-camera.yml.
-  push:
-    branches: [auto/e2e-two-client-screenshare]
 
 permissions:
   contents: read
