@@ -10,16 +10,11 @@
 # desktop-e2e composite action → tear everything down (always).
 #
 # Heavy (two WebKitGTK windows + a LiveKit + libsql container + a cargo build),
-# so it's manual (workflow_dispatch). The temporary push trigger below is for
-# validating this branch in CI and MUST be removed before merge.
+# so it's manual (workflow_dispatch).
 name: E2E two-client call (audio + LiveKit)
 
 on:
   workflow_dispatch:
-  # TEMPORARY — validate the M3a media pipeline on its feature branch via CI.
-  # REMOVE THIS `push:` BLOCK BEFORE MERGING TO main (leave only workflow_dispatch).
-  push:
-    branches: [auto/e2e-two-client-call]
 
 permissions:
   contents: read
