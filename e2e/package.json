@@ -9,6 +9,9 @@
     "smoke": "node ./smoke.js",
     "invalid-otp": "node ./invalid-otp.js",
     "two-client": "node ./two-client.js",
+    "two-client-channel": "node ./two-client-channel.js",
+    "two-client-dm-reply": "node ./two-client-dm-reply.js",
+    "two-client-voice-channel": "node ./two-client-voice-channel.js",
     "two-client-call": "node ./two-client-call.js",
     "two-client-camera": "node ./two-client-camera.js",
     "two-client-screenshare": "node ./two-client-screenshare.js"
