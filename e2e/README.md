@@ -15,6 +15,7 @@ plumbing:
 | `restart-persistence.js` | single client; account survives a full app restart on the same data dir (no blank re-signup) | yes | yes (writable) |
 | `two-client.js` | two isolated app instances; a message from A converges into B's UI | yes | yes (writable) |
 | `two-client-dm-reply.js` | bidirectional 1:1 DM — B replies and A sees it (reverse leg of two-client) | yes | yes (writable) |
+| `two-client-delete.js` | delete-for-everyone — after A's DM converges into B, A deletes it and B's already-delivered copy flips to `[deleted]` (E2EE redaction) | yes | yes (writable) |
 | `two-client-channel.js` | A creates a group + text channel, invites B, B accepts, A posts, B receives | yes | yes (writable) |
 | `two-client-voice-channel.js` | A + B join a group voice channel, both see 2 participants, A leaves, B sees the drop | yes | yes (writable) + LiveKit + audio |
 | `two-client-call.js` | two instances place + accept a real 1:1 call; each sees the other in the call | yes | yes (writable) + LiveKit + audio |
@@ -571,6 +572,7 @@ workflow, all following one of two shapes above — backend-only (mirrors
 | `restart-persistence.js` | `e2e-restart-persistence.yml` | — |
 | `two-client.js` | `e2e-two-client.yml` | — |
 | `two-client-dm-reply.js` | `e2e-two-client-dm-reply.yml` | — |
+| `two-client-delete.js` | `e2e-two-client-delete.yml` | — |
 | `two-client-channel.js` | `e2e-two-client-channel.yml` | — |
 | `two-client-voice-channel.js` | `e2e-two-client-voice-channel.yml` | LiveKit + audio |
 | `two-client-call.js` | `e2e-two-client-call.yml` | LiveKit + audio |
