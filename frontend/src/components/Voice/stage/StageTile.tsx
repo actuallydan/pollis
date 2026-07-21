@@ -126,22 +126,27 @@ export const StageTile: React.FC<Props> = ({
   const preview = mode === "preview";
   const media = p.media;
 
-  // Only a screenshare tile carries the LIVE/stats/fullscreen/spotlight chrome
-  // and can be spotlit. A camera tile is a plain video surface (never drives the
-  // spotlight — #394); an audio tile shows the avatar + meter.
-  const isScreen = media.kind === "screenshare";
-  // A streaming tile in the filmstrip is clickable to spotlight it; the
-  // big tile is already focused, the preview state isn't a live call.
-  const focusable = isScreen && !big && !preview;
-  const screenTrackKey = isScreen ? media.trackKey : null;
+  // A tile carries video when its media is a camera OR a screenshare — the two
+  // are treated identically at the container level (#394): both are
+  // spotlightable, fullscreenable, and carry the LIVE + res·fps chrome. The
+  // pixels' source makes no difference to the container. An audio tile shows the
+  // avatar + meter.
+  const videoTrack =
+    media.kind === "camera" || media.kind === "screenshare"
+      ? { trackKey: media.trackKey, width: media.width, height: media.height }
+      : null;
+  const isVideo = videoTrack !== null;
+  // A video tile in the filmstrip/grid is clickable to spotlight it; the big
+  // tile is already focused, the preview state isn't a live call.
+  const focusable = isVideo && !big && !preview;
 
-  const stats = useScreenShareStats(screenTrackKey);
+  const stats = useScreenShareStats(videoTrack?.trackKey ?? null);
   const statsLabel = (() => {
-    if (media.kind !== "screenshare") {
+    if (!videoTrack) {
       return null;
     }
-    const w = stats.dimensions?.width ?? media.width;
-    const h = stats.dimensions?.height ?? media.height;
+    const w = stats.dimensions?.width ?? videoTrack.width;
+    const h = stats.dimensions?.height ?? videoTrack.height;
     if (!w || !h) {
       return null;
     }
@@ -223,15 +228,15 @@ export const StageTile: React.FC<Props> = ({
       </div>
 
       {/* LIVE badge: only useful before you join — once you're in the
-          channel the stream itself makes it obvious who's streaming. */}
-      {isScreen && preview && (
+          channel the video itself makes it obvious who's streaming. */}
+      {isVideo && preview && (
         <div className="vs-bl"><span className="vs-tag live">LIVE</span></div>
       )}
 
-      {/* res · fps badge stays on the in-call screenshare tiles — and is the
-          marker the e2e suite uses to tell a screenshare tile from a camera
-          tile (a camera tile never renders it). */}
-      {isScreen && !preview && statsLabel && (
+      {/* res · fps badge on any in-call video tile (camera or screenshare). The
+          e2e suite tells camera from screenshare by the tile's `:cam`/`:screen`
+          key suffix, not this badge. */}
+      {isVideo && !preview && statsLabel && (
         <div className="vs-br">
           {/* Machine-facing metric (res · fps) — stays monospace in BOTH
               skins. Without font-machine the refined skin would swap the
@@ -245,14 +250,15 @@ export const StageTile: React.FC<Props> = ({
         </div>
       )}
 
-      {/* hover controls — screenshare tiles in-call only */}
-      {isScreen && !preview && screenTrackKey && (
+      {/* hover controls — any video tile in-call (camera or screenshare) is
+          fullscreenable and spotlightable. */}
+      {isVideo && !preview && videoTrack && (
         <div className="vs-hover">
           <button
             className="vs-hbtn"
             title="fullscreen"
             aria-label="Open fullscreen"
-            onClick={(e) => { e.stopPropagation(); onView?.(screenTrackKey); }}
+            onClick={(e) => { e.stopPropagation(); onView?.(videoTrack.trackKey); }}
           >
             <Maximize size={17} />
           </button>
@@ -260,7 +266,7 @@ export const StageTile: React.FC<Props> = ({
             <button
               className="vs-hbtn"
               title="spotlight"
-              aria-label="Spotlight this stream"
+              aria-label="Spotlight this video"
               onClick={(e) => { e.stopPropagation(); onFocus?.(p.tileKey); }}
             >
               <Pin size={17} />

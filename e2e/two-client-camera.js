@@ -267,10 +267,12 @@ async function waitForLocalCameraPreview(browser, tag, timeoutMs) {
 }
 
 // Remote CAMERA tiles visible on this client: `remote-video-tile-<trackKey>`
-// elements nested inside a participant tile (`voice-tile-voice-<id>` root,
-// class `vs-tile`), excluding the local-preview keys and excluding screenshare
-// feeds (a screenshare tile also carries a `voice-tile-stream-stats-` badge; a
-// camera face never does). Returns the owning tiles' identities + track keys.
+// elements nested inside a participant CAMERA tile — a `voice-tile-voice-<id>`
+// root (class `vs-tile`) whose key ends in `:cam` (a screenshare tile ends in
+// `:screen`). Camera and screenshare tiles are otherwise identical (both carry
+// the res·fps badge, both spotlightable), so the `:cam`/`:screen` suffix — not
+// the badge — is what tells them apart. Excludes the local-preview keys.
+// Returns the owning tiles' identities + track keys.
 async function remoteCameraTiles(browser) {
   return browser.execute((localKeys) => {
     const out = [];
@@ -280,9 +282,7 @@ async function remoteCameraTiles(browser) {
         continue;
       }
       const tileTestId = tile.getAttribute("data-testid") || "";
-      // A screenshare feed in this tile shows a res·fps badge; a camera doesn't.
-      const isScreenshare = !!tile.querySelector('[data-testid^="voice-tile-stream-stats-"]');
-      if (isScreenshare) {
+      if (!tileTestId.endsWith(":cam")) {
         continue;
       }
       for (const v of tile.querySelectorAll('[data-testid^="remote-video-tile-"]')) {
@@ -334,8 +334,8 @@ async function startScreenShare(browser, tag) {
 }
 
 // Which KINDS of remote video tile this client currently renders. A remote tile
-// (`voice-tile-voice-<id>` root with a nested non-local `remote-video-tile-`)
-// is a screenshare if it carries the res·fps stats badge, else a camera. #394:
+// (`voice-tile-voice-<id>` root with a nested non-local `remote-video-tile-`) is
+// a camera when its key ends `:cam`, a screenshare when it ends `:screen`. #394:
 // a participant publishing both must show up as BOTH kinds — two distinct tiles.
 async function remoteVideoTileKinds(browser) {
   return browser.execute((localKeys) => {
@@ -345,6 +345,7 @@ async function remoteVideoTileKinds(browser) {
       if (!tile.classList.contains("vs-tile")) {
         continue;
       }
+      const tileTestId = tile.getAttribute("data-testid") || "";
       let hasRemoteVideo = false;
       for (const v of tile.querySelectorAll('[data-testid^="remote-video-tile-"]')) {
         const key = (v.getAttribute("data-testid") || "").slice("remote-video-tile-".length);
@@ -355,9 +356,9 @@ async function remoteVideoTileKinds(browser) {
       if (!hasRemoteVideo) {
         continue;
       }
-      if (tile.querySelector('[data-testid^="voice-tile-stream-stats-"]')) {
+      if (tileTestId.endsWith(":screen")) {
         screenshare = true;
-      } else {
+      } else if (tileTestId.endsWith(":cam")) {
         camera = true;
       }
     }

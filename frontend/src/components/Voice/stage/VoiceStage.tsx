@@ -9,8 +9,8 @@
 //   - preview   (not joined): a "who's here" roster (NavigableGrid, same
 //                sizing as before) with persistent per-user volume + a
 //                solid Join Voice CTA.
-//   - spotlight (joined, someone streaming): the focused screenshare fills
-//                the body with a clickable filmstrip below.
+//   - spotlight (joined, someone sharing video): the focused video — camera or
+//                screenshare — fills the body with a clickable filmstrip below.
 //   - grid      (joined, no stream): a reflowing equal grid of tiles.
 //
 // Reads live data straight off appStore (MobX observer) rather than being a
@@ -200,14 +200,25 @@ export const VoiceStage: React.FC<VoiceStageProps> = observer(
     };
 
     const people = mergedParticipants.flatMap(tilesFor);
-    const streamers = people.filter((p) => p.media.kind === "screenshare");
+    // Any video tile — camera OR screenshare — can be spotlit and shows in the
+    // spotlight/filmstrip. The two are treated identically at the stage level
+    // (#394); the container doesn't care where the pixels come from.
+    const streamers = people.filter(
+      (p) => p.media.kind === "screenshare" || p.media.kind === "camera",
+    );
     // A call is always "in" its room (it auto-joins and rings), so it never
     // shows the group pre-join preview and its stage goes live immediately.
     const stageLive = isInCall || callMode;
     const previewState = !stageLive;
     const spotlight = stageLive && streamers.length > 0;
+    // Default the big view to a screenshare when one exists (the natural focal
+    // point of "watch my screen"), otherwise the first video — but an explicit
+    // user pick (focusId) always wins.
     const focused =
-      streamers.find((p) => p.tileKey === focusId) ?? streamers[0] ?? null;
+      streamers.find((p) => p.tileKey === focusId) ??
+      streamers.find((p) => p.media.kind === "screenshare") ??
+      streamers[0] ??
+      null;
 
     // Ringing/connecting caption — call-only, shown above the (self-only) grid
     // until the counterparty joins. Replaces the group "Join Voice" preview.

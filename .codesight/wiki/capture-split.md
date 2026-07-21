@@ -299,8 +299,11 @@ default; the driver adjusts and we publish whatever it gives. Verified at
   screenshare]`); `StageTile.media` is a `audio | camera | screenshare`
   discriminated union so a tile carries exactly one surface (the old
   "camera-as-tile-face, dropped when screensharing" state is unrepresentable).
-  Only screenshare tiles drive the spotlight/filmstrip and carry the res·fps
-  stats badge; camera tiles are plain grid tiles.
+  Camera and screenshare tiles are treated identically at the container level —
+  both spotlightable, fullscreenable, and carrying the res·fps badge; the
+  container doesn't care where the pixels come from. The `:cam`/`:screen` tile
+  key suffix (not the badge) is what tells the two apart. When both a camera and
+  a screenshare are present, the screenshare takes the default spotlight.
 - **Frontend**: `camera/cameraSession.ts` (event subscription + lifecycle,
   reuses `screenShareSession`'s frame router), `camera/cameraActions.ts`
   (`toggleCamera`), `components/Voice/CameraPicker.tsx` (in-app picker, bar
