@@ -1,11 +1,12 @@
-# On-demand two-client GROUP TEXT-CHANNEL convergence E2E (issue #570, M2): two
-# isolated real Tauri app instances against ONE shared backend prove that a
-# message client A posts in a group text channel converges into client B's UI.
+# On-demand two-client DELETE-FOR-EVERYONE E2E: two isolated real Tauri app
+# instances against ONE shared backend prove that after A's message CONVERGES
+# into B, A deleting it redacts B's already-delivered copy (E2EE MLS-authenticated
+# redaction) — through the real renderer + real MLS + real DS.
 #
-# Backend-only (no media) — same fixtures + composite action as e2e-two-client.yml.
-# Manual trigger only (workflow_dispatch): two WebKitGTK windows + a two-binary
-# cargo build + a libsql container is heavy.
-name: E2E two-client channel (group text convergence)
+# Backend-only (no media) — same fixtures + composite action as
+# e2e-two-client-dm-reply.yml. Manual trigger only (workflow_dispatch): heavy
+# (two WebKitGTK windows + a two-binary cargo build + a libsql container).
+name: E2E two-client delete-for-everyone
 
 on:
   workflow_dispatch:
@@ -14,7 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  two-client-channel:
+  two-client-delete:
     # ubuntu-24.04: src-tauri/build.rs compiles pollis-capture-linux, whose
     # libspa 0.9 bindgen needs PipeWire >= 1.0 headers (24.04 ships them).
     runs-on: ubuntu-24.04
@@ -61,12 +62,12 @@ jobs:
       - name: Start backend fixtures
         run: bash e2e/scripts/start-backend.sh
 
-      - name: Run two-client channel e2e (two-client-channel.js)
+      - name: Run two-client delete-for-everyone e2e (two-client-delete.js)
         uses: ./.github/actions/desktop-e2e
         with:
-          command: pnpm e2e two-client-channel
+          command: pnpm e2e two-client-delete
           working-directory: e2e
-          artifact-name: e2e-two-client-channel-failure
+          artifact-name: e2e-two-client-delete-failure
           artifacts-path: |
             e2e/artifacts/*.png
             e2e/artifacts/*.html
