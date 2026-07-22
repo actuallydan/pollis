@@ -702,6 +702,12 @@ pub fn derive_build_verify(
     // `payload_sha256` — and every signed leaf repeats its payload's
     // `payload_sha256`, so matching on that field keeps the AppImage behaviour
     // unchanged.
+    //
+    // Deliberately NOT filtered by platform/arch: a sha256 collision across
+    // platforms is not a threat we need to model, whereas the leaves' `arch`
+    // label is only as good as the attest script's (today it stamps `aarch64`
+    // for a `universal-apple-darwin` build). Filtering on a label that can be
+    // wrong would turn a cosmetic metadata bug into a false tamper alarm.
     let want = my_payload.layer();
     let comparable: Vec<&str> = report
         .artifacts
