@@ -262,6 +262,7 @@ pub async fn spawn_world() -> World {
         pollis_delivery_url: Some(delivery_url),
         // Sealed Sender off: the smoke rig exercises sync/enroll flows, not
         // envelope blinding (mirrors the flows harness default).
+        seal_sender: false,
     };
 
     World {
