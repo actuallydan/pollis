@@ -32,7 +32,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  # Named distinctly: a job called `test` here collides with another
+  # workflow's check of the same name in the PR checks list, making it
+  # impossible to tell at a glance whether this gate actually ran.
+  shell-scripts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
