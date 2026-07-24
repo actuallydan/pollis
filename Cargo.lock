@@ -3937,21 +3937,6 @@ dependencies = [
 
 [[package]]
 name = "jsonwebtoken"
-version = "9.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a87cc7a48537badeae96744432de36f4be2b4a34a05a5ef32e9dd8a1c169dde"
-dependencies = [
- "base64 0.22.1",
- "js-sys",
- "pem",
- "ring",
- "serde",
- "serde_json",
- "simple_asn1",
-]
-
-[[package]]
-name = "jsonwebtoken"
 version = "10.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0529410abe238729a60b108898784df8984c87f6054c9c4fcacc47e4803c1ce1"
@@ -3963,12 +3948,14 @@ dependencies = [
  "js-sys",
  "p256",
  "p384",
+ "pem",
  "rand 0.8.6",
  "rsa",
  "serde",
  "serde_json",
  "sha2",
  "signature",
+ "simple_asn1",
 ]
 
 [[package]]
@@ -4600,7 +4587,7 @@ dependencies = [
  "base64 0.21.7",
  "futures-util",
  "http 1.4.0",
- "jsonwebtoken 10.3.0",
+ "jsonwebtoken",
  "livekit-protocol",
  "livekit-runtime",
  "log",
@@ -6451,7 +6438,7 @@ dependencies = [
  "ed25519-dalek",
  "hmac",
  "http-body-util",
- "jsonwebtoken 9.3.1",
+ "jsonwebtoken",
  "libsql",
  "rand 0.8.6",
  "rand_core 0.6.4",
