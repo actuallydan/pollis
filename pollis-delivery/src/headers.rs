@@ -36,7 +36,14 @@ pub async fn request_timing(req: Request, next: Next) -> Response {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
     let t0 = std::time::Instant::now();
-    let resp = next.run(req).await;
-    tracing::info!("[bench] {method} {path}: {:?}", t0.elapsed());
+    let mut resp = next.run(req).await;
+    let elapsed = t0.elapsed();
+    tracing::info!("[bench] {method} {path}: {elapsed:?}");
+    // Also surface it as a response header — `wrangler tail` needs a CF API
+    // token this investigation doesn't have handy, but any client (curl, the
+    // app) can read a header directly.
+    if let Ok(v) = HeaderValue::from_str(&elapsed.as_millis().to_string()) {
+        resp.headers_mut().insert("x-bench-duration-ms", v);
+    }
     resp
 }
