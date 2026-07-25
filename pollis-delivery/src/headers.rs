@@ -25,25 +25,3 @@ pub async fn security_headers(req: Request, next: Next) -> Response {
     h.insert(X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
     resp
 }
-
-/// TEMPORARY — mobile e2e first-message-latency investigation. Every DS POST
-/// benchmarked from a mobile client is taking ~3-4.5s uniformly regardless of
-/// endpoint; this logs total server-side handling time (outermost layer, so
-/// it includes rate-limiting) to tell whether the time is spent in this
-/// container/Turso or upstream of it (Worker → Container → DO hop, network).
-/// Remove once the investigation concludes.
-pub async fn request_timing(req: Request, next: Next) -> Response {
-    let method = req.method().clone();
-    let path = req.uri().path().to_string();
-    let t0 = std::time::Instant::now();
-    let mut resp = next.run(req).await;
-    let elapsed = t0.elapsed();
-    tracing::info!("[bench] {method} {path}: {elapsed:?}");
-    // Also surface it as a response header — `wrangler tail` needs a CF API
-    // token this investigation doesn't have handy, but any client (curl, the
-    // app) can read a header directly.
-    if let Ok(v) = HeaderValue::from_str(&elapsed.as_millis().to_string()) {
-        resp.headers_mut().insert("x-bench-duration-ms", v);
-    }
-    resp
-}
