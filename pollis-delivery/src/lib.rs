@@ -292,6 +292,7 @@ pub fn build_router_with_state(state: AppState) -> Router {
         // rate-limiter's own 429s and any error replies.
         .layer(from_fn_with_state(state.clone(), ratelimit::rate_limit))
         .layer(from_fn(headers::security_headers))
+        .layer(from_fn(headers::request_timing))
         .with_state(state)
 }
 
