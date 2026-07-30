@@ -201,6 +201,8 @@ Seed paths (so a new device or a pre-join user doesn't block cleanup retroactive
 - DM create / DM member-add (`pollis-delivery` `profile.rs`) seed per (member, device).
 - `register_device` seeds per conversation the user is already a member of, for the newly-registered device.
 
+Teardown: `POST /v1/devices/revoke` (`account.rs::apply_revoke_device`) DELETEs the revoked device's watermark rows in the same transaction as the tombstone, scoped `WHERE user_id = actor AND device_id = ?` (#685). The read-time filters above already make the prune floor correct, so this is the "invalid states unrepresentable" half: a cursor that can never advance stops existing rather than relying on every future reader remembering to exclude it. Note `POST /v1/auth/logout` DELETEs the `user_device` row outright, and the watermark join hangs off `user_device`, so a logged-out device's leftover rows are already invisible to the gate.
+
 ### voice_presence _(removed in migration 18)_
 Dropped. LiveKit's `RoomService.ListParticipants` / `ListRooms` is the source
 of truth for who is currently in a voice channel. The shadow table drifted

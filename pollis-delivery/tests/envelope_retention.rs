@@ -3,7 +3,7 @@
 //! runs them in production.
 //!
 //! A revoked device can never rejoin the MLS tree (I5), so it must not count
-//! toward the roster the envelope-GC watermark gate is measured against. Two
+//! toward the roster the envelope-GC watermark gate is measured against. Three
 //! parts are proved here:
 //!
 //!   * **Part A** — `apply_envelope_gc` prunes an envelope every LIVE device has
@@ -13,11 +13,16 @@
 //!   * **Part B** — the watermark-seeding writes (DM create, DM member add, group
 //!     member add) never seed a row for a revoked device, so a device revoked
 //!     before it ever synced cannot re-introduce the wedge on the next join.
+//!   * **Part D** — `apply_revoke_device` DELETEs the revoked device's watermark
+//!     rows outright, so the dead cursor stops existing rather than merely being
+//!     filtered out by every future reader — and does so scoped to that one
+//!     device of that one user.
 //!
 //! The mirror-image failures are covered as unit tests in
 //! `pollis_delivery::messages` (the raw `CLEANUP_*` SQL) and end-to-end in
 //! `src-tauri/tests/flows/adversarial.rs`.
 
+use pollis_delivery::account::{apply_revoke_device, RevokeDeviceBody};
 use pollis_delivery::db::Db;
 use pollis_delivery::messages::{apply_envelope_gc, EnvelopeGcBody};
 use pollis_delivery::profile::{apply_add_dm_member, apply_create_dm, AddDmMemberBody, CreateDmBody};
@@ -41,7 +46,8 @@ CREATE TABLE group_join_request (\
   reviewed_by TEXT, reviewed_at TEXT, status TEXT NOT NULL DEFAULT 'pending');\
 CREATE TABLE conversation_watermark (\
   conversation_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL, \
-  last_fetched_at TEXT NOT NULL, PRIMARY KEY (conversation_id, user_id, device_id));";
+  last_fetched_at TEXT NOT NULL, PRIMARY KEY (conversation_id, user_id, device_id));\
+CREATE TABLE mls_key_package (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, device_id TEXT NOT NULL);";
 
 async fn fresh() -> Db {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -272,5 +278,81 @@ async fn approve_join_request_skips_revoked_devices() {
         vec!["b-live".to_string()],
         "group member-add must seed a watermark for the live device only — never \
          the revoked 'b-rev' (#685)"
+    );
+}
+
+// ── Part D — revocation removes the dead cursor at the chokepoint ─────────────
+
+/// `apply_revoke_device` must DELETE the revoked device's `conversation_watermark`
+/// rows, not merely leave them for the GC reads to filter out.
+///
+/// The read-time filters (Parts A/B) make the floor correct, but a cursor that can
+/// never advance is itself the invalid state — every future reader of
+/// `conversation_watermark` would have to remember to exclude it. Removing it in
+/// the revoke transaction means it cannot be represented at all.
+///
+/// The live sibling device's watermark is the control: revocation must be surgical
+/// (`WHERE user_id = actor AND device_id = ?`), so a pass cannot be earned by
+/// wiping the whole table.
+#[tokio::test]
+async fn revoke_device_deletes_that_devices_watermarks_only() {
+    let db = fresh().await;
+    add_device(&db, "alice", "a-live", false).await;
+    add_device(&db, "alice", "a-doomed", false).await;
+    add_device(&db, "bob", "b-live", false).await;
+
+    // The doomed device holds a cursor in two conversations; the live sibling and
+    // a different user hold cursors that must survive untouched.
+    seed_watermark(&db, "c1", "alice", "a-doomed", "-3 days").await;
+    seed_watermark(&db, "d1", "alice", "a-doomed", "-3 days").await;
+    seed_watermark(&db, "c1", "alice", "a-live", "-1 day").await;
+    seed_watermark(&db, "c1", "bob", "b-live", "-1 day").await;
+
+    let body = RevokeDeviceBody {
+        device_id: "a-doomed".into(),
+        user_id: None,
+    };
+    let out = apply_revoke_device(&db.conn().unwrap(), Some("alice"), &body)
+        .await
+        .unwrap();
+    assert!(matches!(out, WriteOutcome::Ok));
+
+    assert_eq!(
+        watermark_devices(&db, "c1").await,
+        vec!["a-live".to_string(), "b-live".to_string()],
+        "revoking a-doomed must delete ITS c1 cursor and leave every other \
+         device's cursor intact (#685)"
+    );
+    assert_eq!(
+        watermark_devices(&db, "d1").await,
+        Vec::<String>::new(),
+        "the revoked device's cursor must be gone from EVERY conversation, not \
+         just the one the GC happened to run on (#685)"
+    );
+}
+
+/// Revocation is self-scoped: it must never delete another user's watermark rows,
+/// even when the body names that user's device.
+#[tokio::test]
+async fn revoke_device_cannot_delete_another_users_watermarks() {
+    let db = fresh().await;
+    add_device(&db, "bob", "b-live", false).await;
+    seed_watermark(&db, "c1", "bob", "b-live", "-1 day").await;
+
+    // Alice is the authenticated actor; the DELETE is bound `user_id = actor`, so
+    // naming bob's device id must be inert rather than destructive.
+    let body = RevokeDeviceBody {
+        device_id: "b-live".into(),
+        user_id: None,
+    };
+    apply_revoke_device(&db.conn().unwrap(), Some("alice"), &body)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        watermark_devices(&db, "c1").await,
+        vec!["b-live".to_string()],
+        "alice revoking a device id that belongs to bob must not touch bob's \
+         cursor — the DELETE is bound WHERE user_id = actor (#685)"
     );
 }
