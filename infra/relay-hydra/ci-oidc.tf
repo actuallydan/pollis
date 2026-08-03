@@ -26,8 +26,21 @@ locals {
 resource "aws_iam_openid_connect_provider" "github" {
   count = local.ci_oidc_enabled && var.manage_github_oidc_provider ? 1 : 0
 
-  url             = "https://${local.github_oidc_host}"
-  client_id_list  = ["sts.amazonaws.com"]
+  url            = "https://${local.github_oidc_host}"
+  client_id_list = ["sts.amazonaws.com"]
+
+  # This all-`f` string is NOT a placeholder someone forgot — do not "fix" it with a
+  # real certificate fingerprint. Since AWS added GitHub to its trusted root CAs
+  # (GitHub changelog "Update on OIDC integration with AWS", 2023-06-27), AWS no
+  # longer verifies the thumbprint for token.actions.githubusercontent.com — it
+  # validates the token against the public CA trust store instead. The field is still
+  # a REQUIRED create-time parameter, so GitHub's own guidance is to pass this canonical
+  # dummy. A real thumbprint would be strictly worse: it buys nothing and breaks the
+  # moment GitHub rotates its intermediate CA (the exact 2023 outage this change fixed).
+  # Creating the provider with this value applies cleanly against a fresh account —
+  # AWS accepts any syntactically valid 40-hex-char thumbprint at CreateOpenIDConnect-
+  # Provider without checking it against a live cert — so manage_github_oidc_provider =
+  # true is safe as a default and is not a trap.
   thumbprint_list = ["ffffffffffffffffffffffffffffffffffffffff"]
 
   tags = { app = "pollis-relay" }
