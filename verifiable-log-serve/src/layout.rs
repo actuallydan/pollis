@@ -13,7 +13,7 @@
 //!
 //! | URL                                                   | Contents                          | Cache     |
 //! |-------------------------------------------------------|-----------------------------------|-----------|
-//! | `/v1/public_key.json`                                 | [`PublicKeyDoc`]                  | immutable |
+//! | `/v1/public_key.json`                                 | [`PublicKeyDoc`](crate::bundle::PublicKeyDoc)                  | immutable |
 //! | `/v1/index.json`                                      | [`Manifest`] (discovery)          | short     |
 //! | `/v1/sth/latest.json`                                 | newest [`Sth`]                    | short     |
 //! | `/v1/sth/<tree_size>.json`                            | [`Sth`] at that size              | immutable |
@@ -39,7 +39,7 @@
 //!
 //! | URL                                                              | Contents                          | Cache     |
 //! |------------------------------------------------------------------|-----------------------------------|-----------|
-//! | `/v1/account-keys/public_key.json`                               | [`PublicKeyDoc`]                  | immutable |
+//! | `/v1/account-keys/public_key.json`                               | [`PublicKeyDoc`](crate::bundle::PublicKeyDoc)                  | immutable |
 //! | `/v1/account-keys/index.json`                                    | [`AccountManifest`] (discovery)   | short     |
 //! | `/v1/account-keys/sth/latest.json`                               | newest account [`Sth`]            | short     |
 //! | `/v1/account-keys/sth/<tree_size>.json`                          | account [`Sth`] at that size      | immutable |
@@ -60,7 +60,7 @@
 //!
 //! | URL                                                          | Contents                          | Cache     |
 //! |--------------------------------------------------------------|-----------------------------------|-----------|
-//! | `/v1/binaries/public_key.json`                               | [`PublicKeyDoc`]                  | immutable |
+//! | `/v1/binaries/public_key.json`                               | [`PublicKeyDoc`](crate::bundle::PublicKeyDoc)                  | immutable |
 //! | `/v1/binaries/index.json`                                    | [`BinaryManifest`] (discovery)    | short     |
 //! | `/v1/binaries/sth/latest.json`                               | newest binaries [`Sth`]           | short     |
 //! | `/v1/binaries/sth/<tree_size>.json`                          | binaries [`Sth`] at that size     | immutable |
@@ -101,8 +101,7 @@ use verifiable_log_builder::account_key::AccountKeyLeaf;
 use verifiable_log_builder::binaries::BinaryRecord;
 use crate::account::{verify_account_in_bundle, ACCOUNT_TENANT};
 use crate::bundle::{
-    AccountManifest, BinaryManifest, Bundle, ConsistencyRef, InclusionRef, Manifest, PublicKeyDoc,
-    FORMAT_VERSION,
+    AccountManifest, BinaryManifest, Bundle, ConsistencyRef, InclusionRef, Manifest, FORMAT_VERSION,
 };
 use crate::error::{Result, ServeError};
 use crate::release::{verify_release_in_bundle, BINARIES_TENANT};
@@ -131,9 +130,7 @@ pub fn generate_artifacts(bundle: &Bundle) -> Result<(Manifest, BTreeMap<String,
     insert_json(
         &mut map,
         format!("{API_VERSION}/public_key.json"),
-        &PublicKeyDoc {
-            public_key: bundle.public_key.clone(),
-        },
+        &bundle.public_key_doc(),
     )?;
 
     // /v1/sth/<size>.json for every head, plus latest.json for the largest.
@@ -265,9 +262,7 @@ pub fn generate_account_artifacts(
     insert_json(
         &mut map,
         format!("{prefix}/public_key.json"),
-        &PublicKeyDoc {
-            public_key: bundle.public_key.clone(),
-        },
+        &bundle.public_key_doc(),
     )?;
 
     // /v1/account-keys/sth/<size>.json for every head, plus latest.json.
@@ -415,9 +410,7 @@ pub fn generate_binaries_artifacts(
     insert_json(
         &mut map,
         format!("{prefix}/public_key.json"),
-        &PublicKeyDoc {
-            public_key: bundle.public_key.clone(),
-        },
+        &bundle.public_key_doc(),
     )?;
 
     // /v1/binaries/sth/<size>.json for every head, plus latest.json.

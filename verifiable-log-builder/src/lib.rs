@@ -40,7 +40,9 @@ pub mod source;
 
 pub use account_key::{AccountKeyInvariant, AccountKeyLeaf};
 pub use binaries::{BinaryInvariant, BinaryRecord, Layer, Toolchain};
-pub use builder::{build_account_bundle, build_binaries_bundle, build_bundle, Bundle};
+pub use builder::{
+    build_account_bundle, build_binaries_bundle, build_bundle, Bundle, RetiredKey,
+};
 pub use commit_log::{
     derive_conversation_pseudonym, derive_sender_pseudonym, window_for_seq, CommitLeaf,
     CommitLogInvariant, PSEUDONYM_WINDOW_SIZE, TENANT,
