@@ -160,11 +160,34 @@ jobs:
       - name: Install the RN-pinned Android NDK + CMake
         run: |
           set -euo pipefail
-          SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SDKMGR" --licenses >/dev/null
+          # Resolve the SDK root and sdkmanager the way the current ubuntu-latest
+          # image lays them out, and fail loudly (not silently) if neither is
+          # where we expect — a missing tool must surface here, not three steps
+          # later as a confusing "NDK not found".
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK" ]; then
+            echo "ANDROID_HOME / ANDROID_SDK_ROOT not set on this runner" >&2
+            exit 1
+          fi
+          SDKMGR="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMGR" ]; then
+            SDKMGR="$(command -v sdkmanager)"
+          fi
+          # `sdkmanager --licenses` stops reading stdin once every licence is
+          # accepted and exits 0; a bare `yes | sdkmanager` then dies with EPIPE
+          # on the *successful* path and `pipefail` promotes that to a step
+          # failure. Wrapping only `yes` in `{ ... || true; }` discards yes's
+          # exit status while leaving sdkmanager's as the pipe's status, so a
+          # genuine licence failure still fails the step.
+          { yes || true; } | "$SDKMGR" --licenses >/dev/null
+          # compileSdk/targetSdk 36 + build-tools 36.0.0 are the Expo SDK 55 /
+          # RN 0.83 defaults (expo-modules-core ProjectConfiguration.kt); NDK
+          # 27.1.12297006 + CMake 3.22.1 are the RN-pinned native toolchain
+          # (mobile/CLAUDE.md). Gradle's externalNativeBuild resolves the NDK by
+          # exact version, so this must match or the CMake link fails.
           "$SDKMGR" "ndk;27.1.12297006" "cmake;3.22.1" "platforms;android-36" "build-tools;36.0.0"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.1.12297006" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$SDK/ndk/27.1.12297006" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$SDK/ndk/27.1.12297006" >> "$GITHUB_ENV"
 
       # cargo-ndk drives the per-ABI cross-compile; the ubrn CLI must be the
       # exact tag pinned in mobile/CLAUDE.md — its generated C++ template has to

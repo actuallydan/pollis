@@ -143,7 +143,29 @@ installs the RN-pinned NDK (`27.1.12297006`) + CMake (`3.22.1`) so Gradle and
 below). It uses `expo prebuild` + Gradle **directly, never `eas build`** — no
 EAS account. The release APK is signed with the throwaway **debug keystore** the
 Expo template generates (no signing secret); real upload signing is blocked
-(needs the Play console). `expo-doctor` runs as its own job.
+(needs the Play console).
+
+**`expo-doctor` is a required, clean gate.** The dependency set is pinned to the
+Expo SDK 55 canonical versions (`expo install --check` / `bundledNativeModules`),
+so doctor's version, duplicate-native-module, and missing-peer checks all pass.
+Two things worth knowing:
+
+- **`react-native` is deliberately held at `0.83.6`** even though SDK 55 now
+  recommends `0.83.10`. `uniffi-bindgen-react-native` (`0.31.0-2`) generates C++
+  JSI glue against RN 0.83.6's headers; moving RN underneath a pinned codegen is
+  the `no member named 'string_to_buffer'` failure class. It is the **only**
+  package excluded from doctor's version check, via `expo.install.exclude` in
+  `package.json` (the narrowest supported mechanism — every other check stays
+  live). Re-pin ubrn to an RN-0.83.10-aligned tag before dropping the exclusion;
+  the two move together.
+- **`react-native-worklets` is a direct dependency** (`0.7.4`, the version SDK 55
+  pairs with Reanimated `4.2.1`). Reanimated 4 split worklets into its own native
+  module; a native peer must be a direct dep so autolinking picks it up, or
+  doctor's missing-peer check fails.
+
+`app.json` carries **no** `newArchEnabled` / `android.edgeToEdgeEnabled` — both are
+now unconditional defaults in SDK 55 / RN 0.83 and were dropped from the config
+schema, so listing them fails doctor's schema check for no behavioural gain.
 
 ---
 
