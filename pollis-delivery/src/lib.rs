@@ -92,6 +92,11 @@ pub struct AppState {
     /// the invalidation contract and the `max_instances: 1` assumption it rests
     /// on.
     pub device_keys: auth::DeviceKeyCache,
+    /// Latest identity-free envelope-growth snapshot (#720 checkbox 1), written
+    /// by the GC sweep and served on `GET /v1/retention/metrics`. Shared `Arc`, so
+    /// the sweep task and every request handler see the same cell. `None` until
+    /// the first sweep completes.
+    pub retention_metrics: messages::RetentionMetricsHandle,
 }
 
 impl AppState {
@@ -117,6 +122,7 @@ impl AppState {
             ratelimit: ratelimit::RateLimiter::default(),
             ratelimit_config: ratelimit::RateLimitConfig::default(),
             device_keys: auth::DeviceKeyCache::default(),
+            retention_metrics: messages::RetentionMetricsHandle::default(),
         }
     }
 
@@ -164,6 +170,14 @@ pub fn build_router(db: Arc<Db>) -> Router {
 /// control-plane tables. `log_db` may be the same handle as `db` (single-DB
 /// fallback). Reads the auth gate from the environment.
 pub fn build_router_with_log_db(db: Arc<Db>, log_db: Arc<Db>) -> Router {
+    build_router_with_state(build_app_state(db, log_db))
+}
+
+/// Build the [`AppState`] from the environment (auth gate + OTP/broker/rate-limit
+/// config). Extracted from [`build_router_with_log_db`] so `main` can hold the
+/// state — specifically `state.retention_metrics` — before spawning the GC sweep,
+/// then build the router from the same state.
+pub fn build_app_state(db: Arc<Db>, log_db: Arc<Db>) -> AppState {
     let require_auth = require_auth_from_env();
     tracing::info!(
         require_auth,
@@ -174,11 +188,10 @@ pub fn build_router_with_log_db(db: Arc<Db>, log_db: Arc<Db>) -> Router {
             "OFF (POLLIS_DS_REQUIRE_AUTH unset — writes accepted unauthenticated)"
         }
     );
-    let state = AppState::new_with_log_db(db, log_db, require_auth)
+    AppState::new_with_log_db(db, log_db, require_auth)
         .with_otp_config(otp::OtpConfig::from_env())
         .with_broker_config(broker::BrokerConfig::from_env())
-        .with_ratelimit_config(ratelimit::RateLimitConfig::from_env());
-    build_router_with_state(state)
+        .with_ratelimit_config(ratelimit::RateLimitConfig::from_env())
 }
 
 /// Build the HTTP router from an explicit [`AppState`]. Exposed so tests can
@@ -187,6 +200,7 @@ pub fn build_router_with_state(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/version", get(version))
+        .route("/v1/retention/metrics", get(retention_metrics))
         .route("/v1/commits", post(submit))
         .route("/v1/commits/since", post(report_commit_since))
         .route("/v1/commits/:conversation_id", get(commits))
@@ -324,6 +338,29 @@ async fn version() -> impl IntoResponse {
         StatusCode::OK,
         Json(serde_json::json!({ "service": "pollis-delivery", "sha": GIT_SHA })),
     )
+}
+
+/// GET /v1/retention/metrics — the latest identity-free `message_envelope` growth
+/// snapshot the GC sweep last computed (#720 checkbox 1). Open (no auth), like
+/// `/health` and `/version`. `computed: false` until the first sweep runs.
+///
+/// This is the SOURCE OF TRUTH for the numbers only. Alert ROUTING —
+/// thresholds/paging in Cloudflare/Grafana/email — is the owner's console and is
+/// explicitly out of scope; the owner scrapes or curls this. The body carries no
+/// conversation id or user id (see `docs/metadata-retention-policy.md` §3), so it
+/// is safe to expose, though the owner may still choose to restrict it at the
+/// edge since it reveals aggregate activity volume.
+async fn retention_metrics(State(state): State<AppState>) -> impl IntoResponse {
+    match state.retention_metrics.lock().unwrap().clone() {
+        Some(snapshot) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "computed": true, "metrics": snapshot })),
+        ),
+        None => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "computed": false, "metrics": null })),
+        ),
+    }
 }
 
 /// POST /v1/commits — submit a commit. When auth is enforced, the request must
