@@ -80,45 +80,59 @@ BEGIN
 END;
 
 -- 3. HEAD PROTECTION (kills the catastrophic half of F2). The live head commit —
--- MAX(epoch) of MAX(generation) for a conversation — may never be deleted. That
--- is the deletion that actually wedges a group (the F2 symptom: "dan applied
--- epoch 11, it was deleted, ants wedged" — every current member is now stranded
--- and must external-join). Legitimate retention NEVER hits this row:
+-- MAX(epoch) of MAX(generation) for a conversation — may never be deleted WHILE
+-- ANY EARLIER COMMIT OF THE SAME CONVERSATION STILL EXISTS. That is the exact
+-- shape that wedges a group (the F2 / ELECTRON symptom: "dan applied epoch 11, it
+-- was deleted, ants wedged" — every current member had applied the head and is now
+-- stranded on a chain that regressed under them, with earlier commits still
+-- present that it can no longer reconcile against). The `EXISTS (... other row of
+-- the conversation ...)` clause is what scopes the guard to THAT harm and no more:
+--   * Deleting the head while siblings remain (the ELECTRON shape / a targeted
+--     stray delete) → the EXISTS is true → ABORT.
+--   * Deleting the head when it is the LAST remaining row of the conversation →
+--     the EXISTS is false → ALLOWED. The chain becomes empty, which is trivially
+--     gapless, and there is nothing left for a member to be inconsistent with.
+--     This is deliberately NOT the ELECTRON failure: an empty conversation is a
+--     whole-conversation removal, not a head regression under live members.
+--
+-- Legitimate retention NEVER trips this (unchanged by the EXISTS clause — the
+-- head-detection terms already excluded every pruned row):
 --   * `delete_commits_below` deletes `epoch < floor` with `floor <= head - 1`
 --     (#681 clamp) within the head generation, so every deleted epoch is strictly
---     below the head epoch — the second WHEN term is false for all of them.
+--     below the head epoch — the second head-detection term is false for all of them.
 --   * `delete_generations_below` deletes only `generation < head_generation`, so
---     the first WHEN term (`OLD.generation = MAX(generation)`) is false for all of
---     them; the head generation's MAX(generation) is invariant under that delete.
--- Because the head is invariant under BOTH legitimate delete shapes, the guard is
--- order-independent: it cannot false-positive partway through a bulk prefix/
--- generation prune regardless of the engine's row-visit order. It fires ONLY when
--- code (a bug, a manual query) tries to remove the current head, which is never a
--- legitimate operation.
+--     the first head-detection term (`OLD.generation = MAX(generation)`) is false
+--     for all of them; the head generation is invariant under that delete.
 --
--- NOTE (scope, honest): this guard protects the HEAD, not against an interior
--- hole punched into the retained window `[floor, head)`. A per-row BEFORE DELETE
--- trigger cannot detect an interior gap without inspecting sibling rows, and any
--- sibling-based rule false-positives on the legitimate bulk prefix delete under
--- some engine row-visit orders (an intermediate state of a prefix truncation is
--- indistinguishable from a mid-chain hole). Interior contiguity therefore stays
--- enforced by the CAS + the clamped retention floor in Rust; the schema layer
--- guarantees no forward gap, no rewrite, and no head loss — the three that
--- actually wedge a group.
+-- FULL-CONVERSATION ERASURE / BULK WIPE (the "must not fire on legitimate traffic"
+-- bar — this is what a bare `DELETE FROM mls_commit_log` and a future
+-- delete-account path do). `seq` is the AUTOINCREMENT PK, so within a conversation
+-- the head always has the HIGHEST `seq` (it was appended last). SQLite visits rows
+-- of an unqualified DELETE in ascending `seq` (rowid) order, so the head of each
+-- conversation is the LAST of that conversation's rows to be deleted — by then its
+-- siblings are already gone, the EXISTS is false, and the delete is allowed. The
+-- table empties cleanly. This is why the three test-harness wipe sites
+-- (src-tauri/src/test_harness.rs `wipe_tables(log, &LOG_TABLES)`, and any
+-- `DELETE FROM {table}` loop) need ZERO changes, and why account/conversation
+-- deletion needs no bypass primitive. Verified empirically against the real
+-- migration, not merely reasoned about (see the commit message and the
+-- `bulk_wipe_*` / `delete_head_when_only_row_*` tests in commit_log_triggers.rs).
 --
--- CONSEQUENCE (deliberate, not an oversight — full-conversation erasure): with
--- the head guard in place there is NO order in which every commit row of a
--- conversation can be deleted. Prune bottom-up and the last remaining row IS the
--- head (aborts); delete the head first and it aborts immediately. Nothing does
--- this today — the only DELETEs are the two retention shapes above, neither of
--- which ever empties a live conversation — so this is not a regression. But a
--- future "delete my account / erase this conversation" path (this launch epic
--- will need one) must NOT discover the wall by hitting a RAISE(ABORT) in prod: an
--- erasure path has to lift the guard for the scope of its own transaction — e.g.
--- `DROP TRIGGER trg_mls_commit_log_keep_head; DELETE ...; <recreate>` inside one
--- transaction, or a narrowly scoped exemption. Building that is a separate ticket;
--- this migration only records that the constraint is intentional. See I1 in
--- docs/backend-core-invariants.md and .codesight/wiki/database.md.
+-- NOTE (scope, honest): this guard protects the HEAD against a regression-under-
+-- live-members, not against an interior hole punched into the retained window
+-- `[floor, head)`. A per-row BEFORE DELETE trigger cannot detect an interior gap
+-- without a sibling rule that false-positives on the intermediate state of a
+-- legitimate bulk prefix prune (a partly-truncated prefix is indistinguishable
+-- from a mid-chain hole). Interior contiguity therefore stays enforced by the CAS +
+-- the clamped retention floor in Rust; the schema layer guarantees no forward gap,
+-- no rewrite, and no head-regression-while-members-hold-it.
+--
+-- COST (stated honestly): buggy code that deletes an ENTIRE live conversation's
+-- commit rows in one sweep is no longer stopped at the schema layer. That is an
+-- acceptable trade — it is a different operation with different semantics (whole-
+-- conversation removal, not I1's head-regression failure mode), and nothing above
+-- the DB issues an unscoped per-conversation delete of a live conversation (the
+-- only production deletes are the two prefix/generation retention shapes above).
 CREATE TRIGGER IF NOT EXISTS trg_mls_commit_log_keep_head
 BEFORE DELETE ON mls_commit_log
 FOR EACH ROW
@@ -131,6 +145,11 @@ WHEN OLD.generation = (
         WHERE conversation_id = OLD.conversation_id
           AND generation = OLD.generation
      )
+ AND EXISTS (
+        SELECT 1 FROM mls_commit_log
+        WHERE conversation_id = OLD.conversation_id
+          AND seq <> OLD.seq
+     )
 BEGIN
-    SELECT RAISE(ABORT, 'mls_commit_log I1: the live head commit cannot be deleted');
+    SELECT RAISE(ABORT, 'mls_commit_log I1: the live head cannot be deleted while earlier commits of the conversation remain');
 END;

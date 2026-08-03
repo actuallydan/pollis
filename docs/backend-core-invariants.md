@@ -66,13 +66,16 @@ the invariant that makes it unrepresentable.
   CAS (`ON CONFLICT(conv,epoch) DO NOTHING`): a stale committer inserts at
   `epoch ≤ max` and is absorbed by the conflict; only forward gaps abort.
 - **`BEFORE DELETE` trigger**: reject deleting the **live head**
-  (`MAX(epoch)` of `MAX(generation)`) → the deletion that wedges every member
-  is unrepresentable (kills the catastrophic half of F2).
+  (`MAX(epoch)` of `MAX(generation)`) **while any earlier commit of the same
+  conversation still exists** → the ELECTRON deletion that wedges every member
+  (head regressed out from under members who had applied it) is unrepresentable
+  (kills the catastrophic half of F2). Deleting the head when it is the *last*
+  row is allowed — an empty chain is trivially gapless (see the scope note).
 - **`BEFORE UPDATE` trigger**: abort changes to
   `conversation_id`/`generation`/`epoch`/`commit_data` → immutable history
   (kills the rewrite half of F2).
-- *Result:* a forward gap, a rewritten commit, or a deleted head is **physically
-  unrepresentable.**
+- *Result:* a forward gap, a rewritten commit, or a head deleted while earlier
+  commits remain is **physically unrepresentable.**
 - **Shipped:** commit-log-DB migration `000005_mls_commit_log_triggers.sql`
   (#691), with direct-SQL violation tests in
   `pollis-delivery/tests/commit_log_triggers.rs`.
@@ -88,20 +91,29 @@ the invariant that makes it unrepresentable.
   (a partly-truncated prefix is indistinguishable from a mid-chain hole), so
   interior contiguity stays enforced by the CAS + the clamped retention floor in
   Rust. The schema layer guarantees the three that actually wedge a group:
-  no forward gap, no rewrite, no head loss.
-- **Consequence — full-conversation erasure is deliberately blocked (from #691).**
-  With the head guard in place there is **no order** in which every commit row of
-  a conversation can be deleted: prune bottom-up and the last remaining row is the
-  head (aborts); delete the head first and it aborts immediately. Nothing does this
-  today (the only DELETEs are the two retention shapes, neither of which empties a
-  live conversation), so it is not a regression — but it is intentional, not an
-  oversight. A future "delete my account / erase this conversation" path (this
-  launch epic will need one) must **not** discover it by hitting a `RAISE(ABORT)` in
-  prod: such a path has to lift the guard for the scope of its own transaction
-  (drop + recreate `trg_mls_commit_log_keep_head` inside the erasure transaction, or
-  a narrowly scoped exemption). Building that is a **separate ticket**; recorded here,
-  in the `000005` migration comment, and in `.codesight/wiki/database.md` so the
-  constraint reads as deliberate.
+  no forward gap, no rewrite, no head-regression-while-members-hold-it.
+- **Full-conversation erasure IS allowed (corrected in #691 review — an earlier
+  draft of this section wrongly claimed the head guard made erasure impossible).**
+  The guard fires only when the head is deleted *while an earlier commit of the
+  same conversation still exists* — the ELECTRON shape. It does **not** fire on
+  deleting the head when it is the last row, so a conversation can be emptied:
+  prune bottom-up (each step the lowest epoch; the final row is head-and-only-row →
+  allowed), or issue a bare `DELETE FROM mls_commit_log` (SQLite visits rows in
+  ascending `seq`/rowid order, and the head has the highest `seq` in its
+  conversation, so it is deleted last, after its siblings are gone). This is not
+  hypothetical: the test-harness `wipe_remote` reset issues exactly that bare
+  `DELETE`, and the *first* draft of the guard took down the entire flows suite
+  (81/82 scenarios) because it forbade the wipe. A future delete-account /
+  erase-conversation path therefore needs **no** bypass primitive — it just
+  deletes, and the guard stays out of the way. The stated cost: buggy code that
+  sweeps an entire *live* conversation's rows is no longer stopped at the schema
+  layer, which is acceptable — it is whole-conversation removal, a different
+  operation from I1's head-regression failure mode, and nothing above the DB
+  issues an unscoped per-conversation delete (the only production deletes are the
+  two prefix/generation retention shapes; account deletion in `account.rs` never
+  touches `mls_commit_log`). The two boundary cases are pinned by
+  `bulk_wipe_empties_the_table` / `delete_head_when_only_row_is_allowed` in
+  `commit_log_triggers.rs`.
 
 ### I2 — Commits are a verifiable chain
 - MLS already chains epochs via the confirmed transcript hash / confirmation
@@ -160,9 +172,9 @@ the invariant that makes it unrepresentable.
 - **Phase 0 (done):** stop the bleeding — append-only in code (`adfe518`: no
   more commit-log deletes) + auto-heal wedged members via external-join.
 - **Phase 1 (done, #691):** I1 — DB triggers making the commit log
-  gapless/immutable and protecting the live head (migration `000005`, log DB) +
-  the direct-SQL violation tests
-  (`pollis-delivery/tests/commit_log_triggers.rs`). "Append-only" is enforced as
+  gapless/immutable and protecting the live head *against a regression while
+  earlier commits remain* (migration `000005`, log DB) + the direct-SQL violation
+  tests (`pollis-delivery/tests/commit_log_triggers.rs`). "Append-only" is enforced as
   head-protection rather than abort-all-deletes, because the I4 retention prune
   legitimately truncates a prefix — see the I1 scope note above.
 - **Phase 2:** I3 — **partially done.** The 30-day TTL is deleted and envelope

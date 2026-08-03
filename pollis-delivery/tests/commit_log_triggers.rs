@@ -162,14 +162,22 @@ async fn update_of_history_is_rejected() {
     .expect("benign metadata update is allowed");
 }
 
-// ── I1: the live head cannot be deleted (kills the catastrophic half of F2) ───
+// ── I1: the head cannot be deleted WHILE EARLIER COMMITS REMAIN (the ELECTRON
+// half of F2). The guard is narrowed (#691 review) to exactly the harm it
+// prevents: a head deleted out from under members who applied it while earlier
+// commits are still present (they see a chain that regressed and cannot
+// reconcile). Deleting the head when it is the LAST row of the conversation is a
+// different operation — whole-conversation removal, trivially gapless — and is
+// allowed; the two tests below (`delete_head_when_only_row_is_allowed`,
+// `bulk_wipe_empties_the_table`) pin that boundary.
 
 #[tokio::test]
 async fn delete_of_head_is_rejected() {
     let db = fresh_log().await;
     seed(&db, "c1", 0, 3).await; // epochs 0..=3, head commit at epoch 3
 
-    // Deleting the head commit wedges every current member. Rejected.
+    // Deleting the head commit while epochs 0..2 remain is the ELECTRON shape —
+    // it wedges every current member. Rejected.
     let del_head = db
         .conn()
         .unwrap()
@@ -228,6 +236,83 @@ async fn delete_of_generation_head_is_rejected() {
         .expect("retiring a closed generation is allowed");
     assert_eq!(epochs(&db, "c1", 0).await, Vec::<i64>::new());
     assert_eq!(epochs(&db, "c1", 1).await, vec![0, 1]);
+}
+
+/// The narrowed boundary, half one: deleting the head when it is the ONLY row of
+/// the conversation is allowed — the chain becomes empty (trivially gapless) and
+/// there is nothing left to be inconsistent with. This is the case the original
+/// guard wrongly blocked, which took down the whole flows suite (every scenario's
+/// `wipe_remote` issues a bare `DELETE FROM mls_commit_log`).
+#[tokio::test]
+async fn delete_head_when_only_row_is_allowed() {
+    let db = fresh_log().await;
+    seed(&db, "c1", 0, 0).await; // a single commit — head-and-only-row
+
+    db.conn()
+        .unwrap()
+        .execute(
+            "DELETE FROM mls_commit_log WHERE conversation_id = 'c1' AND generation = 0 AND epoch = 0",
+            (),
+        )
+        .await
+        .expect("deleting the last remaining commit is allowed (empty chain is gapless)");
+    assert_eq!(epochs(&db, "c1", 0).await, Vec::<i64>::new());
+}
+
+/// The narrowed boundary, half two: the exact operation that took down the flows
+/// suite — a bare, unqualified `DELETE FROM mls_commit_log` (the test-harness
+/// `wipe_remote` reset) — must now succeed and empty the table. `seq` is the
+/// AUTOINCREMENT PK, so within each conversation the head has the highest `seq`
+/// and SQLite's ascending-rowid delete order visits it LAST, by which point its
+/// siblings are gone and the guard's `EXISTS (other row)` clause is false.
+/// Conversations are interleaved here so the head of one is NOT the globally-last
+/// row — proving the per-conversation ordering, not a global fluke, is what makes
+/// this safe.
+#[tokio::test]
+async fn bulk_wipe_empties_the_table() {
+    let db = fresh_log().await;
+    let conn = db.conn().unwrap();
+    // Interleave two conversations' appends so their seqs alternate; each still
+    // appends at its own head, so the forward-gap trigger never fires.
+    for e in 0..=3 {
+        for c in ["c1", "c2"] {
+            raw_insert(&db, c, 0, e).await.expect("interleaved head append");
+        }
+    }
+    assert_eq!(epochs(&db, "c1", 0).await, vec![0, 1, 2, 3]);
+    assert_eq!(epochs(&db, "c2", 0).await, vec![0, 1, 2, 3]);
+
+    // The bare wipe the harness issues. Must not trip the head guard on any row.
+    conn.execute("DELETE FROM mls_commit_log", ())
+        .await
+        .expect("bare DELETE FROM mls_commit_log must empty the table, not abort on the head");
+
+    let count: i64 = {
+        let mut rows = conn.query("SELECT COUNT(*) FROM mls_commit_log", ()).await.unwrap();
+        rows.next().await.unwrap().unwrap().get::<i64>(0).unwrap()
+    };
+    assert_eq!(count, 0, "the wipe left rows behind — the head guard fired mid-wipe");
+}
+
+/// The same erasure reached the other way: a per-row bottom-up prune of a single
+/// conversation to empty. Every step deletes the current lowest epoch; when only
+/// the head remains it is also the only row, so the final delete is allowed. This
+/// is the shape a future delete-account / erase-conversation path will use.
+#[tokio::test]
+async fn bottom_up_prune_to_empty_succeeds() {
+    let db = fresh_log().await;
+    seed(&db, "c1", 0, 3).await; // epochs 0..=3
+    let conn = db.conn().unwrap();
+
+    for e in 0..=3 {
+        conn.execute(
+            "DELETE FROM mls_commit_log WHERE conversation_id = 'c1' AND generation = 0 AND epoch = ?1",
+            libsql::params![e],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("bottom-up delete of epoch {e} must succeed, got {err}"));
+    }
+    assert_eq!(epochs(&db, "c1", 0).await, Vec::<i64>::new());
 }
 
 /// The #680 fault-injection harness (`src-tauri/tests/flows/harness.rs::

@@ -278,25 +278,33 @@ enforced at the lowest layer, not just the protocol layer:
   Kills the history-rewrite half of F2. The DS never UPDATEs this table, so it
   has no legitimate traffic to fire on.
 - `trg_mls_commit_log_keep_head` (DELETE) — rejects deleting the live head
-  (`MAX(epoch)` of `MAX(generation)`). Kills the catastrophic half of F2 (the
-  deletion that wedges every member). The head is invariant under BOTH retention
-  delete shapes (`delete_commits_below`, floor ≤ head−1; `delete_generations_below`,
-  closed generations only), so the guard is order-independent and never trips a
-  legitimate prune. Interior-gap-on-delete is NOT trigger-enforced — a per-row
-  `BEGIN DELETE` trigger cannot tell a mid-chain hole from an intermediate state
+  (`MAX(epoch)` of `MAX(generation)`) **while any earlier commit of the same
+  conversation still exists** (`AND EXISTS (… row with a different `seq` …)`).
+  Kills the catastrophic half of F2 (the ELECTRON deletion that wedges every
+  member: the head regresses out from under members who had applied it, with
+  earlier commits still present that it can no longer reconcile against). The head
+  is invariant under BOTH retention delete shapes (`delete_commits_below`,
+  floor ≤ head−1; `delete_generations_below`, closed generations only), so those
+  never trip it. Interior-gap-on-delete is NOT trigger-enforced — a per-row
+  `BEFORE DELETE` trigger cannot tell a mid-chain hole from an intermediate state
   of a legitimate bulk prefix prune — so interior contiguity stays with the CAS +
   the clamped retention floor in Rust. Proven by
   `pollis-delivery/tests/commit_log_triggers.rs` (direct-SQL violation attempts).
 
-  *Deliberate consequence — full-conversation erasure is blocked.* With the head
-  guard there is **no order** in which all of a conversation's commit rows can be
-  deleted (prune bottom-up → the last row is the head, aborts; delete the head
-  first → aborts). Nothing does this today (the only DELETEs are the two retention
-  shapes, which never empty a live conversation), so it is not a regression — but a
-  future "delete my account / erase this conversation" path must lift the guard for
-  the scope of its own transaction (drop + recreate `trg_mls_commit_log_keep_head`
-  inside the erasure txn, or a scoped exemption) rather than hit a `RAISE(ABORT)` in
-  prod. That is a separate ticket; this is recorded so the wall reads as intentional.
+  *Full-conversation erasure IS allowed (the `EXISTS` clause was narrowed in the
+  #691 review; an earlier draft blocked it and took down 81/82 flows scenarios,
+  whose `wipe_remote` reset issues a bare `DELETE FROM mls_commit_log`).* The guard
+  fires only on a head-with-siblings delete, so a conversation can be emptied:
+  bottom-up (the final row is head-and-only-row → allowed), or via a bare
+  `DELETE FROM mls_commit_log` (SQLite deletes in ascending `seq`/rowid order and
+  the head holds the highest `seq` in its conversation, so it is visited last,
+  after its siblings are gone → the `EXISTS` is false). A future delete-account /
+  erase-conversation path therefore needs **no** bypass primitive. Cost, stated
+  plainly: buggy code that sweeps an entire *live* conversation is no longer stopped
+  at the schema layer — acceptable, since that is whole-conversation removal (not
+  I1's head-regression failure mode) and nothing above the DB issues an unscoped
+  per-conversation delete (`account.rs` account deletion never touches
+  `mls_commit_log`).
 
   Trigger bodies (`BEGIN … ; END`) carry inner `;` that are not statement
   boundaries, so the migration appliers (`scripts/db-apply.sh`, the flows/tui
