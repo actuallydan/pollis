@@ -654,15 +654,18 @@ pub(crate) async fn register_attachment_refs(
     }
 }
 
-/// Release the deleted message's reference to an attachment, and — when the
-/// client's local view suggests it may now be orphaned — try to collect the R2
-/// object. Best-effort on both: failures are logged, never bubbled.
+/// Trigger server-side collection of a deleted message's attachment, and — when
+/// the client's local view suggests it may now be orphaned — try to collect the
+/// R2 object. Best-effort on both: failures are logged, never bubbled.
 ///
-/// The reference release ALWAYS runs, for every attachment of the deleted
-/// message, regardless of `locally_orphaned` (#690). The server decrements the
-/// count and collects the `attachment_object` row only when NO reference remains,
-/// so a hash another conversation still references survives — the client's local
-/// view is no longer assumed complete.
+/// The reference itself is already released at this point: the DS derives the
+/// reference count from message-envelope existence (#690), and this delete's
+/// `/v1/messages/delete` (issued earlier in `delete_message`) removed the
+/// envelope, so the reference stopped counting the moment the message went. This
+/// `/v1/attachments/delete` call therefore does not release anything — it asks
+/// the DS to COLLECT the shared `attachment_object` row, which it does only when
+/// NO still-existing message references the hash. A hash another conversation
+/// still references survives; the client's local view is not assumed complete.
 ///
 /// `locally_orphaned` is a cheap first pass over THIS device's other non-deleted
 /// messages: `true` means nothing local still references the hash, so it is worth
@@ -677,9 +680,9 @@ async fn cleanup_attachment(
     att: &AttachmentRef,
     locally_orphaned: bool,
 ) {
-    // DS seam: release this message's reference and let the DS conditionally
-    // collect the shared dedup row. Best-effort — failures are logged, never
-    // bubbled.
+    // DS seam: ask the DS to conditionally collect the shared dedup row (the
+    // reference was already released by deleting the message envelope above).
+    // Best-effort — failures are logged, never bubbled.
     let remote_result = async {
         let body = serde_json::json!({
             "content_hash": att.content_hash,

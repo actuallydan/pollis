@@ -34,11 +34,15 @@
 //! users. Minting a `delete` for it while another message still references it
 //! would 404 that attachment for everyone else. So the `delete` presign consults
 //! the server-side reference count ([`crate::messages::object_is_referenced`],
-//! populated by `/v1/attachments/register`) and refuses to sign while any
-//! reference remains — the same evidence that gates the Turso row's collection in
+//! DERIVED by joining `attachment_ref` declarations to the still-live
+//! `message_envelope` rows — #690) and refuses to sign while any reference
+//! remains — the same evidence that gates the Turso row's collection in
 //! `apply_delete_attachment`. The DS is the chokepoint: a client that has already
 //! deleted its own message cannot blow away a blob a second conversation still
-//! needs. This is a per-object *integrity* gate, not the per-object *read* authz
+//! needs. Because the count is derived, a reference cannot outlive its message:
+//! once every referencing envelope is deleted or GC'd the gate opens on its own,
+//! with no per-deleter bookkeeping to forget. This is a per-object *integrity*
+//! gate, not the per-object *read* authz
 //! the paragraph above (still correctly) says the bucket does not need.
 //!
 //! ## Contract
