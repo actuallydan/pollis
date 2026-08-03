@@ -71,6 +71,7 @@ So a monitor or explorer can discover everything available without guessing:
 
 ```json
 {
+  "format_version": 2,
   "version": "v1",
   "public_key": "<ed25519 public key, 32 bytes hex>",
   "entry_count": 5,
@@ -81,6 +82,15 @@ So a monitor or explorer can discover everything available without guessing:
   "enforce_unique": ["commits"]
 }
 ```
+
+`format_version` (`bundle::FORMAT_VERSION`) is the **served wire format** version a
+verifier reads *first*: a log published in a format newer than the binary
+understands is reported as version skew (`pollis-verify` exits `2`, "upgrade your
+verifier"), never as a verification failure — so the next breaking wire change does
+not surface to an auditor as a serde error. It was bumped to `2` at #701 (the
+`conversations` list removed, the precomputed `/verify/group/<id>` artifacts gone,
+the commit leaf moved to windowed pseudonyms). A manifest with no `format_version`
+is treated as the legacy pre-#701 shape (`0`) and still verifies.
 
 ### Cache policy
 
@@ -129,6 +139,14 @@ equivocation, entry/STH-root replay (through the tenant invariants), inclusion,
 and consistency. It prints a per-check report and **exits non-zero** if anything
 fails — a tampered entry, a forged proof, a bad signature, or a mismatched
 `latest.json` are all rejected.
+
+**Exit codes** (stable, so scripts and CI can branch on them):
+
+| code | meaning |
+|---|---|
+| `0` | verification passed |
+| `1` | verification **failed** (bad signature, forged proof, fork, epoch regression) or a transport/parse error |
+| `2` | **version skew** — the log's `format_version` is newer than this binary understands; upgrade `pollis-verify`. Deliberately distinct from `1`: it is *not* a tampering finding, so a stale binary the day after a republish reads as "upgrade me", not "verification failed". |
 
 ## Production note
 

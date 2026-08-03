@@ -271,6 +271,41 @@ that builds it. (The account-key and binaries trees are unaffected; see below.) 
 follows the `generation` precedent (#454 P4): a compatible leaf extension that takes
 effect without pretending old bytes can be rewritten in place.
 
+### A stale `pollis-verify` after the republish: skew, not a false alarm
+
+The republish is a **breaking wire change**, and `pollis-verify` is the tool an
+auditor runs to ask *"has this log been tampered with?"*. Handing that person a hard
+failure the day after we rotate the key would be the exact false-alarm mode #668
+already ruled out for the missing log pin — an inability to check must *withhold*
+trust, never *alarm*. So the change ships with a version gate.
+
+**Who actually stops working** (measured, not assumed — the review note's "missing
+field" mechanism was off):
+
+| subcommand | pre-#701 binary vs the republished log | why |
+|---|---|---|
+| `remote` | **still passes** | The manifest's `conversations` field was always `#[serde(default)]`, so its removal is not a missing-field error; `remote` never decodes a commit leaf (it replays through the generic uniqueness invariant), so the leaf-shape change is invisible to it. |
+| `group` | **silently wrong** — reports `Found: no` for a conversation that is really there | It decodes each leaf into the *old* `CommitLeaf` (which requires `conversation_id`); a pseudonymous leaf fails to decode, the error is swallowed, and the selection comes back empty. Not a crash — a misleading empty result. |
+| `account`, `release` | **unaffected** | Separate trees; neither their manifest shape nor their leaf encoding changed. |
+
+Because a pre-#701 binary is already compiled, we cannot retrofit it — but we can
+stop this from recurring, and make the failure legible going forward. The served
+manifests now carry a **`format_version`** (`verifiable_log_serve::bundle::FORMAT_VERSION`,
+currently `2`). `pollis-verify` reads it **before** it deserializes or verifies
+anything: a log published in a format *newer* than the binary understands exits with
+a distinct code (`2`) and the message *"your pollis-verify is too old for this log —
+upgrade it"*, explicitly **not** a verification failure (exit `1`). A format at or
+below what it understands — including a legacy manifest with no `format_version` at
+all — is accepted, so a new binary still works against the not-yet-republished log
+during the transition window. From this release on, the *next* breaking wire change
+surfaces as honest skew rather than a serde error or a silent empty result. **After
+the republish, upgrade any `pollis-verify` older than `v0.6.0`.**
+
+The **website explorer is unaffected**: it calls the live server's *dynamic*
+`GET /verify/group/<id>` endpoint (`BACKEND_BASE` in `website/transparency.js`), which
+always runs the current code — it never deserializes a static manifest or an old leaf
+shape, so there is nothing for it to be stale against.
+
 ### What an outside observer can and cannot learn after this lands
 
 **Can still learn (unchanged):** the total number of commits, the tree's growth over
@@ -324,7 +359,7 @@ served as plain static assets. The URL path mirrors the file path exactly.
 | URL | Contents | Cache |
 |-----|----------|-------|
 | `/v1/public_key.json` | the log's ML-DSA-44 public key (1312 bytes, 2624 hex chars) | immutable |
-| `/v1/index.json` | discovery manifest | short (`no-cache`) |
+| `/v1/index.json` | discovery manifest — carries `format_version` (the served wire version a verifier checks first) | short (`no-cache`) |
 | `/v1/sth/latest.json` | newest STH | short (`no-cache`) |
 | `/v1/sth/<tree_size>.json` | STH at that tree size | immutable |
 | `/v1/entries.json` | full ordered `[Entry]` | immutable |

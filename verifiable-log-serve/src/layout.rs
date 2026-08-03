@@ -102,6 +102,7 @@ use verifiable_log_builder::binaries::BinaryRecord;
 use crate::account::{verify_account_in_bundle, ACCOUNT_TENANT};
 use crate::bundle::{
     AccountManifest, BinaryManifest, Bundle, ConsistencyRef, InclusionRef, Manifest, PublicKeyDoc,
+    FORMAT_VERSION,
 };
 use crate::error::{Result, ServeError};
 use crate::release::{verify_release_in_bundle, BINARIES_TENANT};
@@ -207,6 +208,7 @@ pub fn generate_artifacts(bundle: &Bundle) -> Result<(Manifest, BTreeMap<String,
     // /v1/index.json — the discovery manifest. Built last so it only ever
     // advertises artifacts already present in the map.
     let manifest = Manifest {
+        format_version: FORMAT_VERSION,
         version: API_VERSION.to_string(),
         public_key: bundle.public_key.clone(),
         entry_count: bundle.entries.len() as u64,
@@ -349,6 +351,7 @@ pub fn generate_account_artifacts(
     // /v1/account-keys/index.json — the discovery manifest, built last so it
     // only ever advertises artifacts already present in the map.
     let manifest = AccountManifest {
+        format_version: FORMAT_VERSION,
         version: API_VERSION.to_string(),
         public_key: bundle.public_key.clone(),
         entry_count: bundle.entries.len() as u64,
@@ -497,6 +500,7 @@ pub fn generate_binaries_artifacts(
     // /v1/binaries/index.json — the discovery manifest, built last so it only
     // ever advertises artifacts already present in the map.
     let manifest = BinaryManifest {
+        format_version: FORMAT_VERSION,
         version: API_VERSION.to_string(),
         public_key: bundle.public_key.clone(),
         entry_count: bundle.entries.len() as u64,

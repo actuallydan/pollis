@@ -189,6 +189,15 @@ republish of the tree from scratch**, which is exactly what the #672 / PL-11 ML-
 pseudonyms. Until the ceremony runs, the *code* is complete and tested but the *live* ledger still
 carries the pre-#701 (raw-id) leaves under the current roots.
 
+**Stale auditors after the republish:** the republish is a breaking change to the served wire shape, so
+the served manifests now carry a `format_version` an auditor's `pollis-verify` reads *before* it
+verifies anything. A binary older than the republished log reports version skew (exit code 2, "upgrade
+your verifier") — never a verification failure — because a tool whose whole job is answering "was this
+tampered with?" must not raise a false alarm the day the key rotates (the same principle as the absent
+log pin, #668). Upgrade any `pollis-verify` older than `v0.6.0` after the republish; the website
+explorer is unaffected (it calls the live server's dynamic endpoint, not a static manifest). Details:
+`docs/transparency.md` → "A stale `pollis-verify` after the republish".
+
 ---
 
 ## 7. Calls (LiveKit)
@@ -236,7 +245,9 @@ Writing this document surfaced retention behaviour we have not decided on, only 
       complete and tested; it takes effect on the *live* ledger at the next full republish (the #672 /
       #699 ML-DSA-44 key-rotation ceremony), since the leaf is a frozen contract. Residual (a
       boundary-straddling fork is invisible to an outside-only replay, but not to members or the honest
-      builder) is named in §6.
+      builder) is named in §6. The republish is a breaking wire change, so the served bundle now carries
+      a `format_version` and `pollis-verify` (bumped to `v0.6.0`) reports a too-old binary as version
+      skew, not a verification failure — see §6.
 - [ ] **The original filename is preserved in R2 object keys** (§5). Decide whether to hash it.
 
 None of these is a launch blocker on its own. All of them are questions a store privacy form or a
