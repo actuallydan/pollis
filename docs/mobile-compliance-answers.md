@@ -18,10 +18,12 @@ accounts and a legal declaration that only the owner holds (WS4/PL-17 registers 
 
 ## 0. What data Pollis actually collects (the source of truth for every form)
 
-`docs/metadata-retention-policy.md` (PL-14) does **not exist on this branch**, so this section is
-derived directly from the remote schema (`pollis-core/src/db/migrations/000000_baseline.sql`, the
-`users` table) and the mobile sign-in / profile code. When PL-14 lands, reconcile this section
-against it.
+This section was derived directly from the remote schema
+(`pollis-core/src/db/migrations/000000_baseline.sql`, the `users` table) and the mobile sign-in /
+profile code, then reconciled against **`docs/metadata-retention-policy.md`** (PL-14, #702), which
+landed while this ticket was in flight. That policy is the authoritative account of *what is kept
+and for how long*; this section is the mobile-collection view of the same facts. Where the two ever
+disagree, the retention policy wins and this table is the bug.
 
 Server-visible (Turso, plaintext) account/directory metadata, all **linked to the user**:
 
@@ -33,9 +35,9 @@ Server-visible (Turso, plaintext) account/directory metadata, all **linked to th
 | Phone number | `users.phone` (nullable) | **No** — column exists but the mobile app has no phone input and never writes it. | schema only; no mobile UI |
 | Avatar | `users.avatar_url` | Optional — points to an **E2E-encrypted** R2 blob (server sees ciphertext). | `pollis-core/src/commands/user.rs` |
 | Message content, attachments, reactions | `message_envelope.ciphertext`, R2 blobs | Transmitted as **E2EE ciphertext only** — the server/developer **cannot** read plaintext (MLS, RFC 9420). | `docs/security-whitepaper.md`; `docs/metadata-minimization-design.md` |
-| Push token | `push_token` table | **Yes** — device push token, best-effort, for content-free notifications. | migration `000006_push_token.sql`; `mobile/lib/push/` |
+| Push token | `push_token` table | **Yes** — device push token, best-effort, for content-free notifications. Payload carries a fixed title/body plus `{conversationId, kind}` — never a sender or a preview. Retained until the device re-registers or the account is deleted; **no expiry sweep** for uninstalled apps. | migration `000006_push_token.sql`; `mobile/lib/push/`; retention policy §4 |
 | Device id / device name | `user_device` | **Yes** — app-generated per-device id + optional device name (device management). | schema; `mobile/app/self/security.tsx` |
-| Source IP | not stored linked | Seen transiently by the DS in transit; retention is PL-14's to define. | — |
+| Source IP | **not stored anywhere** | Read for rate-limit keying only (`CF-Connecting-IP` → in-process counter, pruned, not persisted, does not survive a restart). Cloudflare as our edge necessarily sees it, as does any transit provider. | `pollis-delivery/src/ratelimit.rs`; retention policy §3 |
 
 **We do NOT collect:** precise/coarse location, contacts, calendar, photos library (beyond media
 the user deliberately sends), health/fitness, financial info, browsing history, search history,
