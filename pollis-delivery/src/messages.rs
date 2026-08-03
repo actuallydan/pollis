@@ -964,11 +964,25 @@ pub async fn sweep_envelope_gc(conn: &Connection) -> anyhow::Result<usize> {
 pub struct AttachmentRegisterBody {
     pub content_hash: String,
     pub r2_key: String,
+    /// The id of the message that carries this attachment (#690). Present on the
+    /// send path — it registers a `(content_hash, message_id)` reference so the
+    /// shared, convergent `attachment_object` row is reference-counted. Absent on
+    /// the upload-time dedup registration (no message exists yet) and on
+    /// pre-#690 clients, which register the object row only.
+    #[serde(default)]
+    pub message_id: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct AttachmentDeleteBody {
     pub content_hash: String,
+    /// The id of the message being deleted (#690). Present → release that
+    /// message's `(content_hash, message_id)` reference before the (now
+    /// conditional) object collection. Absent (pre-#690 client) → release
+    /// nothing; the object is still only collected when NO reference remains, so
+    /// an old client can no longer strand a hash a newer client references.
+    #[serde(default)]
+    pub message_id: Option<String>,
 }
 
 pub async fn register_attachment(
@@ -1009,43 +1023,106 @@ pub async fn delete_attachment(
     outcome_response(apply_delete_attachment(&conn, authed.as_deref(), &parsed).await?)
 }
 
-/// Register a convergent-encryption dedup row (`content_hash → r2_key`). Authz:
-/// any authenticated user. There is no conversation context at upload time —
-/// the row is content-addressed and identical for every uploader — so there is
-/// nothing finer to gate on. The signature still proves a real device, which is
-/// all the no-token model can assert here.
+/// Register a convergent-encryption dedup row (`content_hash → r2_key`) and,
+/// when a `message_id` is supplied, a `(content_hash, message_id)` REFERENCE
+/// (#690). Authz: any authenticated user. There is no conversation context at
+/// upload time — the row is content-addressed and identical for every uploader —
+/// so there is nothing finer to gate on. The signature still proves a real
+/// device, which is all the no-token model can assert here; a member forging a
+/// reference for an id it does not own can only add a ref (which over-RETAINS the
+/// shared object, the fail-safe direction), never remove one.
+///
+/// The object INSERT stays `OR IGNORE` (the row is convergent — identical for
+/// every uploader). The reference INSERT is likewise `OR IGNORE`: the PK
+/// `(content_hash, message_id)` makes a retried send idempotent rather than
+/// double-counting. Registering the reference here (rather than at upload) is
+/// deliberate — a file is uploaded once but referenced by every message that
+/// carries it, and the count must track messages, not uploads.
 pub async fn apply_register_attachment(
     conn: &Connection,
     _authed: Option<&str>,
     body: &AttachmentRegisterBody,
 ) -> anyhow::Result<WriteOutcome> {
-    conn.execute(
+    let tx = conn.transaction().await?;
+    tx.execute(
         "INSERT OR IGNORE INTO attachment_object (content_hash, r2_key) VALUES (?1, ?2)",
         libsql::params![body.content_hash.clone(), body.r2_key.clone()],
     )
     .await?;
+    if let Some(message_id) = body.message_id.as_deref() {
+        tx.execute(
+            "INSERT OR IGNORE INTO attachment_ref (content_hash, message_id) VALUES (?1, ?2)",
+            libsql::params![body.content_hash.clone(), message_id.to_string()],
+        )
+        .await?;
+    }
+    tx.commit().await?;
     Ok(WriteOutcome::Ok)
 }
 
-/// Delete a dedup row during message-delete attachment cleanup. Authz: any
-/// authenticated user.
+/// Release a message's reference to a convergent attachment and collect the
+/// shared `attachment_object` row only when NO reference remains (#690, resolving
+/// the second `TODO(#419)`). Authz: any authenticated user.
 ///
-/// TODO(#419): this should be server-side reference-counted — a shared
-/// convergent row must only be removed once NO member's message references the
-/// hash. Current client semantics are best-effort local ref-counting + an
-/// unconditional remote delete (convergent re-upload re-creates the row), and
-/// this preserves them; promote to a counted delete in a later domain pass.
+/// The two writes run in one transaction:
+///   1. Release: delete the `(content_hash, message_id)` reference for the message
+///      being deleted (skipped when no `message_id` is supplied — a pre-#690
+///      client releases nothing but also strands nothing, see below).
+///   2. Counted collect: a SINGLE conditional `DELETE` removes the object row
+///      **only if** `attachment_ref` holds no row for the hash. This enforces the
+///      invariant at the lowest layer — one SQL predicate, not Rust-side
+///      count-then-delete — so the row cannot be removed while a reference exists
+///      even under concurrent deletes (CLAUDE.md "invalid states unrepresentable").
+///
+/// The R2 object is gated separately and by the same evidence: `/v1/r2/presign`
+/// refuses to mint a `delete` for an object that still has references (see
+/// [`object_is_referenced`] and `broker.rs`). The Turso row and the R2 blob are
+/// therefore collected together, only once the last reference is gone.
+///
+/// Legacy / pre-#690 rows have no references recorded. The conditional delete
+/// treats a zero-reference row as collectable, which is exactly today's
+/// unconditional behaviour for them — no worse, and any send from an updated
+/// client re-references the hash and promotes it to counted protection.
 pub async fn apply_delete_attachment(
     conn: &Connection,
     _authed: Option<&str>,
     body: &AttachmentDeleteBody,
 ) -> anyhow::Result<WriteOutcome> {
-    conn.execute(
-        "DELETE FROM attachment_object WHERE content_hash = ?1",
+    let tx = conn.transaction().await?;
+    if let Some(message_id) = body.message_id.as_deref() {
+        tx.execute(
+            "DELETE FROM attachment_ref WHERE content_hash = ?1 AND message_id = ?2",
+            libsql::params![body.content_hash.clone(), message_id.to_string()],
+        )
+        .await?;
+    }
+    // The counted collect: one predicate, no Rust-side count. `NOT EXISTS` over
+    // `attachment_ref` is the whole reference count — the row goes iff it is zero.
+    tx.execute(
+        "DELETE FROM attachment_object \
+           WHERE content_hash = ?1 \
+             AND NOT EXISTS (SELECT 1 FROM attachment_ref WHERE content_hash = ?1)",
         libsql::params![body.content_hash.clone()],
     )
     .await?;
+    tx.commit().await?;
     Ok(WriteOutcome::Ok)
+}
+
+/// True when at least one message still references the convergent attachment
+/// `content_hash` (#690). The single source of truth for BOTH the counted Turso
+/// collect in [`apply_delete_attachment`] and the R2 `delete`-presign gate in
+/// [`crate::broker::r2_presign`]: an object may be collected — in Turso or in R2
+/// — only when this returns `false`. Collecting the R2 blob out from under a live
+/// reference would 404 that attachment for every conversation still holding it.
+pub async fn object_is_referenced(conn: &Connection, content_hash: &str) -> anyhow::Result<bool> {
+    let mut rows = conn
+        .query(
+            "SELECT 1 FROM attachment_ref WHERE content_hash = ?1 LIMIT 1",
+            libsql::params![content_hash.to_string()],
+        )
+        .await?;
+    Ok(rows.next().await?.is_some())
 }
 
 #[cfg(test)]

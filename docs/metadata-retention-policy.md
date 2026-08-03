@@ -76,7 +76,8 @@ DB, split out in #420 Goal A).
 | Account identity-key history | `account_key_log` | **Append-only, never deleted.** This is deliberate: it is the client-verifiable record that an account's key did not change behind your back | `000005_account_key_log.sql` |
 | Membership and social graph | `group_member`, `dm_channel_member`, `groups`, `channels`, `dm_channel`, `user_block`, `group_invite`, `group_join_request`, `user_groups`, `user_dms` | Life of the account / conversation; cascade-deleted with the user | `000000_baseline.sql`, `000009_directory_index.sql` |
 | Security events | `security_event` (`id`, `user_id`, `kind`, `device_id`, `created_at`, `metadata`) | **Indefinite** — no TTL; cascade-deleted with the user | `000000_baseline.sql` |
-| Attachment dedup index | `attachment_object` (`content_hash` → `r2_key`) | Deleted when the referencing message is deleted. **Today that delete is unconditional**, which can strand a second conversation still referencing the same object — reference counting is tracked by #690 | `messages.rs:988` |
+| Attachment dedup index | `attachment_object` (`content_hash` → `r2_key`) | **Reference-counted (#690):** collected only when no message still references the hash. | `messages.rs` `apply_delete_attachment` (conditional `NOT EXISTS (attachment_ref)`) |
+| Attachment references | `attachment_ref` (`content_hash`, `message_id`) | One row per (message that carries a file). Released when the message is deleted; the last release collects the object and opens the R2 delete gate. **New at-rest linkage — see the note below.** | `000012_attachment_ref.sql`, `messages.rs` |
 | Push tokens | `push_token` | Until the device re-registers (upsert on `token`) or the account is deleted. **No TTL and no reap of stale tokens** | `000006_push_token.sql` |
 
 **Sealed sender.** Since #607 / migration `000008`, `message_envelope.sender_id` holds a sentinel rather
@@ -84,6 +85,22 @@ than the real sender; the true sender is authenticated inside the MLS ciphertext
 members. The stored row therefore no longer shows who sent what. The DS still observes the sender *live*
 on the authenticated write, via the `X-Pollis-User` header — that is an at-rest guarantee, not an
 in-flight one, and `docs/metadata-minimization-design.md` says so.
+
+**Attachment references, stated plainly (#690).** Making attachment deletion correct required the client
+to declare each reference to the DS, because the server cannot read message content and so cannot count
+references itself. The chosen mechanism — `attachment_ref (content_hash, message_id)` — introduces a new
+piece of *at-rest* linkage the operator did not previously hold: because `content_hash` is convergent
+(SHA-256 of plaintext), joining `attachment_ref` to `message_envelope.conversation_id` tells the operator
+which messages, and therefore which conversations, **share the same file** — durably and in the clear.
+It does **not** reveal the file itself (plaintext is never seen), the filename (that already sits in the
+R2 key, §5), or the sender (sealed, above). The considered alternative — an opaque, client-minted
+`ref_token` per reference — would expose only a per-file *count*, never a linkage; we rejected it because
+a device that loses local state can never release its tokens (references leak, the object is never
+collected) and an admin deleting another member's message cannot release a token it never held. That
+alternative fails deletion, which is the exact guarantee this ticket exists to establish, so we accepted
+the co-reference linkage as the price of a robust, honestly-collectable store. This is the same class of
+exposure #701/#662 are working to reduce elsewhere, and pseudonymising these identifiers is a natural
+follow-on there.
 
 ---
 
@@ -128,8 +145,12 @@ client IPs from the first-party services, and is opt-in and off by default. This
   identifier — but note the **original filename is preserved in the key**, so a distinctive filename is
   itself metadata visible to the storage operator.
 - Objects are client-side encrypted (AES-256-GCM) before upload; R2 holds ciphertext only.
-- Deletion is explicit — a DS-minted presigned DELETE issued when the referencing message is deleted.
-  There is no lifecycle rule and no automatic expiry. See the `attachment_object` caveat in §2 (#690).
+- Deletion is explicit and **reference-counted** (#690): a message-delete releases that message's
+  `attachment_ref` row, and the R2 object is collected only once no reference remains. The DS is the
+  chokepoint — `/v1/r2/presign` **refuses to mint a `delete`** for an object that still has a reference
+  (`broker.rs`, `object_is_referenced`), so a client that deleted its own message cannot blow away a blob
+  another conversation still needs. There is no lifecycle rule and no automatic expiry. See the
+  `attachment_object` / `attachment_ref` rows and the linkage note in §2.
 - The on-device decrypted cache lives under the app sandbox, is itself encrypted with a key derived from
   the local database key, is capped at 500 MiB, and is LRU-evicted.
 
@@ -206,7 +227,10 @@ Writing this document surfaced retention behaviour we have not decided on, only 
 - [ ] **`push_token` has no stale-token reap.** A token for an uninstalled app persists until the
       account is deleted.
 - [ ] **No maximum retention for undelivered envelopes** (§1) until #720 lands a device-staleness bound.
-- [ ] **Attachment deletion is not reference-counted** (#690).
+- [x] **Attachment deletion is not reference-counted** (#690). **Done** — `attachment_ref` counts
+      references server-side; the Turso row and the R2 object are both collected only when the last
+      reference is released. The trade-off is a new co-reference linkage the operator can read at rest
+      (§2 note) — a candidate for the #701/#662 pseudonymisation work.
 - [ ] **The commit-log ledger publishes stable identifiers** (#701, coupled to #699).
 - [ ] **The original filename is preserved in R2 object keys** (§5). Decide whether to hash it.
 
