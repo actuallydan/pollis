@@ -265,6 +265,34 @@ that class of bug.
 - `generation` INTEGER NOT NULL DEFAULT 0 _(commit-log-DB migration 000004, #454 P4 — the **suite generation**)_
 - UNIQUE INDEX `idx_mls_commit_conv_gen_epoch` on `(conversation_id, generation, epoch)` _(migration 000004, replacing `idx_mls_commit_conv_epoch`)_
 
+**Schema-layer I1 triggers (commit-log-DB migration 000005, #691).** Three
+`BEFORE` triggers make a gap/rewrite/head-loss physically unrepresentable, as a
+second line of defence behind the CAS insert (`submit_commit`) — the invariant
+enforced at the lowest layer, not just the protocol layer:
+- `trg_mls_commit_log_no_forward_gap` (INSERT) — rejects `NEW.epoch` above the
+  lineage head (`MAX(epoch)+1` within `(conversation_id, generation)`). Kills F1
+  (skip-ahead gap). The head append and any `epoch ≤ MAX` resubmit (absorbed by
+  the CAS `ON CONFLICT`) pass; only a forward jump aborts.
+- `trg_mls_commit_log_immutable` (UPDATE) — rejects any change to the chain
+  identity (`conversation_id`/`generation`/`epoch`) or payload (`commit_data`).
+  Kills the history-rewrite half of F2. The DS never UPDATEs this table, so it
+  has no legitimate traffic to fire on.
+- `trg_mls_commit_log_keep_head` (DELETE) — rejects deleting the live head
+  (`MAX(epoch)` of `MAX(generation)`). Kills the catastrophic half of F2 (the
+  deletion that wedges every member). The head is invariant under BOTH retention
+  delete shapes (`delete_commits_below`, floor ≤ head−1; `delete_generations_below`,
+  closed generations only), so the guard is order-independent and never trips a
+  legitimate prune. Interior-gap-on-delete is NOT trigger-enforced — a per-row
+  `BEGIN DELETE` trigger cannot tell a mid-chain hole from an intermediate state
+  of a legitimate bulk prefix prune — so interior contiguity stays with the CAS +
+  the clamped retention floor in Rust. Proven by
+  `pollis-delivery/tests/commit_log_triggers.rs` (direct-SQL violation attempts).
+
+  Trigger bodies (`BEGIN … ; END`) carry inner `;` that are not statement
+  boundaries, so the migration appliers (`scripts/db-apply.sh`, the flows/tui
+  test harnesses' `split_sql_statements`) were taught to keep a `CREATE TRIGGER`
+  intact until its `END`.
+
 **Suite generations (#454 P4).** MLS binds the ciphersuite into the group, so a
 conversation cannot be switched to another suite in place: the migration stands up
 a *successor* group for the same conversation and moves the roster into it by
