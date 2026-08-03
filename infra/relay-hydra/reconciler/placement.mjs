@@ -165,3 +165,32 @@ export function mayDrain({ draining, perRegionHealthy, poolTotal, nodeFloor }) {
   const required = Math.min(poolTotal, nodeFloor);
   return { ok: retainedHealthy >= required, retainedHealthy, required };
 }
+
+// --- Split-brain detection (#677) --------------------------------------------
+
+// Nodes pull `:latest` at BOOT ONLY, so pushing a new image does not update a
+// running node — it keeps serving whatever it launched with until something
+// replaces it. After an ALPN bump that leaves the pool split-brain: clients can
+// only use the subset on the current build, and the rest fail negotiation.
+//
+// Rather than trust an external notion of "the right SHA", take the build of the
+// most recently launched healthy node as the target: that node pulled `:latest`
+// most recently, so a node disagreeing with it is behind. This converges without
+// the reconciler needing registry credentials or a deploy hook.
+//
+// Deliberately conservative — a wrong guess needlessly destroys capacity:
+//   * needs at least two distinct SHAs before it does anything;
+//   * never touches the newest node itself;
+//   * cycles at most ONE node per region per run, so replacements roll in
+//     gradually and a bad `:latest` cannot empty the pool in a single cycle.
+export function staleBuildNodes(healthy) {
+  const withSha = healthy.filter((n) => typeof n.sha === "string" && n.sha.length > 0);
+  if (withSha.length < 2) {
+    return [];
+  }
+  if (new Set(withSha.map((n) => n.sha)).size < 2) {
+    return [];
+  }
+  const newest = withSha.reduce((a, b) => (b.launchedAt > a.launchedAt ? b : a));
+  return withSha.filter((n) => n.sha !== newest.sha).slice(0, 1);
+}

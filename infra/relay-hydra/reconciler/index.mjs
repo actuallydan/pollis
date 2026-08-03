@@ -32,7 +32,7 @@ import { SSMClient, GetParameterCommand, PutParameterCommand } from "@aws-sdk/cl
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { CloudWatchClient, PutMetricDataCommand } from "@aws-sdk/client-cloudwatch";
 import { createPrivateKey, sign } from "node:crypto";
-import { readDesiredTotal, drawPlacement, placementNeedsRedraw, placementTotal, mayDrain, clamp } from "./placement.mjs";
+import { readDesiredTotal, drawPlacement, placementNeedsRedraw, placementTotal, mayDrain, clamp, staleBuildNodes } from "./placement.mjs";
 
 // --- Config from the Lambda environment (set by Terraform) -------------------
 
@@ -89,6 +89,20 @@ export const handler = async () => {
       const { healthy, unhealthy } = await healthCheck(nodes);
       perRegionHealthy[region] = healthy.length;
       unhealthyByRegion[region] = unhealthy;
+
+      // A node running an older build than the rest of its region is cycled the
+      // same way a dead one is: marked Unhealthy so the ASG relaunches it on
+      // `:latest`. It stays advertised this cycle — it is serving fine, just on
+      // the wrong protocol version — and drops out once it is replaced.
+      const stale = staleBuildNodes(healthy);
+      if (stale.length > 0) {
+        console.log(
+          `${region}: split-brain — ${stale
+            .map((n) => `${n.instanceId}@${n.sha.slice(0, 12)}`)
+            .join(", ")} behind the newest node; cycling onto :latest`
+        );
+        reconcileFailures += await markUnhealthy(region, stale);
+      }
 
       // Every healthy node is advertised, including ones in a region that is on
       // its way out — during a handover both the old and new nodes serve.
@@ -329,7 +343,11 @@ async function instancesOf(region, group) {
       // cycle rather than treat it as a dead relay (it isn't advertised, and the
       // grace period covers it if it's genuinely mid-boot).
       if (inst.PublicIpAddress) {
-        nodes.push({ instanceId: inst.InstanceId, ip: inst.PublicIpAddress });
+        nodes.push({
+          instanceId: inst.InstanceId,
+          ip: inst.PublicIpAddress,
+          launchedAt: inst.LaunchTime ? new Date(inst.LaunchTime).getTime() : 0,
+        });
       }
     }
   }
@@ -370,9 +388,19 @@ async function healthCheck(nodes) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
     try {
-      // Treat any 200 as healthy; parse the JSON only if we want the SHA.
+      // Treat any 200 as healthy. The SHA is parsed too, but only to detect a
+      // split-brain pool (see staleBuildNodes) — a node is never called
+      // unhealthy merely because the body did not parse.
       const res = await fetch(`http://${node.ip}:${HEALTH_PORT}/version`, { signal: controller.signal });
-      return { node, ok: res.ok };
+      let sha = null;
+      if (res.ok) {
+        try {
+          sha = (await res.json())?.sha ?? null;
+        } catch {
+          sha = null;
+        }
+      }
+      return { node: { ...node, sha }, ok: res.ok };
     } catch {
       return { node, ok: false };
     } finally {

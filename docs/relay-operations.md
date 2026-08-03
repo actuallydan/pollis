@@ -264,6 +264,22 @@ Open the host firewall for **`9444/udp`** (the QUIC relay) and the **health TCP
 port** (`9445`, scoped to your orchestrator/LB rather than the public internet if
 you can). Mount the identity volume so a restart keeps the same pinned cert.
 
+> **Rolling a new image does not update running nodes.** A node pulls `:latest`
+> at boot only, so pushing a new image leaves every running node on its old build
+> until something *replaces* it. After a protocol change — an ALPN bump, say —
+> that leaves the pool split-brain: clients can only use the subset on the new
+> build and fail negotiation against the rest (#677).
+>
+> In the hydra pool this now self-heals. The reconciler reads each node's build
+> SHA from `/version` and, when a region's nodes disagree, marks the one behind
+> the newest-launched node Unhealthy so the ASG relaunches it on `:latest`
+> (`staleBuildNodes` in `reconciler/placement.mjs`). It cycles at most one node
+> per region per run, so a bad `:latest` cannot empty the pool in one cycle.
+> Convergence takes a few reconcile intervals, not one.
+>
+> On a **manually provisioned** host there is no such loop — pull and recreate
+> the container yourself after an image roll.
+
 ### Step 3 — point clients at the pool
 
 Bake the pool into the client build (the same `option_env!` mechanism as every
