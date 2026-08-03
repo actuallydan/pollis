@@ -139,6 +139,82 @@ pub fn next_watermark<S: Ord + Clone, E: Ord + Copy>(
     candidate
 }
 
+#[cfg(test)]
+mod delete_consumption_tests {
+    //! #693 / #661 (WS1): why a `delete` tombstone can be dropped where a
+    //! `message` never is. These tests pin the ASYMMETRY that
+    //! `ingest_group_envelopes_interleaved` relies on — and that its
+    //! fire-and-forget tombstone `UPDATE` turns into a hazard.
+    //!
+    //! A `message`/`edit` at an epoch this pass has not reached is NOT handled, so
+    //! `next_watermark` stops STRICTLY BELOW it and the next fetch re-delivers it
+    //! until it decrypts (message delivery is retried to success). A `delete`
+    //! tombstone is `is_handled == true` UNCONDITIONALLY, so the cursor advances
+    //! past it on the very first pass — whether or not the redaction it carries
+    //! actually landed. In `ingest.rs` that redaction is
+    //! `let _ = db.conn().execute("UPDATE message SET content = NULL …")`: its
+    //! outcome (row missing, or a transient local-DB error) is discarded, yet the
+    //! watermark still moves past the tombstone. So a delete that fails to apply
+    //! is consumed-and-lost, never retried — the deleted message stays readable on
+    //! that device. This is the candidate-2 shape #693 narrows #661 to; the flows
+    //! instrumentation (`sealed_admin_delete_of_other_member_works`) reports it
+    //! live, and the DS-side delivery is proven flake-free offline
+    //! (`pollis_delivery`'s `admin_delete_visibility_tests`).
+
+    use super::{next_watermark, EnvKind};
+
+    /// A lone delete tombstone is CONSUMED on the first pass regardless of group
+    /// state — the cursor jumps to its `sent_at`. Contrast `a_message_at_an_...`.
+    #[test]
+    fn a_delete_tombstone_is_consumed_unconditionally() {
+        // No group state reached this pass (`max_fired_epoch = None`).
+        let envs: [(&str, EnvKind, Option<(i64, u64)>); 1] = [("t1", EnvKind::Delete, None)];
+        assert_eq!(
+            next_watermark(&envs, None),
+            Some("t1"),
+            "a delete tombstone advances the watermark past itself on the first \
+             pass — so if its redaction UPDATE silently fails, it is never re-fetched"
+        );
+    }
+
+    /// The contrast: a message at an epoch the replay has not reached is NOT
+    /// consumed — the watermark refuses to advance onto it, so it is re-fetched
+    /// until decryptable. This is the retry-to-success a delete tombstone does NOT
+    /// get.
+    #[test]
+    fn a_message_at_an_unreached_epoch_is_retried_not_consumed() {
+        let envs: [(&str, EnvKind, Option<(i64, u64)>); 1] =
+            [("t1", EnvKind::Message, Some((0, 5)))];
+        assert_eq!(
+            next_watermark(&envs, None),
+            None,
+            "an undecryptable message must NOT be consumed — it is re-fetched until \
+             its epoch is reached (unlike a delete tombstone)"
+        );
+    }
+
+    /// The concrete #661 ordering: a delete tombstone stamped ABOVE a
+    /// still-undecryptable message is consumed while the message is held back, so
+    /// the cursor stops below the message and the tombstone is (correctly)
+    /// re-fetched next pass — the watermark logic itself never strands the
+    /// tombstone. The drop can therefore only come from the APPLICATION step
+    /// discarding the redaction outcome, not from the cursor.
+    #[test]
+    fn a_tombstone_above_an_unreached_message_does_not_advance_past_the_message() {
+        let envs: [(&str, EnvKind, Option<(i64, u64)>); 2] = [
+            ("t1", EnvKind::Message, Some((0, 5))),
+            ("t2", EnvKind::Delete, None),
+        ];
+        // The message (t1) is unhandled, so the cursor cannot reach t2 either.
+        assert_eq!(
+            next_watermark(&envs, None),
+            None,
+            "with an unreached message below it, the delete is not consumed this \
+             pass — so a lost delete is an application failure, not a cursor bug"
+        );
+    }
+}
+
 // ─── Kani proof harnesses ────────────────────────────────────────────────────
 //
 // Behind `#[cfg(kani)]` only — never compiled into the runtime crate. Bounded to
