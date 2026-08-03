@@ -172,6 +172,66 @@ else
 fi
 
 echo
+echo "verify-presig-binary — the WS3 pre-signature/shipped-binary invariant (#603/#704)"
+
+# The macOS/Windows payload leaf hashes the UNSIGNED capture build; the signed
+# build recompiles the app crate (a config delta trips tauri-build's
+# rerun-if-changed). This script records the compiled binary's fingerprint after
+# the capture build and re-checks it after the signed build, so a divergence stops
+# the release rather than publishing a payload leaf for a binary that never
+# shipped. Exercised here against a fabricated target/ tree — no real release.
+if ! command -v sha256sum >/dev/null 2>&1; then
+  echo "  skip — verify-presig-binary needs sha256sum (absent on macOS); covered in CI"
+else
+  vscript="$here/verify-presig-binary.sh"
+  # Linux triple: main binary only (no macOS externalBin sidecar).
+  ltriple="x86_64-unknown-linux-gnu"
+  vroot="$work/vpb-linux"
+  mkdir -p "$vroot/target/$ltriple/release"
+  printf 'compiled-v1' > "$vroot/target/$ltriple/release/pollis"
+  ( cd "$vroot" && "$vscript" record "$ltriple" fp.txt ) >/dev/null 2>&1
+  check "record writes a fingerprint file" "$( [ -s "$vroot/fp.txt" ] && echo yes )" "yes"
+  ( cd "$vroot" && "$vscript" verify "$ltriple" fp.txt ) >/dev/null 2>&1
+  check "verify passes when the binary is unchanged" "$?" "0"
+
+  printf 'compiled-v2-DIFFERENT' > "$vroot/target/$ltriple/release/pollis"
+  out="$( cd "$vroot" && "$vscript" verify "$ltriple" fp.txt 2>&1 )"; rc=$?
+  check "verify fails when the compiled binary changed" "$rc" "1"
+  case "$out" in
+    *"WS3 INVARIANT VIOLATED"*) ok "mismatch explains the meaning, not a bare diff" ;;
+    *) bad "mismatch error lacks the WS3 explanation: $out" ;;
+  esac
+
+  ( cd "$vroot" && "$vscript" verify "$ltriple" no-such-file.txt ) >/dev/null 2>&1
+  check "verify fails when no fingerprint was recorded" "$?" "1"
+
+  ( cd "$vroot" && "$vscript" record "aarch64-unknown-none" x.txt ) >/dev/null 2>&1
+  check "record fails when the compiled binary is absent" "$?" "1"
+
+  # Windows triple: the main binary is <name>.exe, and there is no capture sidecar.
+  wtriple="x86_64-pc-windows-msvc"
+  vwin="$work/vpb-win"
+  mkdir -p "$vwin/target/$wtriple/release"
+  printf 'pe-bytes' > "$vwin/target/$wtriple/release/pollis.exe"
+  ( cd "$vwin" && "$vscript" record "$wtriple" fp.txt ) >/dev/null 2>&1
+  check "record resolves the Windows .exe binary" "$?" "0"
+
+  # macOS triple: the externalBin capture-helper sidecar is part of the payload,
+  # so a change to it alone must also fail the invariant.
+  mtriple="aarch64-apple-darwin"
+  vmac="$work/vpb-mac"
+  mkdir -p "$vmac/target/$mtriple/release" "$vmac/src-tauri/binaries"
+  printf 'macho' > "$vmac/target/$mtriple/release/pollis"
+  printf 'helper-v1' > "$vmac/src-tauri/binaries/pollis-capture-macos-$mtriple"
+  ( cd "$vmac" && "$vscript" record "$mtriple" fp.txt ) >/dev/null 2>&1
+  lines="$(wc -l < "$vmac/fp.txt" | tr -d ' ')"
+  check "macOS fingerprint covers binary + capture-helper sidecar" "$lines" "2"
+  printf 'helper-v2-DIFFERENT' > "$vmac/src-tauri/binaries/pollis-capture-macos-$mtriple"
+  ( cd "$vmac" && "$vscript" verify "$mtriple" fp.txt ) >/dev/null 2>&1
+  check "verify catches a changed sidecar (not just the main binary)" "$?" "1"
+fi
+
+echo
 echo "──────────────────────────────────────────"
 echo "passed: $pass   failed: $fail"
 [ "$fail" -eq 0 ] || exit 1

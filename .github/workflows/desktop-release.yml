@@ -129,19 +129,33 @@ jobs:
       # bytes embed Apple's CMS signature + a stapled notarization ticket that vary
       # per signing operation and can never be reproduced — hashing them would log a
       # payload leaf nobody, us included, could ever rebuild (worse than no leaf).
-      # So we build the bundle UNSIGNED (the hardcoded signingIdentity in
-      # tauri.macos.conf.json stripped for this build, no APPLE_* env, no
-      # notarization), hash the .app tree with the shared sha_tree helper, and
-      # publish the digest as a sidecar the attest job (and the attest-release.yml
-      # backfill) read back as payload_sha256. Details:
+      # So this build runs UNSIGNED and we hash the .app tree with the shared
+      # sha_tree helper, publishing the digest as a sidecar the attest job (and the
+      # attest-release.yml backfill) read back as payload_sha256. Details:
+      #   * UNSIGNED via env, reading the SAME config FILE as the signed build: the
+      #     signing identity is env-driven (APPLE_SIGNING_IDENTITY, which the signed
+      #     step below sets and which OVERRIDES any config value —
+      #     tauri-cli/src/interface/rust.rs:1467 `env::var_os("APPLE_SIGNING_IDENTITY")
+      #     … None => config.macos.signing_identity`). This step sets no APPLE_* env,
+      #     so tauri resolves signing_identity=None and does not sign. The redundant
+      #     hardcoded signingIdentity was removed from tauri.{conf,macos.conf}.json
+      #     in #704, so build 1 and build 2 read a byte-identical config file — no
+      #     jq round-trip. The one remaining difference is the --config override
+      #     below, not the file.
       #   * gtar — sha_tree's `--sort=name` is a GNU extension macOS's BSD tar
       #     lacks; the digest must match a rebuilder's byte-for-byte, so install and
       #     use GNU tar via the helper's TAR override.
-      #   * createUpdaterArtifacts:false — skips the minisign updater bundle (a
-      #     Pollis signing secret a rebuilder can't hold); the flag is not embedded
-      #     in the binary and does not change the .app payload bytes.
-      #   * Runs FIRST, from a pristine target/, so the signed build below reuses
-      #     the very same compiled binary — the payload truly wraps the shipped one.
+      #   * createUpdaterArtifacts:false — the ONLY delta from the signed build. It
+      #     skips the minisign updater bundle (a Pollis signing secret this build
+      #     can't hold; the signed build MUST emit it for auto-update). Tauri's
+      #     codegen strips this field to its Default before embedding the config into
+      #     the binary (tauri-utils BundleConfig::to_tokens: create_updater_artifacts
+      #     = Default::default()), so it provably cannot change the compiled bytes —
+      #     and the WS3 fingerprint check below ENFORCES that, so we never rely on it.
+      #   * Runs FIRST, from a pristine target/. We record the compiled binary's
+      #     fingerprint here and re-check it after the signed build (see the "Verify
+      #     signed binary matches pre-signature payload" step) — that check, not a
+      #     comment, is what proves the payload leaf wraps the shipped binary.
       - name: Capture pre-signature payload (unsigned .app)
         run: |
           set -euo pipefail
@@ -149,13 +163,8 @@ jobs:
           export TAR=gtar
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           export SOURCE_DATE_EPOCH
-          cp src-tauri/tauri.macos.conf.json "$RUNNER_TEMP/macos.conf.bak"
-          jq 'del(.bundle.macOS.signingIdentity)' src-tauri/tauri.macos.conf.json \
-            > "$RUNNER_TEMP/macos.conf.tmp"
-          mv "$RUNNER_TEMP/macos.conf.tmp" src-tauri/tauri.macos.conf.json
           pnpm tauri build --target aarch64-apple-darwin \
             --config '{"bundle":{"createUpdaterArtifacts":false}}'
-          mv "$RUNNER_TEMP/macos.conf.bak" src-tauri/tauri.macos.conf.json
           app="$(find target/aarch64-apple-darwin/release/bundle/macos -maxdepth 1 -name '*.app' -type d | head -1)"
           if [ -z "${app:-}" ]; then
             echo "::error::WS3: unsigned build produced no .app to hash for the pre-signature payload"
@@ -164,6 +173,13 @@ jobs:
           . scripts/lib/payload-hash.sh
           sha_tree "$app" > "pollis-${GITHUB_REF_NAME}-macos.payload-sha256"
           echo "pre-signature macOS payload_sha256: $(cat "pollis-${GITHUB_REF_NAME}-macos.payload-sha256")"
+          # Fingerprint the compiled binary (+ the externalBin capture-helper the
+          # .app payload embeds) so the post-sign step can prove the signed build
+          # reused THESE bytes. The signed build regenerates the bundle from the
+          # same compiled binary; if it recompiled to different bytes, the payload
+          # leaf would attest a binary that never shipped — the check catches that.
+          scripts/verify-presig-binary.sh record aarch64-apple-darwin \
+            "$RUNNER_TEMP/presig-binfp-macos.txt"
           # Discard the UNSIGNED bundle so the signed build below regenerates it
           # cleanly and no unsigned .dmg can ever reach the upload. Only the
           # packaging output is removed; the compiled binary in target/ is reused.
@@ -191,6 +207,19 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           args: --target aarch64-apple-darwin
+
+      # WS3 (#603/#704) INVARIANT, not an assumption: the signed build recompiled
+      # the app crate (it saw a different TAURI_CONFIG than the capture build —
+      # tauri-build emits cargo:rerun-if-env-changed=TAURI_CONFIG). The config delta
+      # is confined to bundle fields Tauri's codegen strips from the embedded config,
+      # so the recompiled binary is EXPECTED to be byte-identical to the one the
+      # pre-signature payload hashed — this step ENFORCES it. If it differs, the
+      # payload leaf no longer corresponds to the shipped binary and the release is
+      # stopped before publishing a false verifiability claim.
+      - name: Verify signed binary matches pre-signature payload (WS3)
+        run: |
+          scripts/verify-presig-binary.sh verify aarch64-apple-darwin \
+            "$RUNNER_TEMP/presig-binfp-macos.txt"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -282,8 +311,18 @@ jobs:
       # publish the digest as a sidecar the attest + backfill jobs read back as
       # payload_sha256. Git-for-Windows bash ships GNU tar + sha256sum and the runner
       # has 7-Zip, so the shared helper runs unchanged. createUpdaterArtifacts:false
-      # skips the minisign updater bundle (a Pollis secret; not in the payload). This
-      # compiles first, so the signed build below reuses the same compiled binary.
+      # skips the minisign updater bundle (a Pollis secret; not in the payload).
+      #
+      # Unlike macOS, the Windows config is NOT byte-identical between the two
+      # builds: the signed build injects a `signCommand` into tauri.conf.json (see
+      # the "Inject Windows signCommand" step below) that this build must not have,
+      # or it would sign here. `signCommand` is a bundle field Tauri's codegen strips
+      # before embedding the config (tauri-utils WindowsConfig::to_tokens drops
+      # sign_command), so the compiled binary is EXPECTED to be identical anyway —
+      # but we do not assume that. This step records the compiled binary's
+      # fingerprint and the post-sign "Verify signed binary" step re-checks it, so a
+      # divergence stops the release instead of publishing a payload leaf for a
+      # binary that never shipped.
       - name: Capture pre-signature payload (unsigned NSIS)
         shell: bash
         run: |
@@ -303,6 +342,10 @@ jobs:
           . scripts/lib/payload-hash.sh
           sha_tree "$ex" > "pollis-${GITHUB_REF_NAME}-windows.payload-sha256"
           echo "pre-signature Windows payload_sha256: $(cat "pollis-${GITHUB_REF_NAME}-windows.payload-sha256")"
+          # Fingerprint the compiled binary so the post-sign step can prove the
+          # signed build reused THESE bytes (Windows has no externalBin sidecar).
+          scripts/verify-presig-binary.sh record x86_64-pc-windows-msvc \
+            "$RUNNER_TEMP/presig-binfp-windows.txt"
           # Discard the UNSIGNED installer so the signed build below regenerates it
           # cleanly and no unsigned .exe can ever reach the upload. Only the
           # packaging output is removed; the compiled binary in target/ is reused.
@@ -373,6 +416,19 @@ jobs:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         run: pnpm build:tauri:windows
+
+      # WS3 (#603/#704) INVARIANT, not an assumption: the signed build recompiled
+      # the app crate (tauri.conf.json changed — the signCommand was injected —
+      # tripping cargo:rerun-if-changed). The change is confined to a bundle field
+      # Tauri's codegen strips from the embedded config, so the recompiled binary is
+      # EXPECTED to be byte-identical to the one the pre-signature payload hashed —
+      # this step ENFORCES it. If it differs, the payload leaf no longer corresponds
+      # to the shipped binary and the release is stopped.
+      - name: Verify signed binary matches pre-signature payload (WS3)
+        shell: bash
+        run: |
+          scripts/verify-presig-binary.sh verify x86_64-pc-windows-msvc \
+            "$RUNNER_TEMP/presig-binfp-windows.txt"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4

@@ -45,10 +45,11 @@ hash of the **pre-signature** payload. On Linux the shipped AppImage/deb/rpm byt
 already *are* that payload (Tauri's minisign signature is detached), so the attest
 job hashes them directly. On **macOS and Windows** the shipped `.dmg` / NSIS `.exe`
 is signed + notarized, so the pre-signature `.app` / unsigned exe+resources exist
-only *inside the build job* — as of #704 (WS3) each build job builds the bundle
-**unsigned** (macOS: the hardcoded `signingIdentity` stripped, no `APPLE_*` env, no
-notarization; Windows: before the Authenticode `signCommand` is injected), hashes
-that payload with the shared `sha_tree` helper, and publishes the digest as a
+only *inside the build job* — as of #704 (WS3) each build job runs an extra `tauri
+build` that produces the bundle **unsigned** (macOS: no `APPLE_*` env is set, so
+tauri resolves `signing_identity = None` and does not codesign/notarize; Windows:
+this build runs before the Authenticode `signCommand` is injected), hashes that
+payload with the shared `sha_tree` helper, and publishes the digest as a
 `*.payload-sha256` release-asset sidecar that `scripts/attest-binaries.sh` reads
 back as `payload_sha256`. The attest job **no longer hashes anything extracted from
 the signed artifact for the payload leaf** (it still opens the signed artifact only
@@ -58,6 +59,25 @@ signature, the stapled notarization ticket, and Authenticode data, and so **coul
 never be reproduced by anyone, including us on a byte-identical runner** (impossible
 by construction, not merely hard). That is fixed: the payload leaf now commits to
 bytes a rebuilder can, in principle, reproduce.
+
+**The payload leaf provably wraps the *shipped* binary — this is CI-enforced, not
+assumed.** The pre-signature payload is only meaningful if the signed installer
+wraps the *same* compiled binary the payload hashed; otherwise the leaf would
+attest a binary that never shipped (a false claim, worse than the unreproducible
+leaf it replaced). The macOS `signingIdentity` was removed from the committed
+config in #704 (it was redundant — the signed build's `APPLE_SIGNING_IDENTITY` env
+overrides config, so env alone drives signing; `tauri-cli` interface/rust.rs), so
+the two macOS builds read a byte-identical config. The remaining deltas
+(`createUpdaterArtifacts:false` on the capture build; the Windows `signCommand`
+injected only for the signed build) all live in `bundle` fields Tauri's codegen
+strips to their defaults before embedding the config into the binary
+(`tauri-utils` `BundleConfig::to_tokens`), so they **cannot** change the compiled
+bytes. Rather than *trust* that, `scripts/verify-presig-binary.sh` fingerprints the
+compiled binary (plus the macOS externalBin capture-helper sidecar) right after the
+capture build and re-checks it right after the signed build; a mismatch **fails the
+release loudly** and refuses to publish the payload leaf. So a future Tauri or
+config change that silently re-introduced divergence would stop the release, not
+ship a false leaf.
 
 **What is still not reproducible on macOS/Windows** is the *degree* to which those
 pre-signature payloads reproduce bit-for-bit — see §2. #704 changed *what we hash*
