@@ -124,6 +124,51 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      # WS3 (#603/#704): capture the PRE-SIGNATURE .app payload BEFORE the signed
+      # build below touches it. The shipped .dmg is signed + notarized, so its
+      # bytes embed Apple's CMS signature + a stapled notarization ticket that vary
+      # per signing operation and can never be reproduced — hashing them would log a
+      # payload leaf nobody, us included, could ever rebuild (worse than no leaf).
+      # So we build the bundle UNSIGNED (the hardcoded signingIdentity in
+      # tauri.macos.conf.json stripped for this build, no APPLE_* env, no
+      # notarization), hash the .app tree with the shared sha_tree helper, and
+      # publish the digest as a sidecar the attest job (and the attest-release.yml
+      # backfill) read back as payload_sha256. Details:
+      #   * gtar — sha_tree's `--sort=name` is a GNU extension macOS's BSD tar
+      #     lacks; the digest must match a rebuilder's byte-for-byte, so install and
+      #     use GNU tar via the helper's TAR override.
+      #   * createUpdaterArtifacts:false — skips the minisign updater bundle (a
+      #     Pollis signing secret a rebuilder can't hold); the flag is not embedded
+      #     in the binary and does not change the .app payload bytes.
+      #   * Runs FIRST, from a pristine target/, so the signed build below reuses
+      #     the very same compiled binary — the payload truly wraps the shipped one.
+      - name: Capture pre-signature payload (unsigned .app)
+        run: |
+          set -euo pipefail
+          brew install gnu-tar
+          export TAR=gtar
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export SOURCE_DATE_EPOCH
+          cp src-tauri/tauri.macos.conf.json "$RUNNER_TEMP/macos.conf.bak"
+          jq 'del(.bundle.macOS.signingIdentity)' src-tauri/tauri.macos.conf.json \
+            > "$RUNNER_TEMP/macos.conf.tmp"
+          mv "$RUNNER_TEMP/macos.conf.tmp" src-tauri/tauri.macos.conf.json
+          pnpm tauri build --target aarch64-apple-darwin \
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          mv "$RUNNER_TEMP/macos.conf.bak" src-tauri/tauri.macos.conf.json
+          app="$(find target/aarch64-apple-darwin/release/bundle/macos -maxdepth 1 -name '*.app' -type d | head -1)"
+          if [ -z "${app:-}" ]; then
+            echo "::error::WS3: unsigned build produced no .app to hash for the pre-signature payload"
+            exit 1
+          fi
+          . scripts/lib/payload-hash.sh
+          sha_tree "$app" > "pollis-${GITHUB_REF_NAME}-macos.payload-sha256"
+          echo "pre-signature macOS payload_sha256: $(cat "pollis-${GITHUB_REF_NAME}-macos.payload-sha256")"
+          # Discard the UNSIGNED bundle so the signed build below regenerates it
+          # cleanly and no unsigned .dmg can ever reach the upload. Only the
+          # packaging output is removed; the compiled binary in target/ is reused.
+          rm -rf target/aarch64-apple-darwin/release/bundle
+
       # The macOS screen-capture helper (pollis-capture-macos) owns
       # ScreenCaptureKit in its own process — issue #283 Phase 2 — so an
       # uncatchable ObjC throw from SCK can no longer kill the app.
@@ -156,6 +201,7 @@ jobs:
             target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
             target/aarch64-apple-darwin/release/bundle/macos/*.tar.gz
             target/aarch64-apple-darwin/release/bundle/macos/*.sig
+            pollis-*-macos.payload-sha256
 
   build-windows:
     needs: preflight
@@ -224,6 +270,43 @@ jobs:
           vcpkg install openssl:x64-windows-static-md
           echo "OPENSSL_DIR=$VCPKG_INSTALLATION_ROOT/installed/x64-windows-static-md" >> $GITHUB_ENV
           echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
+
+      # WS3 (#603/#704): capture the PRE-SIGNATURE exe+resources payload BEFORE the
+      # signCommand is injected below. The shipped NSIS .exe is Authenticode-signed
+      # with a mandatory RFC-3161 timestamp from timestamp.acs.microsoft.com — bytes
+      # that vary per signing and can never be reproduced, so hashing the signed
+      # tree would log an unreproducible payload leaf forever. At THIS point no
+      # signCommand is in tauri.conf.json yet, so `tauri build` produces an UNSIGNED
+      # installer; we extract its tree exactly as the attest job does (dropping
+      # $PLUGINSDIR / Uninstall.exe), hash it with the shared sha_tree helper, and
+      # publish the digest as a sidecar the attest + backfill jobs read back as
+      # payload_sha256. Git-for-Windows bash ships GNU tar + sha256sum and the runner
+      # has 7-Zip, so the shared helper runs unchanged. createUpdaterArtifacts:false
+      # skips the minisign updater bundle (a Pollis secret; not in the payload). This
+      # compiles first, so the signed build below reuses the same compiled binary.
+      - name: Capture pre-signature payload (unsigned NSIS)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export SOURCE_DATE_EPOCH
+          pnpm tauri build --target x86_64-pc-windows-msvc \
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          exe="$(find target/x86_64-pc-windows-msvc/release/bundle/nsis -maxdepth 1 -name '*.exe' | head -1)"
+          if [ -z "${exe:-}" ]; then
+            echo "::error::WS3: unsigned build produced no NSIS .exe to hash for the pre-signature payload"
+            exit 1
+          fi
+          ex="$RUNNER_TEMP/nsis-presig"; rm -rf "$ex"; mkdir -p "$ex"
+          7z x -y -o"$ex" "$exe" >/dev/null
+          rm -rf "$ex/\$PLUGINSDIR" "$ex/Uninstall.exe" 2>/dev/null || true
+          . scripts/lib/payload-hash.sh
+          sha_tree "$ex" > "pollis-${GITHUB_REF_NAME}-windows.payload-sha256"
+          echo "pre-signature Windows payload_sha256: $(cat "pollis-${GITHUB_REF_NAME}-windows.payload-sha256")"
+          # Discard the UNSIGNED installer so the signed build below regenerates it
+          # cleanly and no unsigned .exe can ever reach the upload. Only the
+          # packaging output is removed; the compiled binary in target/ is reused.
+          rm -rf target/x86_64-pc-windows-msvc/release/bundle
 
       - name: Install Artifact Signing client + SignTool
         shell: pwsh
@@ -300,6 +383,7 @@ jobs:
             target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
             target/x86_64-pc-windows-msvc/release/bundle/nsis/*.zip
             target/x86_64-pc-windows-msvc/release/bundle/nsis/*.sig
+            pollis-*-windows.payload-sha256
 
   build-capture-helper:
     needs: preflight
@@ -792,6 +876,12 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ env.R2_SECRET_KEY }}
           AWS_DEFAULT_REGION: auto
 
+      # The pre-signature payload sidecars (WS3, #603/#704) ship as release assets
+      # too, so the attest-release.yml backfill can fetch the pre-signature
+      # payload_sha256 for a tag it re-attests WITHOUT a rebuild (it only ever has
+      # the signed installers otherwise, from which the pre-signature payload is
+      # unrecoverable). They also make each build's claimed pre-signature payload
+      # hash publicly downloadable next to the installer it corresponds to.
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -801,6 +891,8 @@ jobs:
             artifacts/pollis-linux/**/*.AppImage
             artifacts/pollis-linux/**/*.deb
             artifacts/pollis-linux/**/*.rpm
+            artifacts/pollis-macos/**/*.payload-sha256
+            artifacts/pollis-windows/**/*.payload-sha256
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}

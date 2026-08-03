@@ -121,6 +121,57 @@ fi
 fi
 
 echo
+echo "read_payload_sha256 — the pre-signature payload sidecar contract (#603/#704)"
+
+# The macOS/Windows payload leaf is the build job's pre-signature sha_tree,
+# carried to the attest job in a tiny sidecar. The reader must accept a valid
+# 64-hex digest (with or without a trailing newline) and reject everything else,
+# so a malformed/missing sidecar hard-fails loudly instead of logging a garbage
+# payload hash.
+valid="$(printf 'a%.0s' $(seq 1 64))"
+printf '%s\n' "$valid" > "$work/ok.sha"
+check "accepts a 64-hex digest (trailing newline tolerated)" "$(read_payload_sha256 "$work/ok.sha")" "$valid"
+
+printf '  %s  \n' "$valid" > "$work/ws.sha"
+check "strips surrounding whitespace" "$(read_payload_sha256 "$work/ws.sha")" "$valid"
+
+printf '%s' "$valid" > "$work/nonl.sha"
+check "accepts a digest with no trailing newline" "$(read_payload_sha256 "$work/nonl.sha")" "$valid"
+
+# Uppercase is not what sha256sum emits (lowercase hex) — reject, don't silently
+# lowercase, so a mismatched producer is caught rather than papered over.
+printf '%s\n' "$(printf 'A%.0s' $(seq 1 64))" > "$work/upper.sha"
+( read_payload_sha256 "$work/upper.sha" ) >/dev/null 2>&1
+check "rejects uppercase hex" "$?" "1"
+
+printf '%s\n' "$(printf 'a%.0s' $(seq 1 63))" > "$work/short.sha"
+( read_payload_sha256 "$work/short.sha" ) >/dev/null 2>&1
+check "rejects a too-short digest" "$?" "1"
+
+printf 'not-a-hash zzz\n' > "$work/junk.sha"
+( read_payload_sha256 "$work/junk.sha" ) >/dev/null 2>&1
+check "rejects non-hex content" "$?" "1"
+
+( read_payload_sha256 "$work/does-not-exist.sha" ) >/dev/null 2>&1
+check "returns non-zero for a missing manifest" "$?" "1"
+
+( read_payload_sha256 "" ) >/dev/null 2>&1
+check "returns non-zero for an empty path argument" "$?" "1"
+
+# The macOS capture runs on a BSD-tar host and sets TAR=gtar; sha_tree must honour
+# the override and produce the SAME bytes as the default GNU `tar` everywhere else,
+# or the logged and rebuilt hashes would diverge on an incidental tool difference.
+if command -v sha256sum >/dev/null 2>&1 && { command -v gtar >/dev/null 2>&1 || tar --version 2>/dev/null | grep -qi 'gnu tar'; }; then
+  export SOURCE_DATE_EPOCH=1700000000
+  mkdir -p "$work/tar1/sub"; echo x > "$work/tar1/sub/f"; echo y > "$work/tar1/g"
+  default_hash="$(sha_tree "$work/tar1")"
+  check "sha_tree honours TAR override (TAR=tar == default)" "$(TAR=tar sha_tree "$work/tar1")" "$default_hash"
+  unset SOURCE_DATE_EPOCH
+else
+  echo "  skip — TAR-override check needs GNU tar + sha256sum; covered in CI"
+fi
+
+echo
 echo "──────────────────────────────────────────"
 echo "passed: $pass   failed: $fail"
 [ "$fail" -eq 0 ] || exit 1
