@@ -97,6 +97,16 @@ pub struct AppState {
     /// the sweep task and every request handler see the same cell. `None` until
     /// the first sweep completes.
     pub retention_metrics: messages::RetentionMetricsHandle,
+    /// Operator bearer token gating `GET /v1/retention/metrics` (#720). Read from
+    /// `POLLIS_DS_METRICS_TOKEN`. `None` (unset) means the endpoint is NOT served
+    /// — it 404s, fail-closed — because the growth snapshot is a pollable activity
+    /// meter (envelope totals, conversation counts, growth over time) that a
+    /// privacy-first messenger must not publish openly, even though it names no
+    /// user. `Some(token)` → callers must present `Authorization: Bearer <token>`.
+    /// The consumer is the OWNER'S scraper, not a client device, so this is a
+    /// static operator secret rather than a device signature. See
+    /// [`retention_metrics`].
+    pub metrics_token: Option<String>,
 }
 
 impl AppState {
@@ -123,6 +133,11 @@ impl AppState {
             ratelimit_config: ratelimit::RateLimitConfig::default(),
             device_keys: auth::DeviceKeyCache::default(),
             retention_metrics: messages::RetentionMetricsHandle::default(),
+            // Default-closed: no token → the metrics endpoint is not served. `main`
+            // reads `POLLIS_DS_METRICS_TOKEN` via `with_metrics_token`; tests opt in
+            // explicitly. Leaving it `None` here keeps the integration harness and
+            // every other test that never touches the endpoint unaffected.
+            metrics_token: None,
         }
     }
 
@@ -145,6 +160,15 @@ impl AppState {
     /// (and tests can set tiny windows), mirroring [`Self::with_otp_config`].
     pub fn with_ratelimit_config(mut self, config: ratelimit::RateLimitConfig) -> Self {
         self.ratelimit_config = config;
+        self
+    }
+
+    /// Set the operator bearer token gating `GET /v1/retention/metrics`. `None`
+    /// leaves the endpoint fail-closed (404, not served). Builder so `main` can
+    /// thread `POLLIS_DS_METRICS_TOKEN` and tests can opt in, mirroring
+    /// [`Self::with_otp_config`].
+    pub fn with_metrics_token(mut self, token: Option<String>) -> Self {
+        self.metrics_token = token;
         self
     }
 }
@@ -188,10 +212,30 @@ pub fn build_app_state(db: Arc<Db>, log_db: Arc<Db>) -> AppState {
             "OFF (POLLIS_DS_REQUIRE_AUTH unset — writes accepted unauthenticated)"
         }
     );
+    let metrics_token = metrics_token_from_env();
+    tracing::info!(
+        metrics_endpoint = if metrics_token.is_some() { "gated" } else { "disabled" },
+        "pollis-delivery retention metrics: {}",
+        if metrics_token.is_some() {
+            "GET /v1/retention/metrics ENABLED (Authorization: Bearer required)"
+        } else {
+            "GET /v1/retention/metrics DISABLED (POLLIS_DS_METRICS_TOKEN unset — endpoint 404s)"
+        }
+    );
     AppState::new_with_log_db(db, log_db, require_auth)
         .with_otp_config(otp::OtpConfig::from_env())
         .with_broker_config(broker::BrokerConfig::from_env())
         .with_ratelimit_config(ratelimit::RateLimitConfig::from_env())
+        .with_metrics_token(metrics_token)
+}
+
+/// Read the `POLLIS_DS_METRICS_TOKEN` operator secret gating
+/// `GET /v1/retention/metrics`. Empty is treated as unset. Unset → `None`, and the
+/// endpoint is not served (fail-closed) — see [`AppState::metrics_token`].
+pub fn metrics_token_from_env() -> Option<String> {
+    std::env::var("POLLIS_DS_METRICS_TOKEN")
+        .ok()
+        .filter(|s| !s.is_empty())
 }
 
 /// Build the HTTP router from an explicit [`AppState`]. Exposed so tests can
@@ -341,26 +385,83 @@ async fn version() -> impl IntoResponse {
 }
 
 /// GET /v1/retention/metrics — the latest identity-free `message_envelope` growth
-/// snapshot the GC sweep last computed (#720 checkbox 1). Open (no auth), like
-/// `/health` and `/version`. `computed: false` until the first sweep runs.
+/// snapshot the GC sweep last computed (#720 checkbox 1). `computed: false` until
+/// the first sweep runs.
 ///
-/// This is the SOURCE OF TRUTH for the numbers only. Alert ROUTING —
+/// **Gated by an operator bearer token — NOT open like `/health` and `/version`.**
+/// Those two return a service name and a git sha; this returns the total envelope
+/// count, how many conversations hold envelopes, the oldest retained `sent_at`, and
+/// the worst offender's shape. Even though it carries no conversation id or user id
+/// (identity-free per `docs/metadata-retention-policy.md` §3), that is a public,
+/// pollable activity meter for a privacy-first messenger: scraped on a schedule it
+/// reveals how many conversations exist, how fast the network is growing, and when
+/// it is busy — "traffic spiked at 14:00 UTC" is exactly the aggregate metadata this
+/// product exists not to disclose. §3's identity-free rule is necessary, not
+/// sufficient; a comment telling the owner to "restrict it at the edge" is a control
+/// substituted for by a comment (default-exposed, depends on the owner remembering,
+/// silently public again if the Cloudflare rule is ever lost). Default-closed here
+/// is the only version that holds.
+///
+/// So: `POLLIS_DS_METRICS_TOKEN` unset → the endpoint is not served (404 — a bare
+/// status, deliberately not advertising the route). Set → callers must present
+/// `Authorization: Bearer <token>`; a wrong/absent token is 401. The consumer is the
+/// owner's scraper (a `curl` from their console), which is why this is a static
+/// operator secret and not the device-signed `X-Pollis-*` path — there is no client
+/// device on this call to hold a device key.
+///
+/// This remains the SOURCE OF TRUTH for the numbers only. Alert ROUTING —
 /// thresholds/paging in Cloudflare/Grafana/email — is the owner's console and is
-/// explicitly out of scope; the owner scrapes or curls this. The body carries no
-/// conversation id or user id (see `docs/metadata-retention-policy.md` §3), so it
-/// is safe to expose, though the owner may still choose to restrict it at the
-/// edge since it reveals aggregate activity volume.
-async fn retention_metrics(State(state): State<AppState>) -> impl IntoResponse {
+/// explicitly out of scope.
+async fn retention_metrics(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    // Fail closed: no token configured → the endpoint does not exist. 404 (a bare
+    // status, no body) so an unconfigured deploy does not even advertise the route.
+    let Some(expected) = state.metrics_token.as_deref() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    // Configured → require a matching bearer token. Wrong/absent → 401.
+    if !bearer_token_matches(&headers, expected) {
+        return AuthRejection::Unauthorized.into_response();
+    }
     match state.retention_metrics.lock().unwrap().clone() {
         Some(snapshot) => (
             StatusCode::OK,
             Json(serde_json::json!({ "computed": true, "metrics": snapshot })),
-        ),
+        )
+            .into_response(),
         None => (
             StatusCode::OK,
             Json(serde_json::json!({ "computed": false, "metrics": null })),
-        ),
+        )
+            .into_response(),
     }
+}
+
+/// Whether the `Authorization: Bearer <token>` header carries exactly `expected`.
+/// Constant-time over the token bytes so a wrong guess cannot be narrowed by timing
+/// (same discipline as `otp::constant_time_eq`). A missing/malformed header, or the
+/// wrong scheme, is simply a non-match.
+fn bearer_token_matches(headers: &HeaderMap, expected: &str) -> bool {
+    let Some(value) = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    else {
+        return false;
+    };
+    let Some(presented) = value
+        .strip_prefix("Bearer ")
+        .or_else(|| value.strip_prefix("bearer "))
+    else {
+        return false;
+    };
+    let (a, b) = (presented.as_bytes(), expected.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 /// POST /v1/commits — submit a commit. When auth is enforced, the request must

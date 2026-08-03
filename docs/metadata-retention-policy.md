@@ -61,6 +61,18 @@ new device starts empty" — a device dormant past the window that later returns
 deliberate storage/correctness trade; the window's **value is the owner's product call** and is held
 conservative. The mechanism is done; **the owner must decide N** (and may set `0` to disable the bound).
 
+**Growth visibility (#720 checkbox 1).** The GC sweep computes an identity-free `message_envelope` growth
+snapshot on the same walk — total envelope count, how many conversations hold envelopes, the oldest
+retained `sent_at`, and the *shape* of the worst offender (largest conversation's count + oldest `sent_at`,
+no id). It is logged and served on `GET /v1/retention/metrics`. That endpoint is **gated by an operator
+bearer token**, NOT open like `/health`/`/version`: those return a service name and a git sha, whereas this
+is a pollable aggregate activity meter — scraped on a schedule it reveals how many conversations exist, how
+fast the network is growing, and when it is busy. Identity-free (§3) is necessary but not sufficient; the
+volume itself is metadata this product exists not to disclose. So it is **default-closed**:
+`POLLIS_DS_METRICS_TOKEN` unset → the route 404s (not served); set → callers must send
+`Authorization: Bearer <token>`. Alert *routing* (thresholds/paging in Cloudflare/Grafana/email) is the
+owner's console and is out of scope — the DS only emits the numbers.
+
 The MLS commit log solved the analogous problem differently — it prunes to a tier-1 floor (the minimum
 applied epoch across current member devices) with a tier-2 per-conversation hard cap that bounds a stuck
 member (`retention_tests::tier2_hard_cap_bounds_a_stuck_member`). #720 follows that *shape* (a bound
