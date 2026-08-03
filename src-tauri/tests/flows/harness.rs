@@ -2428,17 +2428,29 @@ pub(crate) async fn corrupt_commit_row(conversation_id: &str, epoch: i64) {
                  the scenario's setup is wrong (no such epoch)"
             )
         });
-    assert!(
-        rows.next().await.expect("second row check").is_none(),
-        "corrupt_commit_row: more than one commit at epoch {epoch} for {conversation_id} — \
-         the scenario's setup is wrong (a duplicate row)"
-    );
+    // ORDERING IS LOAD-BEARING — read every column out of `row` into a local BEFORE
+    // the duplicate-row check below. A `libsql::Row` is a view over the statement's
+    // current cursor position, not an owned snapshot of its values: calling
+    // `rows.next()` again to look for a second row steps the statement and
+    // invalidates the `Row` already handed out, after which every `row.get(i)` reads
+    // back `NULL` (surfacing as a misleading `NullValue` on `seq`, an
+    // `INTEGER PRIMARY KEY AUTOINCREMENT` that can never actually be NULL). Do NOT
+    // "tidy" the assert back up next to its `next()` call — that reintroduces the
+    // dead-cursor read and wedges `corrupt_commit_recovers_instead_of_wedging`.
     let seq: i64 = row.get(0).expect("seq");
     let generation: i64 = row.get(1).expect("generation");
     let sender_id: String = row.get(2).expect("sender_id");
     let created_at: String = row.get(3).expect("created_at");
     let added_user_id: Option<String> = row.get(4).expect("added_user_id");
     let added_device_ids: Option<String> = row.get(5).expect("added_device_ids");
+    // Now safe to step the cursor: the duplicate-row guard catches a genuinely wrong
+    // scenario setup (two commits at the same epoch/generation), but must run only
+    // after the reads above.
+    assert!(
+        rows.next().await.expect("second row check").is_none(),
+        "corrupt_commit_row: more than one commit at epoch {epoch} for {conversation_id} — \
+         the scenario's setup is wrong (a duplicate row)"
+    );
 
     // Truncate to a two-byte stub: too short to be a valid TLS-serialised
     // MlsMessageOut, so `tls_deserialize` fails outright. The row is interior, so the
