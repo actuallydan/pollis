@@ -86,6 +86,23 @@ runners, or a matching-platform reproducer, so macOS/Windows payload reproductio
 stays **best-effort** (native codegen can still embed host paths). The distinction
 is the whole point: "best-effort, closable" replaces "impossible, forever."
 
+**That the shipped artifact is actually signed is also CI-enforced, not assumed.**
+Removing the hardcoded macOS `signingIdentity` (above) deleted the config fallback,
+so the whole macOS signing configuration now lives in one secret,
+`APPLE_SIGNING_IDENTITY`. If it were ever empty, tauri would resolve no identity and
+*silently* skip codesigning **and** notarization while the job stayed green —
+shipping a Gatekeeper-blocked `.dmg` wrapped in a valid-looking payload leaf. Two
+checks close that (`scripts/verify-signed-artifact.sh`, both platforms): a
+**preflight** that hard-fails before the signed build if a required signing secret
+is empty (GitHub sets an unset secret's env var to `""`, so this catches the
+`Some("")` case the bundler's own filter would otherwise decide), and a **post-build
+verification** — macOS `codesign --verify --deep --strict` + a Developer ID
+Application authority + `spctl` Gatekeeper/notarization acceptance; Windows `signtool
+verify /pa` — that refuses to publish an unsigned/unnotarized artifact. This asserts
+signing the same way `verify-presig-binary.sh` asserts the payload leaf wraps the
+binary. (No identity string, team id, or cert thumbprint is written into the repo —
+the authority is matched by prefix only.)
+
 The signed wrapper is logged as a separate derived `layer:"signed"` leaf whose
 `payload_sha256` equals the payload leaf's — an explicit, verifiable binding
 ("this signed artifact wraps that reproducible payload"), never a reproducibility

@@ -232,6 +232,95 @@ else
 fi
 
 echo
+echo "verify-signed-artifact — the WS3 'the shipped artifact is signed' gate (#603/#704)"
+
+# WS3 removed the hardcoded macOS signingIdentity from the config, so the whole
+# signing config lives in secrets. GitHub sets an unset secret's env var to the
+# EMPTY STRING (Some("") not None), so an empty identity would SILENTLY skip
+# signing + notarization and still go green. The `preflight` mode turns that into
+# a loud failure; it is pure bash and fully exercised here. The `macos`/`windows`
+# modes shell out to codesign/spctl/signtool, which exist only on their runners —
+# so those are code-reviewed, and here we cover their pre-tool guards + dispatch.
+sscript="$here/verify-signed-artifact.sh"
+
+# preflight: all present → pass.
+export SIG_A=identity SIG_B=cert
+( "$sscript" preflight "macOS" SIG_A SIG_B ) >/dev/null 2>&1
+check "preflight passes when every named secret is non-empty" "$?" "0"
+
+# preflight: one empty (the Some("") GitHub-Actions case) → fail, and the error
+# must name the empty var and say why, not just exit non-zero.
+export SIG_EMPTY=""
+out="$( "$sscript" preflight "macOS" SIG_A SIG_EMPTY 2>&1 )"; rc=$?
+check "preflight fails when a secret is the empty string" "$rc" "1"
+case "$out" in
+  *"SIG_EMPTY is empty or unset"*) ok "names the empty secret in the error" ;;
+  *) bad "error does not name the empty secret: $out" ;;
+esac
+case "$out" in
+  *"must not be published"*) ok "explains the unsigned-artifact hazard, not a bare code" ;;
+  *) bad "error lacks the WS3 unsigned-artifact explanation: $out" ;;
+esac
+
+# preflight: an UNSET var (never exported) is treated identically to empty — the
+# indirect expansion must not trip `set -u` and must count as a failure.
+unset SIG_NEVER_SET 2>/dev/null || true
+out="$( "$sscript" preflight "Windows" SIG_NEVER_SET 2>&1 )"; rc=$?
+check "preflight fails (not crashes) on a fully unset secret" "$rc" "1"
+case "$out" in
+  *"SIG_NEVER_SET is empty or unset"*) ok "treats unset the same as empty" ;;
+  *) bad "unset var not reported as empty/unset: $out" ;;
+esac
+
+# preflight: multiple empties are all reported, not just the first — so one CI run
+# names every missing secret instead of a whack-a-mole of re-runs.
+export SIG_E1="" SIG_E2=""
+out="$( "$sscript" preflight "macOS" SIG_E1 SIG_A SIG_E2 2>&1 )"; rc=$?
+check "preflight fails when several secrets are empty" "$rc" "1"
+if grep -q "SIG_E1 is empty" <<<"$out" && grep -q "SIG_E2 is empty" <<<"$out"; then
+  ok "reports every empty secret in one pass"
+else
+  bad "did not report all empty secrets: $out"
+fi
+
+# preflight: usage errors are exit 2 (a caller mistake), distinct from exit 1
+# (a real empty-secret failure).
+( "$sscript" preflight "macOS" ) >/dev/null 2>&1
+check "preflight with no var names is a usage error (exit 2)" "$?" "2"
+
+# Unknown mode → usage error, never a silent success.
+( "$sscript" bogus-mode arg ) >/dev/null 2>&1
+check "unknown mode is a usage error (exit 2)" "$?" "2"
+
+# macos: a missing .app bundle fails loudly BEFORE reaching codesign, so the guard
+# is what a Linux box (no codesign) can assert.
+out="$( "$sscript" macos "$work/no-such.app" 2>&1 )"; rc=$?
+check "macos fails when the .app bundle is absent" "$rc" "1"
+case "$out" in
+  *".app bundle not found"*) ok "macos names the missing bundle" ;;
+  *) bad "macos error does not name the missing bundle: $out" ;;
+esac
+
+# windows: a missing installer .exe fails loudly before reaching signtool.
+out="$( "$sscript" windows "$work/no-such.exe" 2>&1 )"; rc=$?
+check "windows fails when the installer .exe is absent" "$rc" "1"
+case "$out" in
+  *".exe not found"*) ok "windows names the missing installer" ;;
+  *) bad "windows error does not name the missing installer: $out" ;;
+esac
+
+# windows: with a real .exe present but no signtool resolvable, the signtool guard
+# fires (rather than a confusing failure deep in an invocation).
+printf 'pe' > "$work/present.exe"
+out="$( SIGNTOOL_PATH="" "$sscript" windows "$work/present.exe" 2>&1 )"; rc=$?
+check "windows fails when signtool cannot be resolved" "$rc" "1"
+case "$out" in
+  *"signtool not found"*) ok "windows names the missing signtool" ;;
+  *) bad "windows error does not name the missing signtool: $out" ;;
+esac
+unset SIG_A SIG_B SIG_EMPTY SIG_E1 SIG_E2 2>/dev/null || true
+
+echo
 echo "──────────────────────────────────────────"
 echo "passed: $pass   failed: $fail"
 [ "$fail" -eq 0 ] || exit 1

@@ -194,6 +194,28 @@ jobs:
       # tauri-action's cargo build, so no explicit pre-stage step is
       # needed here.
 
+      # WS3 (#603/#704): the macOS signing config now lives ENTIRELY in secrets —
+      # the hardcoded signingIdentity was removed from tauri.{conf,macos.conf}.json
+      # in #704. If APPLE_SIGNING_IDENTITY is empty, tauri resolves no identity and
+      # SILENTLY skips codesign + notarization while the job still goes green,
+      # shipping a Gatekeeper-blocked .dmg under a valid-looking payload leaf.
+      # GitHub sets an env var to the empty string for every unset secret, so this
+      # preflight fails loudly on empty BEFORE the ~20-minute signed build, making
+      # the bundler's own "empty identity" handling irrelevant. Verified after the
+      # fact by the "Verify macOS artifact is signed and notarized" step below.
+      - name: Preflight macOS signing secrets (WS3)
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          scripts/verify-signed-artifact.sh preflight "macOS" \
+            APPLE_SIGNING_IDENTITY APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD \
+            APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+
       - name: Build and sign macOS (ARM)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -220,6 +242,21 @@ jobs:
         run: |
           scripts/verify-presig-binary.sh verify aarch64-apple-darwin \
             "$RUNNER_TEMP/presig-binfp-macos.txt"
+
+      # WS3 (#603/#704): "the artifact we ship is signed" is a load-bearing claim —
+      # our payload leaf + attestation are meaningless wrapped around a .dmg
+      # Gatekeeper blocks. Assert it the same way we assert the binary fingerprint,
+      # rather than trusting the build went green: an empty APPLE_SIGNING_IDENTITY
+      # skips signing silently, so this proves the shipped .app is Developer ID
+      # signed AND notarization-stapled (spctl) before any upload/publish.
+      - name: Verify macOS artifact is signed and notarized (WS3)
+        run: |
+          app="$(find target/aarch64-apple-darwin/release/bundle/macos -maxdepth 1 -name '*.app' -type d | head -1)"
+          if [ -z "${app:-}" ]; then
+            echo "::error::WS3: no signed .app found to verify under the macOS bundle dir"
+            exit 1
+          fi
+          scripts/verify-signed-artifact.sh macos "$app"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -388,6 +425,29 @@ jobs:
           } | ConvertTo-Json | Out-File -FilePath $metadataPath -Encoding utf8
           "SIGN_METADATA_PATH=$metadataPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      # WS3 (#603/#704): the Windows Authenticode path signs via Azure Trusted
+      # Signing (the dlib authenticates with these secrets and the signtool /dmdf
+      # metadata is built from them). Unlike macOS, an empty Azure secret makes
+      # signtool FAIL rather than silently skip — so the build would break anyway —
+      # but we still preflight to fail in seconds with a named secret instead of
+      # deep inside a signed build, and to keep the "assert, don't assume signing"
+      # posture symmetric with macOS. GitHub sets each unset secret to the empty
+      # string, so this catches Some("") too. Verified after the fact by the
+      # "Verify Windows artifact is Authenticode-signed" step below.
+      - name: Preflight Windows signing secrets (WS3)
+        shell: bash
+        env:
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          scripts/verify-signed-artifact.sh preflight "Windows" \
+            AZURE_SIGNING_ENDPOINT AZURE_SIGNING_ACCOUNT AZURE_CERT_PROFILE \
+            AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET
+
       - name: Inject Windows signCommand into tauri.conf.json
         shell: bash
         run: |
@@ -429,6 +489,22 @@ jobs:
         run: |
           scripts/verify-presig-binary.sh verify x86_64-pc-windows-msvc \
             "$RUNNER_TEMP/presig-binfp-windows.txt"
+
+      # WS3 (#603/#704): prove the SHIPPED installer is Authenticode-signed before
+      # any upload/publish — the payload leaf + attestation are meaningless around
+      # an unsigned .exe. SIGNTOOL_PATH is already resolved earlier in this job, so
+      # signtool verify /pa (does it chain to a trusted root under the default
+      # policy) is nearly free and is the same "assert, don't assume" discipline as
+      # the pre-signature check above.
+      - name: Verify Windows artifact is Authenticode-signed (WS3)
+        shell: bash
+        run: |
+          exe="$(find target/x86_64-pc-windows-msvc/release/bundle/nsis -maxdepth 1 -name '*.exe' | head -1)"
+          if [ -z "${exe:-}" ]; then
+            echo "::error::WS3: no signed NSIS .exe found to verify under the Windows bundle dir"
+            exit 1
+          fi
+          scripts/verify-signed-artifact.sh windows "$exe"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
