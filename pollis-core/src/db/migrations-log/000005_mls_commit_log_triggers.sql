@@ -105,6 +105,20 @@ END;
 -- enforced by the CAS + the clamped retention floor in Rust; the schema layer
 -- guarantees no forward gap, no rewrite, and no head loss — the three that
 -- actually wedge a group.
+--
+-- CONSEQUENCE (deliberate, not an oversight — full-conversation erasure): with
+-- the head guard in place there is NO order in which every commit row of a
+-- conversation can be deleted. Prune bottom-up and the last remaining row IS the
+-- head (aborts); delete the head first and it aborts immediately. Nothing does
+-- this today — the only DELETEs are the two retention shapes above, neither of
+-- which ever empties a live conversation — so this is not a regression. But a
+-- future "delete my account / erase this conversation" path (this launch epic
+-- will need one) must NOT discover the wall by hitting a RAISE(ABORT) in prod: an
+-- erasure path has to lift the guard for the scope of its own transaction — e.g.
+-- `DROP TRIGGER trg_mls_commit_log_keep_head; DELETE ...; <recreate>` inside one
+-- transaction, or a narrowly scoped exemption. Building that is a separate ticket;
+-- this migration only records that the constraint is intentional. See I1 in
+-- docs/backend-core-invariants.md and .codesight/wiki/database.md.
 CREATE TRIGGER IF NOT EXISTS trg_mls_commit_log_keep_head
 BEFORE DELETE ON mls_commit_log
 FOR EACH ROW

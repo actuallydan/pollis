@@ -89,6 +89,19 @@ the invariant that makes it unrepresentable.
   interior contiguity stays enforced by the CAS + the clamped retention floor in
   Rust. The schema layer guarantees the three that actually wedge a group:
   no forward gap, no rewrite, no head loss.
+- **Consequence — full-conversation erasure is deliberately blocked (from #691).**
+  With the head guard in place there is **no order** in which every commit row of
+  a conversation can be deleted: prune bottom-up and the last remaining row is the
+  head (aborts); delete the head first and it aborts immediately. Nothing does this
+  today (the only DELETEs are the two retention shapes, neither of which empties a
+  live conversation), so it is not a regression — but it is intentional, not an
+  oversight. A future "delete my account / erase this conversation" path (this
+  launch epic will need one) must **not** discover it by hitting a `RAISE(ABORT)` in
+  prod: such a path has to lift the guard for the scope of its own transaction
+  (drop + recreate `trg_mls_commit_log_keep_head` inside the erasure transaction, or
+  a narrowly scoped exemption). Building that is a **separate ticket**; recorded here,
+  in the `000005` migration comment, and in `.codesight/wiki/database.md` so the
+  constraint reads as deliberate.
 
 ### I2 — Commits are a verifiable chain
 - MLS already chains epochs via the confirmed transcript hash / confirmation

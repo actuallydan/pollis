@@ -230,6 +230,68 @@ async fn delete_of_generation_head_is_rejected() {
     assert_eq!(epochs(&db, "c1", 1).await, vec![0, 1]);
 }
 
+/// The #680 fault-injection harness (`src-tauri/tests/flows/harness.rs::
+/// corrupt_commit_row`) used to corrupt an interior commit's bytes with a straight
+/// `UPDATE ... SET commit_data`, which `trg_mls_commit_log_immutable` now aborts.
+/// The immutability guard is correct and must not be weakened, so the harness was
+/// rewritten to reproduce the same end state — one interior row with a stub payload,
+/// `seq`/`epoch` and the head unchanged — via DELETE-then-INSERT. This test proves
+/// that replacement shape passes BOTH triggers against the real triggered schema,
+/// so the mechanism the flows suite depends on is covered by a test that runs here
+/// (the flows suite cannot run in this sandbox).
+#[tokio::test]
+async fn interior_delete_then_reinsert_corruption_passes() {
+    let db = fresh_log().await;
+    seed(&db, "c1", 0, 3).await; // epochs 0..=3, head at epoch 3
+    let conn = db.conn().unwrap();
+
+    // Snapshot the interior row (epoch 1) — the harness preserves seq so the row
+    // keeps its place in the seq-ordered catch-up replay.
+    let seq: i64 = {
+        let mut rows = conn
+            .query(
+                "SELECT seq FROM mls_commit_log WHERE conversation_id = 'c1' AND generation = 0 AND epoch = 1",
+                (),
+            )
+            .await
+            .unwrap();
+        rows.next().await.unwrap().unwrap().get::<i64>(0).unwrap()
+    };
+
+    // DELETE the interior row: the head guard only protects epoch 3, so this passes.
+    let deleted = conn
+        .execute("DELETE FROM mls_commit_log WHERE seq = ?1", libsql::params![seq])
+        .await
+        .expect("interior delete passes the head guard");
+    assert_eq!(deleted, 1);
+
+    // Re-INSERT at the same seq/epoch with a 2-byte stub payload: epoch 1 is below
+    // the head (3), so the forward-gap guard passes; it is an INSERT, so the
+    // immutability guard (UPDATE-only) never applies.
+    conn.execute(
+        "INSERT INTO mls_commit_log (seq, conversation_id, generation, epoch, sender_id, commit_data) \
+         VALUES (?1, 'c1', 0, 1, 'sender', X'0001')",
+        libsql::params![seq],
+    )
+    .await
+    .expect("interior re-insert passes both triggers");
+
+    // Same observable state: chain intact, head unchanged, epoch-1 payload is now
+    // the 2-byte stub, and the row kept its seq.
+    assert_eq!(epochs(&db, "c1", 0).await, vec![0, 1, 2, 3]);
+    let mut rows = conn
+        .query(
+            "SELECT seq, LENGTH(commit_data) FROM mls_commit_log \
+             WHERE conversation_id = 'c1' AND generation = 0 AND epoch = 1",
+            (),
+        )
+        .await
+        .unwrap();
+    let row = rows.next().await.unwrap().unwrap();
+    assert_eq!(row.get::<i64>(0).unwrap(), seq, "seq preserved");
+    assert_eq!(row.get::<i64>(1).unwrap(), 2, "payload truncated to the stub");
+}
+
 // ── The other half of the bar: legitimate traffic must NOT trip the triggers ──
 
 #[tokio::test]

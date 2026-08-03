@@ -288,6 +288,16 @@ enforced at the lowest layer, not just the protocol layer:
   the clamped retention floor in Rust. Proven by
   `pollis-delivery/tests/commit_log_triggers.rs` (direct-SQL violation attempts).
 
+  *Deliberate consequence — full-conversation erasure is blocked.* With the head
+  guard there is **no order** in which all of a conversation's commit rows can be
+  deleted (prune bottom-up → the last row is the head, aborts; delete the head
+  first → aborts). Nothing does this today (the only DELETEs are the two retention
+  shapes, which never empty a live conversation), so it is not a regression — but a
+  future "delete my account / erase this conversation" path must lift the guard for
+  the scope of its own transaction (drop + recreate `trg_mls_commit_log_keep_head`
+  inside the erasure txn, or a scoped exemption) rather than hit a `RAISE(ABORT)` in
+  prod. That is a separate ticket; this is recorded so the wall reads as intentional.
+
   Trigger bodies (`BEGIN … ; END`) carry inner `;` that are not statement
   boundaries, so the migration appliers (`scripts/db-apply.sh`, the flows/tui
   test harnesses' `split_sql_statements`) were taught to keep a `CREATE TRIGGER`
