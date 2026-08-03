@@ -197,9 +197,23 @@ anonymous-membership (not shipped — tracked in #489).
 ### attachment_object
 - `content_hash` TEXT PK _(SHA-256 of plaintext)_
 - `r2_key` TEXT NOT NULL
-- `mime_type` TEXT NOT NULL
-- `size_bytes` INTEGER NOT NULL
 - `created_at` TEXT NOT NULL DEFAULT now
+
+Global convergent-encryption dedup: one row (and one R2 blob) per unique file, shared by every message that carries it across all conversations and users. Written via the DS `/v1/attachments/register` endpoint (`apply_register_attachment`), never a client-side INSERT.
+
+**Deletion is reference-counted server-side (#690, migration 000012).** The row — and its R2 object — is collected **only when no still-existing message references the hash**, via a single conditional predicate: `DELETE FROM attachment_object WHERE content_hash = ?1 AND NOT EXISTS (SELECT 1 FROM attachment_ref ar JOIN message_envelope me ON me.id = ar.message_id WHERE ar.content_hash = ?1)` in `apply_delete_attachment`. The count is **derived** — a declaration counts only while its [message_envelope](#message_envelope) still exists (see [attachment_ref](#attachment_ref)). The old delete was unconditional and stranded any other conversation still referencing the file (its attachment 404'd). Legacy rows predating the migration hold no references and are collectable as before (no worse than the old unconditional delete); any send from an updated client re-references the hash and promotes it to counted protection.
+
+### attachment_ref _(migration 000012, #690)_
+- PK: (`content_hash`, `message_id`)
+- `content_hash` TEXT NOT NULL _(the referenced [attachment_object](#attachment_object))_
+- `message_id` TEXT NOT NULL _(the message that carries the attachment)_
+- `created_at` TEXT NOT NULL DEFAULT now
+
+One row = "message `message_id` carries the file with `content_hash`". Because the DS cannot read message content (bodies are E2EE ciphertext in [message_envelope](#message_envelope)), it cannot parse attachment references itself — the client DECLARES each one on send (`/v1/attachments/register`, carrying the `message_id`).
+
+**The count is derived, not maintained (#690 Blocking 1 & 2).** A declaration counts only while a `message_envelope` with that id still exists — the reference count is `attachment_ref ⋈ message_envelope`, never the raw rows. So a reference is **released** simply by deleting its message envelope, through the already-authorized paths: self/admin delete, watermark-gated envelope GC (#689), the retention sweep (#720), account/group teardown. Nothing has to *remember* to release, so no deleter can forget (the #691 ELECTRON lesson), and a reference can never outlive its message. `/v1/attachments/delete` no longer mutates `attachment_ref` — it only runs the conditional collect above — so an unauthorized caller naming another member's still-live message cannot strand anything (Blocking 1); releasing is not an action of that endpoint. A declaration whose id names an envelope that never existed (a forged register) or has already gone never counts, and is reaped in bulk by `sweep_envelope_gc` so the table stays bounded. The same derived count gates the R2 object (`/v1/r2/presign` refuses a `delete` while `object_is_referenced` holds — `broker.rs`). PK `(content_hash, message_id)` makes registration idempotent (a retried send cannot double-count) and indexes `content_hash` left-most for the join probe.
+
+**Metadata-exposure trade-off (chosen deliberately; see `docs/metadata-retention-policy.md` §2/§5).** Storing `message_id` in the clear moves the attachment↔message linkage that previously lived only inside the MLS-encrypted payload out to the operator: joining `attachment_ref` to `message_envelope.conversation_id` reveals which messages — and thus which conversations — share a given convergent file. It does **not** reveal the file (plaintext is never seen) or the sender (sealed, #607). The opaque-`ref_token` alternative would hide that graph but leaks references forever when a device loses local state and cannot release a token an admin never held — i.e. it fails deletion, the very thing #690 exists to make correct. We chose the counted, robust option; the incremental exposure is the co-reference graph over hashes the operator already stores.
 
 ### conversation_watermark _(migration 5, re-keyed in migration 16)_
 - PK: (`conversation_id`, `user_id`, `device_id`)
@@ -267,6 +281,52 @@ that class of bug.
 - `added_device_ids` TEXT _(migration 14, comma-separated)_
 - `generation` INTEGER NOT NULL DEFAULT 0 _(commit-log-DB migration 000004, #454 P4 — the **suite generation**)_
 - UNIQUE INDEX `idx_mls_commit_conv_gen_epoch` on `(conversation_id, generation, epoch)` _(migration 000004, replacing `idx_mls_commit_conv_epoch`)_
+
+**Schema-layer I1 triggers (commit-log-DB migration 000005, #691).** Three
+`BEFORE` triggers make a gap/rewrite/head-loss physically unrepresentable, as a
+second line of defence behind the CAS insert (`submit_commit`) — the invariant
+enforced at the lowest layer, not just the protocol layer:
+- `trg_mls_commit_log_no_forward_gap` (INSERT) — rejects `NEW.epoch` above the
+  lineage head (`MAX(epoch)+1` within `(conversation_id, generation)`). Kills F1
+  (skip-ahead gap). The head append and any `epoch ≤ MAX` resubmit (absorbed by
+  the CAS `ON CONFLICT`) pass; only a forward jump aborts.
+- `trg_mls_commit_log_immutable` (UPDATE) — rejects any change to the chain
+  identity (`conversation_id`/`generation`/`epoch`) or payload (`commit_data`).
+  Kills the history-rewrite half of F2. The DS never UPDATEs this table, so it
+  has no legitimate traffic to fire on.
+- `trg_mls_commit_log_keep_head` (DELETE) — rejects deleting the live head
+  (`MAX(epoch)` of `MAX(generation)`) **while any earlier commit of the same
+  conversation still exists** (`AND EXISTS (… row with a different `seq` …)`).
+  Kills the catastrophic half of F2 (the ELECTRON deletion that wedges every
+  member: the head regresses out from under members who had applied it, with
+  earlier commits still present that it can no longer reconcile against). The head
+  is invariant under BOTH retention delete shapes (`delete_commits_below`,
+  floor ≤ head−1; `delete_generations_below`, closed generations only), so those
+  never trip it. Interior-gap-on-delete is NOT trigger-enforced — a per-row
+  `BEFORE DELETE` trigger cannot tell a mid-chain hole from an intermediate state
+  of a legitimate bulk prefix prune — so interior contiguity stays with the CAS +
+  the clamped retention floor in Rust. Proven by
+  `pollis-delivery/tests/commit_log_triggers.rs` (direct-SQL violation attempts).
+
+  *Full-conversation erasure IS allowed (the `EXISTS` clause was narrowed in the
+  #691 review; an earlier draft blocked it and took down 81/82 flows scenarios,
+  whose `wipe_remote` reset issues a bare `DELETE FROM mls_commit_log`).* The guard
+  fires only on a head-with-siblings delete, so a conversation can be emptied:
+  bottom-up (the final row is head-and-only-row → allowed), or via a bare
+  `DELETE FROM mls_commit_log` (SQLite deletes in ascending `seq`/rowid order and
+  the head holds the highest `seq` in its conversation, so it is visited last,
+  after its siblings are gone → the `EXISTS` is false). A future delete-account /
+  erase-conversation path therefore needs **no** bypass primitive. Cost, stated
+  plainly: buggy code that sweeps an entire *live* conversation is no longer stopped
+  at the schema layer — acceptable, since that is whole-conversation removal (not
+  I1's head-regression failure mode) and nothing above the DB issues an unscoped
+  per-conversation delete (`account.rs` account deletion never touches
+  `mls_commit_log`).
+
+  Trigger bodies (`BEGIN … ; END`) carry inner `;` that are not statement
+  boundaries, so the migration appliers (`scripts/db-apply.sh`, the flows/tui
+  test harnesses' `split_sql_statements`) were taught to keep a `CREATE TRIGGER`
+  intact until its `END`.
 
 **Suite generations (#454 P4).** MLS binds the ciphersuite into the group, so a
 conversation cannot be switched to another suite in place: the migration stands up

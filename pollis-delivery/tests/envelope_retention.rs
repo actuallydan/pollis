@@ -76,7 +76,9 @@ CREATE TABLE conversation_watermark (\
   conversation_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL, \
   last_fetched_at TEXT NOT NULL, reported_at TEXT, \
   PRIMARY KEY (conversation_id, user_id, device_id));\
-CREATE TABLE mls_key_package (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, device_id TEXT NOT NULL);";
+CREATE TABLE mls_key_package (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, device_id TEXT NOT NULL);\
+CREATE TABLE attachment_ref (content_hash TEXT NOT NULL, message_id TEXT NOT NULL, \
+  PRIMARY KEY (content_hash, message_id));";
 
 /// The device-liveness staleness window these tests drive GC with (#720). Wide
 /// enough that legacy fixtures (which seed `reported_at = NULL`, treated as live)
