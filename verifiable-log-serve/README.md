@@ -39,7 +39,7 @@ The file path under the output root mirrors the URL exactly (drop the leading
 | `/v1/entries/<index>.json`                            | one entry                           | immutable    |
 | `/v1/proof/inclusion/<tree_size>/<leaf_index>.json`   | inclusion proof                     | immutable    |
 | `/v1/proof/consistency/<first>-<second>.json`         | consistency proof                   | immutable    |
-| `/verify/group/<conversation_id>`                     | precomputed per-group `GroupReport` | short        |
+| `/verify/group/<conversation_id>`                     | `GroupReport`, **dynamic only** (#701) | n/a       |
 | `/v1/account-keys/...`                                | the account-key tree, same layout   | mixed        |
 | `/verify/account/<user_id>`                           | precomputed per-user `AccountReport` | short       |
 | `/v1/binaries/...`                                    | the released-binaries tree, same layout | mixed    |
@@ -48,18 +48,22 @@ The file path under the output root mirrors the URL exactly (drop the leading
 All wire shapes (`Entry`, `Sth`, `InclusionProof`, `ConsistencyProof`) are the
 frozen contract documented in `verifiable-log/README.md`.
 
-### Precomputed per-group reports (`/verify/group/<id>`)
+### Per-group verification is dynamic and member-gated (`/verify/group/<id>`, #701)
 
-`serve generate` also writes a precomputed report at
-`verify/group/<conversation_id>` (no extension — the file *is* the endpoint URL)
-for every conversation present in the bundle. The bytes are **byte-identical** to
-what the live `GET /verify/group/<id>` endpoint returns: both serialize the same
-`GroupReport` from the shared `verify_group_in_bundle` as compact JSON, so a
-static host serves the same verdict the live server would, with no server on the
-path. `index.json` lists every conversation that has a report so a client can
-enumerate them. These reports **move** as the log grows (a new head changes every
-group's `sth_tree_size` and inclusion), so they are short-cached like
-`latest.json` and `index.json`.
+Since #701 the commit-log leaf carries a **windowed pseudonym**, not the raw
+`conversation_id`, so `serve generate` writes **no** precomputed per-group report
+and `index.json` no longer enumerates conversations — either would re-expose the
+group set the pseudonyms exist to hide. Per-group verification is instead the
+dynamic `GET /verify/group/<conversation_id>` endpoint (dev + live servers) and
+`pollis-verify group <conversation_id>`: both take the *real* conversation id
+(which only a member knows), re-derive the windowed pseudonyms, select every
+window of the conversation, and check the full-strength invariant across windows
+via the shared `verify_group_in_bundle`. A pure static host (no server) therefore
+does not answer `/verify/group/<id>`; a member runs `pollis-verify group` (which
+fetches `entries.json` and computes locally) or points the explorer at a live
+server. The account-key tree keeps its precomputed `/verify/account/<user_id>`
+reports — its `user_id` is load-bearing (key transparency looks a user up by
+identity) and out of #701's scope.
 
 ### Manifest (`/v1/index.json`)
 
@@ -81,13 +85,14 @@ So a monitor or explorer can discover everything available without guessing:
 ### Cache policy
 
 Every artifact is **write-once / immutable** except the ones that move as the log
-grows — `sth/latest.json`, `index.json`, and the `verify/group/*` reports. Hosts
-should serve them so:
+grows — `sth/latest.json`, `index.json`, and the `verify/account/*` /
+`verify/release/*` reports (the commit-log tree has no static `verify/group/*`
+since #701). Hosts should serve them so:
 
 - immutable artifacts (`v1/sth/<size>.json`, `v1/entries*`, `v1/proof/**`,
   `v1/public_key.json`) → `Cache-Control: public, max-age=31536000, immutable`
-- mutable artifacts (`v1/sth/latest.json`, `v1/index.json`, `verify/group/*`) →
-  `Cache-Control: public, max-age=300`
+- mutable artifacts (`v1/sth/latest.json`, `v1/index.json`,
+  `verify/account/*`, `verify/release/*`) → `Cache-Control: public, max-age=300`
 
 The production publish (`.github/workflows/transparency-publish.yml`) applies
 exactly this split during the R2 sync — immutable files first, then the mutable
