@@ -34,6 +34,11 @@ pub const POST_BASELINE_LOG_MIGRATIONS: &[(u32, &str, &str)] = &[
         "commit_generation",
         include_str!("migrations-log/000004_commit_generation.sql"),
     ),
+    (
+        5,
+        "mls_commit_log_triggers",
+        include_str!("migrations-log/000005_mls_commit_log_triggers.sql"),
+    ),
 ];
 
 /// Migrations applied on top of the baseline, in version order. CI's
@@ -92,6 +97,11 @@ pub const POST_BASELINE_MIGRATIONS: &[(u32, &str, &str)] = &[
         11,
         "device_pq_signature_pub",
         include_str!("migrations/000011_device_pq_signature_pub.sql"),
+    ),
+    (
+        12,
+        "attachment_ref",
+        include_str!("migrations/000012_attachment_ref.sql"),
     ),
 ];
 
