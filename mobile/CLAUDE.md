@@ -115,6 +115,36 @@ app reaches the auth screen. Toolchain (all no-sudo): the three iOS Rust targets
 fix); that machine needs a macOS/Xcode upgrade and any iOS xcframework it
 carries is a stale prior artifact.
 
+## Build profiles + CI (`eas.json`, #706 / PL-18)
+
+`eas.json` holds the three conventional EAS profiles (`development` / `preview` /
+`production`), authored for **when an EAS account exists** — nothing here uses
+them yet.
+
+- `cli.appVersionSource: "local"` — the version lives in `app.json`; no EAS
+  server holds it.
+- **`runtimeVersion.policy: "fingerprint"` on every profile.** `pollis-core` is
+  a native Rust lib reached over uniffi, so a JS-only OTA is unsafe the moment
+  the core changes. `fingerprint` ties the runtime version to a hash of the
+  native layer, so any native change forces a fresh binary instead of letting an
+  incompatible OTA land on an old one — `sdkVersion`/`appVersion` would allow
+  exactly that. Do not switch it without understanding this.
+- **No `credentials` block, no `extra.eas.projectId`** — both need accounts this
+  repo does not have (`projectId` also gates push, #344). Do not add
+  placeholders.
+
+**CI builds a real APK** (the first thing that ever did): the `android-build`
+job in `.github/workflows/mobile-core-check.yml` runs the same chain as the
+workstation dev loop above — `ubrn build android --and-generate`, then
+`expo prebuild --platform android`, then `gradlew :app:assembleRelease` — on a
+stock `ubuntu-latest` runner, and uploads the APK as `pollis-android-apk`. It
+installs the RN-pinned NDK (`27.1.12297006`) + CMake (`3.22.1`) so Gradle and
+`cargo-ndk` agree, and pins the ubrn CLI to `0.31.0-2` (template alignment, see
+below). It uses `expo prebuild` + Gradle **directly, never `eas build`** — no
+EAS account. The release APK is signed with the throwaway **debug keystore** the
+Expo template generates (no signing secret); real upload signing is blocked
+(needs the Play console). `expo-doctor` runs as its own job.
+
 ---
 
 ## Rough edges — technical
