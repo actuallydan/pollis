@@ -39,7 +39,12 @@
     // #720: a member device silent this long stops pinning envelope retention.
     // 12, not the code default of 6 — see docs/metadata-retention-policy.md §1.
     // "0" would disable the bound entirely.
-    "POLLIS_DS_WATERMARK_STALE_MONTHS": "12"
+    "POLLIS_DS_WATERMARK_STALE_MONTHS": "12",
+    // #658: prod's LONG-STANDING container object. Its placement is already
+    // correct (~20ms from the aws-us-east-1 Turso primary), so this name must NOT
+    // change casually — changing it re-places production. Stated explicitly rather
+    // than left to the code fallback so a rename is a visible, reviewable diff.
+    "DS_SINGLETON_NAME": "pollis-delivery-singleton"
   },
   // Synced from Doppler prd_prod into the account Secrets Store under DS_PROD_.
   "secrets_store_secrets": [

@@ -46,19 +46,24 @@ const DS_LOCATION_HINT: DurableObjectLocationHint = "enam";
 // or a deliberate rename per the procedure below). That is the point: it stops
 // prod's placement from being re-rolled by chance.
 //
-// DO NOT rename this to force a re-placement without following the procedure in
-// docs/deployments.md. Renaming was tried on 2026-08-06 and took dev down:
+// The object name comes from the per-environment `DS_SINGLETON_NAME` var so an
+// environment can be re-placed on its own. This is the fallback for a config that
+// sets no var — prod's long-standing object.
+//
+// CHANGING AN ENVIRONMENT'S NAME RE-PLACES ITS CONTAINER, and must follow the
+// staged procedure in docs/deployments.md. A bare rename was tried on 2026-08-06
+// and took dev down:
 //
 //   Failed to start container: Maximum number of running container instances
 //   exceeded. Try again later, or try configuring a higher value for max_instances
 //
-// A rename creates a SECOND durable object, and the wrangler configs pin
-// `max_instances: 1`. The outgoing object still held the single permitted
-// container instance, so the incoming one could never start and every request
-// 500'd until traffic was routed back to the original name. The DO itself is
-// stateless (no `ctx.storage` in this file; all DS state is in Turso), so the
-// blocker is purely the instance cap — not data.
-const DS_SINGLETON_NAME = "pollis-delivery-singleton";
+// A rename creates a SECOND durable object while `max_instances: 1` permits only
+// one container instance. The outgoing object still held it, so the incoming one
+// could never start and every request 500'd until traffic was routed back. The DO
+// is stateless (no `ctx.storage` in this file; all DS state is in Turso) — the
+// blocker is the instance cap, not data. Hence: raise the cap, switch the name,
+// let the orphan idle past `sleepAfter` and release, then lower the cap again.
+const DS_SINGLETON_NAME_FALLBACK = "pollis-delivery-singleton";
 
 // Keys synced from Doppler into this env's Secrets Store, each bound under the
 // same name in wrangler config. Read at container start and passed through as
@@ -97,6 +102,13 @@ type Env = {
   PORT: string;
   POLLIS_DS_REQUIRE_AUTH: string;
   POLLIS_DS_WATERMARK_STALE_MONTHS?: string;
+  // Which durable object hosts this environment's container — PER ENVIRONMENT,
+  // and deliberately so. The name determines object identity, and identity
+  // determines placement, so a name shared across environments means dev cannot
+  // be re-placed without also re-placing prod on its next deploy. That coupling
+  // is exactly how a routine dev migration would become a production outage.
+  // Absent → DS_SINGLETON_NAME_FALLBACK, which is prod's existing object.
+  DS_SINGLETON_NAME?: string;
 } & Record<(typeof SECRET_KEYS)[number], SecretStoreBinding | undefined>;
 
 // Derived from the base method so we don't depend on the (unexported)
@@ -213,7 +225,9 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     // Same resolution getContainer performed (idFromName + get), plus the
     // placement hint it gives no way to pass. See DS_LOCATION_HINT above.
-    const id = env.POLLIS_DELIVERY.idFromName(DS_SINGLETON_NAME);
+    const id = env.POLLIS_DELIVERY.idFromName(
+      env.DS_SINGLETON_NAME ?? DS_SINGLETON_NAME_FALLBACK,
+    );
     return env.POLLIS_DELIVERY.get(id, {
       locationHint: DS_LOCATION_HINT,
     }).fetch(request);
