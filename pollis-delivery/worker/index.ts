@@ -26,17 +26,26 @@ import {
 // (@cloudflare/containers 0.3.7, dist/lib/utils.js), so placement was never
 // configured: it was decided by whichever request happened to arrive first.
 //
-// That went badly in dev and well in prod, purely by luck. Measured from one IAD
-// edge, same code and same image: prod `/version` ~47ms, dev ~287ms — a ~240ms
-// long-haul round trip dev pays before touching anything. Add one Turso read over
-// a per-request connection and dev's signed endpoints hit ~1.53s against prod's
-// ~68ms, while the dev database itself answers in ~20ms when queried directly.
-// The DB was never slow; the container was simply far from it.
-//
 // `enam` (eastern North America) matches the `aws-us-east-1` Turso primary that
-// BOTH environments use. Pinning it makes prod's current good placement a
-// declared property instead of an accident that a rename, a migration tag, or a
-// deploy from the wrong hemisphere could silently re-roll.
+// BOTH environments use. It is declared so placement is at least a reviewable
+// property rather than silently inherited from whoever sent the first request.
+//
+// DO NOT TREAT THIS AS A PERFORMANCE LEVER — it was tested and it is not one.
+//
+// Dev is much slower than prod on identical code and images, measured from the
+// SAME edge (IAD, confirmed via cf-ray): `/version` ~280ms vs ~47ms with no
+// database involved at all, and ~1.4s vs ~65ms on a signed request. The dev Turso
+// database answers in ~20ms queried directly, so the database is not the cause.
+// The hypothesis was that dev's container sits far from it, and #658 tested that
+// directly by creating a FRESH object under this hint (via the staged
+// max_instances migration in docs/deployments.md).
+//
+// RESULT: no change whatsoever — ~280ms and ~1.4s after re-placement. A
+// `locationHint` evidently does not govern where a CONTAINER-backed durable
+// object's container is scheduled, whatever it does for the object itself. The
+// dev/prod gap is still unexplained; that is deferred to the hosting-strategy
+// spike on #658. Keep the hint (it is free and correct as a declaration), but do
+// not reach for it expecting latency to move.
 const DS_LOCATION_HINT: DurableObjectLocationHint = "enam";
 
 // `locationHint` is honoured ONLY when the object is first created — an existing
