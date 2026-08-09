@@ -347,11 +347,34 @@ jobs:
       # in the binary (tauri-utils codegen tokenizes create_updater_artifacts
       # as Default::default() unconditionally), and the AppImage itself is
       # bundled identically either way.
+      # Build with the SAME tauri config the release used, rather than asserting a
+      # config override is harmless (#795).
+      #
+      # The release sets createUpdaterArtifacts:true and signs the updater bundle with
+      # a Pollis secret a reproducer can never hold, so this used to pass
+      # `--config '{"bundle":{"createUpdaterArtifacts":false}}'` and rely on a comment
+      # claiming that cannot change the compiled bytes. That claim was never tested,
+      # and a real rebuild of v1.8.3 showed `usr/bin/pollis` differing — so it is
+      # exactly the kind of assumption worth deleting instead of defending.
+      #
+      # A throwaway minisign key removes the difference entirely: the config now
+      # matches the release, and the only thing the ephemeral key touches is the
+      # detached updater `.sig`, which is outside the reproducible unit
+      # (docs/reproducible-builds-residuals.md §1).
+      - name: Mint a throwaway updater signing key
+        run: |
+          set -euo pipefail
+          pnpm tauri signer generate -p "" -w /tmp/rebuild-updater.key
+          {
+            echo "TAURI_SIGNING_PRIVATE_KEY<<__EOF__"
+            cat /tmp/rebuild-updater.key
+            echo "__EOF__"
+          } >> "$GITHUB_ENV"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=" >> "$GITHUB_ENV"
+
       - name: Rebuild Linux AppImage payload
         run: |
-          pnpm tauri build --target x86_64-unknown-linux-gnu \
-            --config '{"bundle":{"createUpdaterArtifacts":false}}' \
-            -- --locked
+          pnpm tauri build --target x86_64-unknown-linux-gnu -- --locked
 
       # Recompute payload_sha256 with the IDENTICAL method the release attest job
       # uses — scripts/lib/payload-hash.sh, sourced by both, so the reproducer
