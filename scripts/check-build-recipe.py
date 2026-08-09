@@ -107,6 +107,27 @@ def rebuild_env_mapping() -> set[str]:
     return set(re.findall(r"^\s+([A-Z_0-9]+):", m.group(1), re.M))
 
 
+# Jobs that produce the bit-reproducible Linux payload. Both must build cold.
+REPRODUCIBLE_JOBS = ("build-linux", "build-capture-helper")
+
+
+def cached_reproducible_jobs(text: str) -> list[str]:
+    """Reproducible-payload jobs that restore a build cache.
+
+    A restored `target/` lets cargo reuse artifacts compiled under earlier conditions,
+    so the output stops being a pure function of the source. This is what made v1.8.3
+    unreproducible, and it is invisible in a diff — the job still looks correct. It
+    cannot be fixed by caching the reproducer too: a third party starts cold by
+    definition, so a build that reproduces only from our cache reproduces for nobody.
+    """
+    hits = []
+    for job in REPRODUCIBLE_JOBS:
+        block = job_block(text, job)
+        if "Swatinem/rust-cache" in block or "actions/cache" in block:
+            hits.append(job)
+    return hits
+
+
 def main() -> int:
     client = baked_by_client()
     if not client:
@@ -131,6 +152,14 @@ def main() -> int:
             f"{REBUILD.name} passes {k}, which {CONFIG.name} never reads via option_env! — "
             f"it cannot affect the binary, so publishing it as part of the recipe misleads "
             f"anyone auditing the reproduction."
+        )
+
+    # No build cache on the reproducible path.
+    for job in cached_reproducible_jobs(RELEASE.read_text()):
+        fail(
+            f"the `{job}` release job restores a build cache — a reproducible payload must "
+            f"be built from a clean tree, or its bytes depend on our cache state and no "
+            f"third party (who always starts cold) can reproduce them. Remove the cache step."
         )
 
     # The step's own two lists must agree, or the recipe silently drops an entry.
