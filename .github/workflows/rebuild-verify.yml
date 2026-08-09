@@ -385,6 +385,9 @@ jobs:
       # the hash we independently reproduced is present in the log as the Linux
       # AppImage payload for this tag. Absent/mismatched → loud failure.
       - name: Assert reproduced hash is the logged Linux payload
+        env:
+          # `gh release download` in the failure diagnostic needs a token; contents:read suffices.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           HASH="${{ steps.rehash.outputs.hash }}"
@@ -406,5 +409,52 @@ jobs:
             echo "::error::from this source. Logged Linux payload hashes for the tag:"
             jq -r '.artifacts[] | select(.platform=="linux" and .layer=="payload")
                    | "  \(.bundle): \(.payload_sha256)"' release-report.json || true
+            echo "::error::"
+            echo "::error::A tag with NO logged linux payload above means the release is not"
+            echo "::error::in the transparency tree yet (it is built by the daily"
+            echo "::error::transparency-publish cron, not at release time) — that is a"
+            echo "::error::DIFFERENT condition from a byte divergence, so do not read it as one."
+
+            # Name the differing files rather than leaving a bare hash mismatch.
+            #
+            # "the hashes differ" is the least actionable possible output for the one
+            # tool whose entire job is telling a stranger whether our binary matches our
+            # source. Without this, every investigation starts by rebuilding locally and
+            # guessing. With it, the job says which paths diverged and by how much, which
+            # is usually enough to name the cause on sight (an embedded timestamp, a
+            # differing sidecar helper, a non-deterministic asset bundle).
+            echo "::group::What actually differs"
+            set +e
+            released_url="$(jq -r '.artifacts[]
+                                   | select(.platform=="linux" and .bundle=="appimage")
+                                   | .artifact_name' release-report.json | head -1)"
+            gh release download "${{ inputs.tag }}" --repo "$GITHUB_REPOSITORY" \
+               --pattern '*.AppImage' --dir /tmp/shipped 2>/dev/null
+            shipped="$(find /tmp/shipped -name '*.AppImage' | head -1)"
+            rebuilt="$(find target/x86_64-unknown-linux-gnu/release/bundle/appimage -name '*.AppImage' | head -1)"
+            if [ -n "$shipped" ] && [ -n "$rebuilt" ]; then
+              echo "shipped:  $shipped  ($(stat -c%s "$shipped") bytes)"
+              echo "rebuilt:  $rebuilt  ($(stat -c%s "$rebuilt") bytes)"
+              chmod +x "$shipped" "$rebuilt"
+              ( cd /tmp && mkdir -p a b )
+              ( cd /tmp/a && "$OLDPWD/$shipped" --appimage-extract >/dev/null 2>&1 || \
+                             "$shipped" --appimage-extract >/dev/null 2>&1 )
+              ( cd /tmp/b && "$rebuilt" --appimage-extract >/dev/null 2>&1 )
+              if [ -d /tmp/a/squashfs-root ] && [ -d /tmp/b/squashfs-root ]; then
+                diff -rq /tmp/a/squashfs-root /tmp/b/squashfs-root 2>&1 | head -40
+                echo "--- per-file sizes for differing paths ---"
+                diff -rq /tmp/a/squashfs-root /tmp/b/squashfs-root 2>/dev/null \
+                  | sed -n 's/^Files \(.*\) and \(.*\) differ$/\1 \2/p' \
+                  | while read -r f1 f2; do
+                      printf '  %10s vs %10s  %s\n' "$(stat -c%s "$f1")" "$(stat -c%s "$f2")" "${f1#/tmp/a/squashfs-root/}"
+                    done | head -30
+              else
+                echo "could not extract one or both AppImages for comparison"
+              fi
+            else
+              echo "shipped=${shipped:-<none>} rebuilt=${rebuilt:-<none>} — nothing to diff"
+            fi
+            set -e
+            echo "::endgroup::"
             exit 1
           fi
