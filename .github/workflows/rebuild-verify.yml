@@ -315,11 +315,20 @@ jobs:
           R2_PUBLIC_URL: ${{ vars.R2_PUBLIC_URL }}
           LIVEKIT_URL: ${{ vars.LIVEKIT_URL }}
           POLLIS_DELIVERY_URL: ${{ vars.POLLIS_DELIVERY_URL }}
+          # The signed relay directory's URL and its VERIFICATION key. Both are
+          # public by construction — the key is the public half, and the private
+          # half never leaves the minting script — so they belong in a published
+          # recipe rather than in secrets. They were baked into the release and
+          # omitted here, which is why no rebuild could match while the directory
+          # was live; scripts/check-build-recipe.py now fails CI on that drift.
+          POLLIS_OVERLAY_DIRECTORY_URL: ${{ vars.POLLIS_OVERLAY_DIRECTORY_URL }}
+          POLLIS_OVERLAY_DIRECTORY_KEY: ${{ vars.POLLIS_OVERLAY_DIRECTORY_KEY }}
         run: |
           set -euo pipefail
           for key in TURSO_URL TURSO_TOKEN LOG_DB_URL LOG_DB_TOKEN \
                      R2_S3_ENDPOINT R2_PUBLIC_URL LIVEKIT_URL \
-                     POLLIS_DELIVERY_URL; do
+                     POLLIS_DELIVERY_URL \
+                     POLLIS_OVERLAY_DIRECTORY_URL POLLIS_OVERLAY_DIRECTORY_KEY; do
             if [ -n "${!key}" ]; then
               echo "${key}=${!key}" >> "$GITHUB_ENV"
             fi
