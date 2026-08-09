@@ -365,9 +365,13 @@ jobs:
         run: |
           set -euo pipefail
           pnpm tauri signer generate -p "" -w /tmp/rebuild-updater.key
+          # `echo "$key"`, not `cat`: the key file has no trailing newline, so cat runs
+          # the value straight into the heredoc delimiter and the env write fails with
+          # "Matching delimiter not found".
+          key="$(cat /tmp/rebuild-updater.key)"
           {
             echo "TAURI_SIGNING_PRIVATE_KEY<<__EOF__"
-            cat /tmp/rebuild-updater.key
+            echo "$key"
             echo "__EOF__"
           } >> "$GITHUB_ENV"
           echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=" >> "$GITHUB_ENV"
