@@ -323,17 +323,12 @@ jobs:
           # was live; scripts/check-build-recipe.py now fails CI on that drift.
           POLLIS_OVERLAY_DIRECTORY_URL: ${{ vars.POLLIS_OVERLAY_DIRECTORY_URL }}
           POLLIS_OVERLAY_DIRECTORY_KEY: ${{ vars.POLLIS_OVERLAY_DIRECTORY_KEY }}
-          # TEMPORARY DIAGNOSTIC (#795) — do not merge. Isolates whether the baked
-          # LOG_DB_TOKEN is the remaining byte delta, without publishing it as a
-          # world-readable variable on a public repo.
-          LOG_DB_TOKEN: ${{ secrets.LOG_DB_TOKEN }}
         run: |
           set -euo pipefail
           for key in TURSO_URL TURSO_TOKEN LOG_DB_URL LOG_DB_TOKEN \
                      R2_S3_ENDPOINT R2_PUBLIC_URL LIVEKIT_URL \
                      POLLIS_DELIVERY_URL \
-                     POLLIS_OVERLAY_DIRECTORY_URL POLLIS_OVERLAY_DIRECTORY_KEY \
-                     LOG_DB_TOKEN; do
+                     POLLIS_OVERLAY_DIRECTORY_URL POLLIS_OVERLAY_DIRECTORY_KEY; do
             if [ -n "${!key}" ]; then
               echo "${key}=${!key}" >> "$GITHUB_ENV"
             fi
