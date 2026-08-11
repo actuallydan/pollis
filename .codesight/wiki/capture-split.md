@@ -55,7 +55,7 @@ message := [ u8 type ][ u32 LE payload_len ][ payload ]
 - Encoders: `encode_format`, `encode_frame_header`, `encode_error`,
   `write_msg`. Used by `pollis-capture-linux` and `pollis-capture-macos`.
 - Decoder: `read_msg` — used by the parent in
-  `pollis-core/src/commands/screenshare.rs` (both the initial Format
+  `pollis-core/src/commands/screenshare/` (both the initial Format
   read and the streaming reader task).
 - Wire bytes are **unchanged** from the original hand-rolled
   encode/decode that lived separately in `pollis-capture-linux` and
@@ -327,7 +327,7 @@ default; the driver adjusts and we publish whatever it gives. Verified at
 
 ## Parent-side pipeline (unchanged, shared by all paths)
 
-`pollis-core/src/commands/screenshare.rs`:
+`pollis-core/src/commands/screenshare/`:
 
 - `enumerate_screen_sources` (macOS) — binds a Unix socket, spawns the
   helper, reads the `MSG_SOURCES` list, parks the helper in
@@ -365,7 +365,7 @@ default; the driver adjusts and we publish whatever it gives. Verified at
   + SCContentFilter + SCStream/handler.
 - `frontend/src/components/Voice/ScreenSharePicker.tsx` — in-app picker
   UI (macOS path).
-- `pollis-core/src/commands/screenshare.rs` — shared parent pipeline,
+- `pollis-core/src/commands/screenshare/` — shared parent pipeline,
   deny-vs-unsupported split.
 - `frontend/src/screenshare/screenShareSession.ts` —
   `local_unsupported` event + distinct error message.

@@ -175,7 +175,7 @@ this path.
 | ID | Ticket | Priority | Effort |
 |---|---|---|---|
 | PL-25 | ~~Remove the Electron ghost.~~ **✅ done.** No `hasElectron`, `ElectronAPI`, or `MigrationBanner` remains anywhere in `frontend/src/`; one `docs/electron-migration.md` is kept deliberately, as the record of a reversed decision. | P2 | M |
-| PL-26 | Reconcile contradictions. **Mostly done** — `AUDIT-slice3.md` is gone and #455 is consistent. **Remaining:** `frontend/docs/frontend-audit.md` still analyses a Zustand store the app does not use (state is MobX, #365). | P2 | S |
+| PL-26 | ~~Reconcile contradictions.~~ **✅ done.** `AUDIT-slice3.md` is gone, #455 is consistent, and `frontend/docs/frontend-audit.md` now carries a SUPERSEDED banner stating plainly that its "Zustand" analysis is wrong — the stores are MobX (#365) — while keeping the structural findings that still hold. | P2 | S |
 | PL-27 | Tracker hygiene. **Open.** #185 describes mobile as a static demo ("nothing real flows") — it is a near-complete app. #157/#163 are written entirely against the Electron era and must be re-derived or parked. | P2 | S |
 
 ---

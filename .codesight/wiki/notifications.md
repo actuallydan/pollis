@@ -14,7 +14,7 @@ To change behavior, edit one row in `CATEGORIES`. To add a new alert type, add o
 RealtimeEvent (Rust → JS Channel)         Local action (e.g. self voice join)
             │                                          │
             ▼                                          ▼
-   useLiveKitRealtime.ts                     useVoiceChannel.ts
+   useLiveKitRealtime.ts                     voice/voiceBridge.ts
    classify event → call notify()       call notify('voice_self_join')
                               │                │
                               ▼                ▼
@@ -88,7 +88,7 @@ notify(conversationId ? 'direct_message' : 'channel_message', { roomId, title, b
 The voice handler categorizes:
 
 ```ts
-if (event.user_id === currentUserIdRef.current) return;          // own join → handled in useVoiceChannel
+if (event.user_id === currentUserIdRef.current) return;          // own join → handled in voiceBridge
 if (event.channel_id !== activeVoiceChannelIdRef.current) return; // different room → noise
 notify(event.type === 'voice_joined' ? 'voice_other_join' : 'voice_other_leave');
 ```
@@ -196,12 +196,12 @@ Cooldown is keyed by `${category}:${roomId ?? '_global'}`. It applies only to so
 | `frontend/src/utils/notify.ts` | Dispatcher + category table |
 | `frontend/src/utils/sfx.ts` | `playSfx()` wrapper around `play_sfx` Rust command |
 | `frontend/src/hooks/useLiveKitRealtime.ts` | Categorizes incoming Rust events, calls `notify(...)`, owns pref + permission sync |
-| `frontend/src/hooks/useVoiceChannel.ts` | Calls `notify('voice_self_join'/'voice_self_leave')` for local actions |
+| `frontend/src/voice/voiceBridge.ts` | Calls `notify('voice_self_join'/'voice_self_leave')` for local actions (was `hooks/useVoiceChannel.ts`, deleted) |
 | `frontend/src/hooks/useBadge.ts` | Reads `unreadCounts` from the MobX store, applies dock/taskbar badge |
 | `pollis-core/src/realtime.rs` | `RealtimeEvent` enum (Rust → JS wire format) |
-| `pollis-core/src/commands/livekit.rs` | `dispatch_data()` parses payloads, sends typed events to JS |
+| `pollis-core/src/commands/livekit/` | `dispatch_data()` parses payloads, sends typed events to JS |
 | `pollis-core/src/commands/sfx.rs` | `play_sfx` rodio implementation |
-| `pollis-core/src/commands/groups.rs` | Membership-change publishers (set `kind` here) |
+| `pollis-core/src/commands/groups/` | Membership-change publishers (set `kind` here) |
 
 ## Related issues
 
