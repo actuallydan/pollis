@@ -116,6 +116,12 @@ Media stays in Rust by design. The renderer's Chromium does have WebRTC availabl
 | **Local SQLite (SQLCipher)** | Decrypted message plaintext (`message.content`), MLS group state (`mls_kv`), preferences cache, UI state | User profiles, groups, channels (fetched from Turso) |
 | **OS Keystore** (Keychain / Secret Service / Credential Manager) | `device_id_{uid}`, `db_key_wrapped_{uid}` (SQLCipher key, AEAD-wrapped under PIN-derived KEK), `account_id_key_wrapped_{uid}` (Ed25519 account-identity private, same wrapping), `pin_meta_{uid}` (Argon2 params + verifier blob + attempt counter) | The unwrapped DB key or account-identity key (after PIN setup) |
 
+Turso is two databases, not one. The main DB holds user/device metadata and message
+envelopes; a separate **commit-log DB** (`LOG_DB_URL`) holds the MLS control plane —
+`mls_commit_log`, `mls_group_info`, `mls_welcome` — with the Delivery Service as its sole
+writer. Splitting them means the tables whose ordering the whole protocol depends on have
+exactly one writer and their own migration series (`pollis-core/src/db/migrations-log/`).
+
 The local DB file is encrypted under a 32-byte random key sourced from the OS keystore, which itself only exists on disk as ciphertext under a key derived from the user's PIN via Argon2id.
 
 For the full schema with column-by-column annotations see `.codesight/wiki/database.md`.
