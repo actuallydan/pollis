@@ -21,8 +21,23 @@ Covers issues **#281** (Linux: no portal backend on Cinnamon/MATE/XFCE),
 
 All three capture helpers / paths emit frames over **one shared wire
 protocol** (`pollis-capture-proto`). The parent-process pipeline
-(socket reader, FPS cap, libyuv ARGB→I420, LiveKit publish, 2 s stall
-heartbeat) is identical regardless of where frames originate.
+(socket reader, even-dimension floor, libyuv ARGB→I420, LiveKit publish)
+is identical regardless of where frames originate.
+
+Two things this pipeline no longer does, both removed deliberately:
+
+- **No FPS or resolution cap.** There was a 1080p/60fps defensive clamp; it is
+  gone. Publishers send native capture resolution and native frame rate, because
+  VP8 software encode of a 4K/144 Hz source costs ~30–50% of one core on any
+  laptop we ship to. If that stops being true the answer is a user-facing setting
+  (#300), not a hardcoded ceiling. The even-dimension floor that I420 4:2:0 chroma
+  requires still happens per frame.
+- **No 2-second stall heartbeat.** There is no "stalled" or "paused" concept in
+  screenshare at all. An earlier watchdog emitted `LocalStalled`/`RemoteStalled`
+  and a "Stream paused" overlay, which misrepresented ordinary idle capture (a
+  static screen on Wayland) as a failure. When capture is idle we simply stop
+  pushing frames; the viewer keeps showing the last painted frame, which is
+  indistinguishable from a stream of unchanging ones.
 
 ## The shared protocol — `pollis-capture-proto`
 
@@ -106,8 +121,8 @@ Shippable, deliberately minimal:
   (monitor/full-screen only).
 - v1 = **full-framebuffer SHM copy per tick** (correct; heavier on weak
   CPUs).
-- Emits the exact shared protocol; the parent reader / FPS cap / libyuv
-  / LiveKit path is untouched.
+- Emits the exact shared protocol; the parent reader / libyuv / LiveKit
+  path is untouched.
 
 Pixel format: a 24/32-bpp TrueColor `ZPixmap` on a little-endian X
 server is byte-order BGRX — exactly what the parent's `argb_to_i420`
