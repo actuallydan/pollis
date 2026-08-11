@@ -48,6 +48,11 @@ const CATEGORIES: Record<Category, CategoryConfig> = {
   dm_request:        { sound: 'ping',  osNotif: true,               alert: true                   },
   group_invite:      { sound: 'ping',  osNotif: true,               alert: true                   },
   enrollment:        { sound: 'ping',  osNotif: true,                            overlay: true    },
+  incoming_call:     {                  osNotif: true,                            honorsRingtonePref: true },
+  // @all in a group: the one channel event that DOES raise an OS ping (unlike
+  // channel_message). Badge is left to the accompanying new_message event so a
+  // connected client doesn't double-count unread.
+  all_mention:       { sound: 'ping',  osNotif: true,                            cooldownMs: 2500 },
 };
 ```
 
@@ -57,14 +62,15 @@ const CATEGORIES: Record<Category, CategoryConfig> = {
 |---|---|---|---|
 | `sound` | Plays a sfx (`'ping'`/`'join'`/`'leave'`) via the `play_sfx` Rust command | `allow_sound_effects` | Cooldownable |
 | `osNotif` | Fires an OS notification banner via the bridge's `sendNotification` (→ `tauri-plugin-notification`) | `allow_desktop_notifications` + OS permission | Cooldownable |
-| `badge` | Increments the per-room unread count (`useAppStore.incrementUnread`) | none | Drives dock/taskbar badge via `useBadge` |
-| `alert` | Sets the blinking status-bar alert (`useAppStore.setStatusBarAlert`) | none | Cleared on navigation |
+| `badge` | Increments the per-room unread count (`appStore.incrementUnread`) | none | Drives dock/taskbar badge via `useBadge` |
+| `alert` | Sets the blinking status-bar alert (`appStore.setStatusBarAlert`) | none | Cleared on navigation |
 | `overlay` | Sets `pendingEnrollmentApproval` so the UI takes over | none | Used only by enrollment |
+| `honorsRingtonePref` | Gates the ringtone on the **device-local** call-ringtone toggle, independent of the account-level `allow_sound_effects` | `allowCallRingtone` | Used only by `incoming_call` |
 | `cooldownMs` | Suppresses repeat sound + OS-notif within the window | — | Keyed by `(category, roomId)` |
 
 ### Conventions
 
-1. **Anything with `osNotif: true` should also have `sound: 'ping'`.** Users always hear every system notification. Don't ship a silent OS banner.
+1. **Anything with `osNotif: true` should also have `sound: 'ping'`.** Users always hear every system notification. Don't ship a silent OS banner. The one exception is `incoming_call`, which has no `sound` because it plays a *ringtone* on its own device-local gate (`honorsRingtonePref`) rather than a one-shot sfx — muting ringing on one device must not silence every other alert on it.
 2. **Pings are reserved for personal events.** Channel chatter only updates the badge — noisy rooms must not become a constant ping.
 3. **`badge` and `alert` are never cooldown-gated.** The unread count must stay accurate; only sound and OS notifications dedupe.
 
