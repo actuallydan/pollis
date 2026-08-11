@@ -27,7 +27,7 @@ A Pollis client is configured, at build time, with exactly these network destina
 
 | Config field | Service | Protocol | Role |
 |---|---|---|---|
-| `turso_url` / `turso_token` | **Turso (libSQL)** | Hrana over HTTP/2, TLS, `libsql://` | Canonical metadata + ciphertext envelope store. Direct connection, no middle server (`ARCHITECTURE.md` §Network architecture). |
+| `turso_url` / `turso_token` | **Turso (libSQL)** | Hrana over HTTP/2, TLS, `libsql://` | Canonical metadata + ciphertext envelope store. Direct connection for **reads only** — the token is read-only and every write goes through the Delivery Service (`ARCHITECTURE.md` §Network architecture). |
 | `log_db_url` / `log_db_token` (optional) | **Turso (commit-log DB)** | same | Read-only view of the MLS control-plane tables once split out (`config.rs:7-11`). Same operator, same protocol — not a distinct trust domain. |
 | `r2_endpoint` + `r2_*` creds | **Cloudflare R2** | HTTPS + AWS SigV4 | Encrypted attachment / avatar object storage. |
 | `livekit_url` / `livekit_api_*` | **LiveKit** | WebSocket signalling + WebRTC (DTLS-SRTP) | SFU for realtime events + voice frames. |
@@ -57,7 +57,7 @@ This is the section to be most honest in. The overlay's value is real but narrow
 
 ### 2.1 What it defends: network-layer IP metadata
 
-Today, when a client opens its direct libSQL connection to Turso (`ARCHITECTURE.md`: "1 network hop — simple and fast"), Turso's operator sees the client's **source IP** on every Hrana stream. The whitepaper lists exactly this under what Turso can observe: *"connection patterns (IP address, libSQL Hrana streams)"* (`docs/security-whitepaper.md` §1.2). Same for LiveKit (RTP routing metadata + source IP) and the DS.
+Today, when a client opens its direct libSQL read connection to Turso (one network hop — see `ARCHITECTURE.md` §Network architecture), Turso's operator sees the client's **source IP** on every Hrana stream. The whitepaper lists exactly this under what Turso can observe: *"connection patterns (IP address, libSQL Hrana streams)"* (`docs/security-whitepaper.md` §1.2). Same for LiveKit (RTP routing metadata + source IP) and the DS.
 
 With the overlay on, a relayed request reaches the service **wearing the relay peer's IP**. The service operator sees a connection from the relay, not from the originating user. The property delivered is:
 
@@ -222,7 +222,7 @@ Relays **batch and reorder** messages, adding deliberate delay and cover traffic
 
 ### 6.4 Plane splitting — the key architectural move
 
-The tension: **every hop taxes latency**, and Pollis explicitly wants to be "the fastest secure messenger" (media in Rust, direct Turso, "1 network hop — simple and fast," `ARCHITECTURE.md`). You cannot put real-time voice behind a 3-hop onion circuit and keep that claim.
+The tension: **every hop taxes latency**, and Pollis explicitly wants to be "the fastest secure messenger" (media in Rust, direct Turso reads, one network hop — `ARCHITECTURE.md` §Network architecture). You cannot put real-time voice behind a 3-hop onion circuit and keep that claim.
 
 Resolution: **split the traffic into two planes and treat them differently.**
 
@@ -233,7 +233,7 @@ Resolution: **split the traffic into two planes and treat them differently.**
 
 | Path | Added one-way latency | Notes |
 |---|---|---|
-| Direct to Turso/DS (today) | 0 (baseline) | `ARCHITECTURE.md`: "1 network hop" |
+| Direct to Turso/DS (today) | 0 (baseline) | One hop — `ARCHITECTURE.md` §Network architecture |
 | v0 single-hop control plane | +1 RTT to relay (~10–40 ms typical, region-dependent) | Invisible for async CRUD/commits |
 | v1 3-hop onion control plane | +3 RTT + 3× onion crypto (~40–150 ms) | Fine for async ops; not for interactive |
 | Voice via overlay (**avoid**) | +1–3 RTT into the interactive budget | Breaks the fast-voice claim; media stays direct |
