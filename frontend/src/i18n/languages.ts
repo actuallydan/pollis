@@ -30,6 +30,7 @@ const SHIPPED_LANGUAGES: readonly LanguageOption[] = [
   { code: "en", label: "English", dir: "ltr" },
   { code: "es", label: "Español", dir: "ltr" },
   { code: "ru", label: "Русский", dir: "ltr" },
+  { code: "fr", label: "Français", dir: "ltr" },
 ];
 
 /**
