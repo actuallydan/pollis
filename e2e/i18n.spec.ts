@@ -394,3 +394,79 @@ for (const skin of SKINS) {
     });
   });
 }
+
+/**
+ * Every SHIPPED locale actually renders — not just the synthetic one.
+ *
+ * The tests above all drive `qtt`, which proves the machinery works but says
+ * nothing about the real catalogues. That gap is not theoretical: Simplified
+ * Chinese was very nearly shipped as `zh-Hans`, a tag this app's own
+ * `normalizeLanguage` and i18next's canonicalization reject from opposite
+ * ends. The catalogue would have been complete, the key validator green, the
+ * type checker happy, and every user would have seen English.
+ *
+ * So this walks the registry itself rather than a hardcoded list — a locale
+ * added later is covered the moment it is registered — and asserts each one
+ * renders its OWN word for "Language", which is distinct in all seven.
+ */
+const SHIPPED = JSON.parse(
+  JSON.stringify(
+    (() => {
+      const source = fs.readFileSync(
+        path.join(__dirname, "../frontend/src/i18n/languages.ts"),
+        "utf8",
+      );
+      const block = source.slice(
+        source.indexOf("SHIPPED_LANGUAGES: readonly"),
+        source.indexOf("];", source.indexOf("SHIPPED_LANGUAGES: readonly")),
+      );
+      return [...block.matchAll(/\{\s*code:\s*"([\w-]+)".*?dir:\s*"(ltr|rtl)"/g)].map(
+        ([, code, dir]) => ({ code, dir }),
+      );
+    })(),
+  ),
+) as Array<{ code: string; dir: "ltr" | "rtl" }>;
+
+test.describe("shipped locales", () => {
+  test("the registry is the seven we intend to ship", () => {
+    expect(SHIPPED.map((l) => l.code)).toEqual([
+      "en",
+      "es",
+      "uk",
+      "fr",
+      "ru",
+      "zh",
+      "ar",
+    ]);
+  });
+
+  for (const { code, dir } of SHIPPED.filter((l) => l.code !== "en")) {
+    test(`${code} renders its own catalogue rather than falling back`, async ({
+      page,
+    }) => {
+      // Read the expectation from the catalogue on disk, so this cannot drift
+      // from the translation and cannot be satisfied by a stale literal.
+      const heading = JSON.parse(
+        fs.readFileSync(
+          path.join(
+            __dirname,
+            `../frontend/src/i18n/locales/${code}/settings.json`,
+          ),
+          "utf8",
+        ),
+      ).language.heading as string;
+      expect(heading).not.toBe(EN_HEADING);
+
+      await boot(page, "terminal");
+      await gotoPreferences(page);
+      await page.getByTestId(`pref-language-${code}`).click();
+
+      await expect(page.getByTestId("pref-language-heading")).toHaveText(heading);
+      await expect(page.locator("html")).toHaveAttribute("lang", code);
+      // Direction travels with the language; Arabic is the only rtl entry.
+      await expect(page.locator("html")).toHaveAttribute("dir", dir);
+      // A locale that silently half-loaded would leak raw keys somewhere.
+      expect(await rawKeyLeaks(page)).toEqual([]);
+    });
+  }
+});
