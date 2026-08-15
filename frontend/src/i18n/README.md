@@ -45,6 +45,8 @@ That one covers the design decisions; this one is the working checklist.
    machines you are shipping for anyway. Script differences that matter (`zh`
    Simplified vs Traditional) are one locale per catalogue, distinguished by
    the endonym, and would need `normalizeLanguage` reworked to ship both.
+   Setting `dir: "rtl"` flips `<html dir>` but does **not** flip the component
+   layout — see the RTL section of the wiki article for what still assumes LTR.
 
 4. **Check the plural forms.** See below — this is the step that gets skipped
    and it is the one that cannot be fixed later without a re-translation.
@@ -118,6 +120,15 @@ exactly those.
 
 **A count rendered next to a static noun is still a count-bearing string.**
 `<b>{n}</b> members` must be one plural key, not a number glued to `t("members")`.
+
+**Arabic needs all six**: `_zero`, `_one`, `_two`, `_few` (n%100 = 3–10),
+`_many` (n%100 = 11–99), `_other`. English's 38 plural families become 228
+`ar` keys. A family missing one category does not error — it falls back to
+English mid-sentence — so check every family, not a sample.
+
+`{{count}}` is plain interpolation, never `Intl.NumberFormat`: it renders
+ASCII digits in every locale, `ar` included. Write literal digits in a
+catalogue as ASCII to match.
 
 ## What is NOT translated
 

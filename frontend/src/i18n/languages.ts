@@ -40,6 +40,7 @@ const SHIPPED_LANGUAGES: readonly LanguageOption[] = [
   // renders English. `zh` is also what every real OS tag degrades to
   // (`zh-CN`, `zh-Hans-CN`), which the script subtag would not have matched.
   { code: "zh", label: "简体中文", dir: "ltr" },
+  { code: "ar", label: "العربية", dir: "rtl" },
 ];
 
 /**
