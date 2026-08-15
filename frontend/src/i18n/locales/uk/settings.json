@@ -273,7 +273,7 @@
     "mediaNoteOther": "Керування дозволами на медіа недоступне на цій платформі.",
     "dangerZoneHeading": "Небезпечна зона",
     "dangerZoneDescription": "Назавжди видалити ваш обліковий запис і всі пов'язані з ним дані. Скасувати це неможливо.",
-    "deleteConfirmLabel": "Введіть DELETE для підтвердження",
+    "deleteConfirmLabel": "Введіть {{word}} для підтвердження",
     "deleteAccountButton": "Видалити мій обліковий запис",
     "deletingAccount": "Видалення облікового запису…",
     "deleteAccountFailed": "Не вдалося видалити обліковий запис"

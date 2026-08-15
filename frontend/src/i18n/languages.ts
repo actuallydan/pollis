@@ -29,8 +29,9 @@ export const DEFAULT_LANGUAGE = "en";
 const SHIPPED_LANGUAGES: readonly LanguageOption[] = [
   { code: "en", label: "English", dir: "ltr" },
   { code: "es", label: "Español", dir: "ltr" },
-  { code: "ru", label: "Русский", dir: "ltr" },
+  { code: "uk", label: "Українська", dir: "ltr" },
   { code: "fr", label: "Français", dir: "ltr" },
+  { code: "ru", label: "Русский", dir: "ltr" },
   // Simplified Chinese ships as the base tag `zh`, not `zh-Hans`. The script
   // subtag cannot survive this file's own contract: `normalizeLanguage`
   // lowercases every tag, while i18next canonicalizes codes through
@@ -41,7 +42,6 @@ const SHIPPED_LANGUAGES: readonly LanguageOption[] = [
   // (`zh-CN`, `zh-Hans-CN`), which the script subtag would not have matched.
   { code: "zh", label: "简体中文", dir: "ltr" },
   { code: "ar", label: "العربية", dir: "rtl" },
-  { code: "uk", label: "Українська", dir: "ltr" },
 ];
 
 /**
