@@ -122,6 +122,13 @@ const sectionHeaderStyle: React.CSSProperties = {
   borderColor: "var(--c-border)",
 };
 
+// The word the user must type to arm account deletion. Deliberately NOT part
+// of the translatable copy: the label and placeholder are interpolated from
+// this constant, so a locale cannot instruct the user to type a word the
+// comparison will never accept — which would make the button permanently dead
+// for everyone reading that language.
+const DELETE_CONFIRM_WORD = "DELETE";
+
 export const SecurityPage: React.FC = observer(() => {
   const { t } = useTranslation("settings");
   const navigate = useNavigate();
@@ -296,7 +303,7 @@ export const SecurityPage: React.FC = observer(() => {
     if (!currentUser) {
       return;
     }
-    if (deleteConfirmText !== "DELETE") {
+    if (deleteConfirmText !== DELETE_CONFIRM_WORD) {
       return;
     }
     setIsDeleting(true);
@@ -789,12 +796,12 @@ export const SecurityPage: React.FC = observer(() => {
             </p>
 
             <TextInput
-              label={t("security.deleteConfirmLabel")}
+              label={t("security.deleteConfirmLabel", { word: DELETE_CONFIRM_WORD })}
               id="settings-delete-confirm"
               data-testid="settings-delete-confirm-input"
               value={deleteConfirmText}
               onChange={setDeleteConfirmText}
-              placeholder="DELETE"
+              placeholder={DELETE_CONFIRM_WORD}
               disabled={isDeleting}
               error={deleteError || undefined}
             />
@@ -802,7 +809,7 @@ export const SecurityPage: React.FC = observer(() => {
             <Button
               data-testid="settings-delete-account-button"
               onClick={handleDeleteAccount}
-              disabled={deleteConfirmText !== "DELETE" || isDeleting}
+              disabled={deleteConfirmText !== DELETE_CONFIRM_WORD || isDeleting}
               isLoading={isDeleting}
               loadingText={t("security.deletingAccount")}
               variant="danger"

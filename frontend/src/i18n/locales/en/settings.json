@@ -261,7 +261,7 @@
     "mediaNoteOther": "Media permission controls aren't available on this platform.",
     "dangerZoneHeading": "Danger Zone",
     "dangerZoneDescription": "Permanently delete your account and all associated data. This cannot be undone.",
-    "deleteConfirmLabel": "Type DELETE to confirm",
+    "deleteConfirmLabel": "Type {{word}} to confirm",
     "deleteAccountButton": "Delete my account",
     "deletingAccount": "Deleting account…",
     "deleteAccountFailed": "Failed to delete account"
