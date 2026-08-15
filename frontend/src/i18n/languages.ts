@@ -28,6 +28,15 @@ export const DEFAULT_LANGUAGE = "en";
  */
 const SHIPPED_LANGUAGES: readonly LanguageOption[] = [
   { code: "en", label: "English", dir: "ltr" },
+  // Simplified Chinese ships as the base tag `zh`, not `zh-Hans`. The script
+  // subtag cannot survive this file's own contract: `normalizeLanguage`
+  // lowercases every tag, while i18next canonicalizes codes through
+  // `Intl.getCanonicalLocales` before testing them against `supportedLngs`.
+  // A `zh-hans` entry is therefore rejected by i18next and a `zh-Hans` entry
+  // is rejected by `normalizeLanguage` — either way the catalogue silently
+  // renders English. `zh` is also what every real OS tag degrades to
+  // (`zh-CN`, `zh-Hans-CN`), which the script subtag would not have matched.
+  { code: "zh", label: "简体中文", dir: "ltr" },
 ];
 
 /**
