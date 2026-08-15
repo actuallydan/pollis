@@ -48,7 +48,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
       <div className="relative">
         {isFocused && !disabled && (
           <ChevronRight
-            className="absolute left-2 top-3 w-3 h-3 pointer-events-none"
+            className="absolute start-2 top-3 w-3 h-3 pointer-events-none rtl-mirror"
             style={{ color: "var(--c-accent)" }}
           />
         )}

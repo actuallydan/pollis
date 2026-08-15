@@ -56,6 +56,7 @@ export const CreatedInviteLinkCard: React.FC<CreatedInviteLinkCardProps> = ({ li
         <p className="mt-1 text-xs text-dim">{t("inviteLinks.copyNotice")}</p>
         <div className="mt-3 flex items-center gap-2">
           <code
+            dir="ltr"
             data-testid="created-invite-link-url"
             className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded border border-line bg-surface px-3 py-2 text-xs text-fg"
           >
@@ -88,6 +89,7 @@ export const CreatedInviteLinkCard: React.FC<CreatedInviteLinkCardProps> = ({ li
       <p className="mt-1 text-xs text-dim">{t("inviteLinks.copyNotice")}</p>
       <div className="mt-2 flex items-center gap-2">
         <code
+          dir="ltr"
           data-testid="created-invite-link-url"
           className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap border border-line bg-bg px-2 py-1.5 text-xs text-fg"
         >

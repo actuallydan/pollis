@@ -106,7 +106,7 @@ export const MentionSuggestList: React.FC<MentionSuggestListProps> = ({
                 onSelect(c);
               }}
               onMouseEnter={() => onHover(i)}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-hover ${
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-start text-sm hover:bg-hover ${
                 isActive ? "bg-active" : ""
               }`}
             >

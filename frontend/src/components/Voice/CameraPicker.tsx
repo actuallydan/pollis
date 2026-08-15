@@ -105,7 +105,7 @@ export const CameraPicker: React.FC = observer(() => {
               onClick={() => handlePick(c)}
               disabled={busy}
               data-testid={`camera-picker-device-${c.id}`}
-              className="text-left font-mono text-xs disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)] rounded-[6px]"
+              className="text-start font-mono text-xs disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)] rounded-[6px]"
               style={{ minHeight: 100 }}
             >
               <Card padding="none" className="flex flex-col items-stretch h-full overflow-hidden">

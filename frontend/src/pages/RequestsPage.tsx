@@ -94,7 +94,7 @@ export const RequestsPage: React.FC = observer(() => {
                   {name}
                   {groupSize > 2 && (
                     <span
-                      className="ml-2 text-xs"
+                      className="ms-2 text-xs"
                       style={{ color: "var(--c-text-muted)" }}
                     >
                       {t("requests.others", { count: groupSize - 2 })}

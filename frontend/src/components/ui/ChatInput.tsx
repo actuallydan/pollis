@@ -759,7 +759,7 @@ const ChatInputInner: React.ForwardRefRenderFunction<ChatInputHandle, ChatInputP
             opacity: disabled || (!message.trim() && !attachments.length) ? 0.3 : 1,
           }}
         >
-          <ChevronRight className="w-4 h-4" />
+          <ChevronRight className="w-4 h-4 rtl-mirror" />
         </button>
       </div>
 

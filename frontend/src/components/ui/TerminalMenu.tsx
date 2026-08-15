@@ -215,7 +215,7 @@ export const TerminalMenu: React.FC<TerminalMenuProps> = ({
               {/* Chevron indicator — stays centered in the full row height */}
               <div className="w-4 h-4 flex-shrink-0 flex items-center justify-center">
                 {isSelected
-                  ? <ChevronRight className="w-4 h-4" style={{ color: "var(--c-accent)" }} />
+                  ? <ChevronRight className="w-4 h-4 rtl-mirror" style={{ color: "var(--c-accent)" }} />
                   : <div className="w-4 h-4" />
                 }
               </div>

@@ -152,7 +152,7 @@ export const EmailOTPAuth: React.FC<EmailOTPAuthProps> = ({ onSuccess, prefillEm
           className="inline-flex items-center gap-1 leading-none text-xs font-mono"
           style={{ color: 'var(--c-text-muted)' }}
         >
-          <ArrowLeft size={14} /> {t('common:actions.back')}
+          <ArrowLeft size={14} className="rtl-mirror" /> {t('common:actions.back')}
         </button>
       </div>
     );

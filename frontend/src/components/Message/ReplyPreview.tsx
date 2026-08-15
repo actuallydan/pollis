@@ -51,7 +51,7 @@ export const ReplyPreview: React.FC<ReplyPreviewProps> = ({
           data-testid="reply-preview-scroll-button"
           onClick={() => onScrollToMessage?.(messageId)}
           aria-label={t('replyBar.scrollToMessage')}
-          className="block w-full text-left"
+          className="block w-full text-start"
         >
           <p className="text-xs font-mono truncate" style={{ color: 'var(--c-accent-dim)' }}>{snippet}</p>
         </button>

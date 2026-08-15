@@ -90,7 +90,7 @@ export const MessageReactions: React.FC<MessageReactionsProps> = observer(({ mes
   const hasReactions = reactions.length > 0;
 
   return (
-    <div className="flex items-center flex-wrap gap-1 ml-[3.25rem] mt-0.5">
+    <div className="flex items-center flex-wrap gap-1 ms-[3.25rem] mt-0.5">
       {/* Existing reaction pills */}
       {hasReactions && reactions.map((reaction) => {
         const reacted = currentUser
@@ -138,7 +138,7 @@ export const MessageReactions: React.FC<MessageReactionsProps> = observer(({ mes
           wrapper — no portal, no fixed overlay, no backdrop.
         */}
         {pickerOpen && (
-          <div data-testid="reaction-picker" className="absolute bottom-full mb-1 left-0 z-40">
+          <div data-testid="reaction-picker" className="absolute bottom-full mb-1 start-0 z-40">
             <EmojiPicker onSelect={handlePickerEmoji} onClose={() => setPickerOpen(false)} closeOnSelect />
           </div>
         )}

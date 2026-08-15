@@ -183,7 +183,7 @@ export const BreadcrumbNav: React.FC = observer(() => {
             aria-label={t("common:actions.back")}
             className="flex items-center justify-center text-dim transition-colors hover:text-accent"
           >
-            <ChevronLeft size={18} />
+            <ChevronLeft size={18} className="rtl-mirror" />
           </button>
         ) : (
           <div className="w-[18px]" aria-hidden="true" />
@@ -202,7 +202,7 @@ export const BreadcrumbNav: React.FC = observer(() => {
                   </span>
                 )}
                 {isLast ? (
-                  <span className="truncate font-semibold text-accent">{seg.label}</span>
+                  <bdi className="truncate font-semibold text-accent">{seg.label}</bdi>
                 ) : (
                   <button
                     onClick={() => router.navigate({ to: seg.to })}
@@ -255,8 +255,8 @@ export const BreadcrumbNav: React.FC = observer(() => {
         display: "flex",
         alignItems: "center",
         gap: 8,
-        paddingLeft: 8,
-        paddingRight: 12,
+        paddingInlineStart: 8,
+        paddingInlineEnd: 12,
       }}
     >
       {parentTo ? (
@@ -274,7 +274,7 @@ export const BreadcrumbNav: React.FC = observer(() => {
             cursor: "pointer",
           }}
         >
-          <ChevronLeft size={14} />
+          <ChevronLeft size={14} className="rtl-mirror" />
         </button>
       ) : (
         <div style={{ width: 20, height: 20 }} aria-hidden="true" />
@@ -288,7 +288,7 @@ export const BreadcrumbNav: React.FC = observer(() => {
           <React.Fragment key={`${seg.to}-${i}`}>
             {i > 0 && <span style={{ opacity: 0.5 }}> / </span>}
             {i === segments.length - 1 ? (
-              <span style={{ color: "var(--c-text)" }}>{seg.label}</span>
+              <bdi style={{ color: "var(--c-text)" }}>{seg.label}</bdi>
             ) : (
               <button
                 onClick={() => router.navigate({ to: seg.to })}

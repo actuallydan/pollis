@@ -56,7 +56,7 @@ export const RightPanel: React.FC = observer(() => {
       // refined re-points `.font-mono:not(.font-machine)` at the sans face.
       // Width tracks `--side-w` so the panel mirrors the left sidebar's
       // per-skin measure instead of a fixed 18rem.
-      className="flex w-[var(--side-w)] shrink-0 flex-col border-l border-line bg-surface font-mono"
+      className="flex w-[var(--side-w)] shrink-0 flex-col border-s border-line bg-surface font-mono"
       data-testid="right-panel"
       aria-label={t("panel.ariaLabel")}
     >
@@ -85,7 +85,7 @@ export const RightPanel: React.FC = observer(() => {
         onClick={() => setPanel("none")}
         aria-label={closeLabel}
         title={closeLabel}
-        className="flex shrink-0 cursor-pointer items-center gap-2 border-t border-line px-2.5 min-h-bar text-left text-xs text-muted transition-colors hover:text-fg"
+        className="flex shrink-0 cursor-pointer items-center gap-2 border-t border-line px-2.5 min-h-bar text-start text-xs text-muted transition-colors hover:text-fg"
       >
         <span className="flex-1">{label}</span>
         <kbd

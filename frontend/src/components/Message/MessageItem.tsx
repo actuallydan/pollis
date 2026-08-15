@@ -174,8 +174,8 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
       ? {
           background: "var(--c-accent)",
           color: "var(--c-bg)",
-          paddingLeft: "0.25rem",
-          paddingRight: "0.25rem",
+          paddingInlineStart: "0.25rem",
+          paddingInlineEnd: "0.25rem",
           borderRadius: "var(--radius-chip)",
         }
       : { color: isOwn ? "var(--c-accent)" : authorColor };
@@ -216,16 +216,16 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
                 className="flex items-center gap-1 text-xs mb-0.5 opacity-70 hover:opacity-100 transition-opacity min-w-0"
                 style={{ color: "var(--c-text-muted)" }}
               >
-                <CornerUpLeft size={12} className="flex-shrink-0" />
+                <CornerUpLeft size={12} className="flex-shrink-0 rtl-mirror" />
                 {replyToAuthor && (
-                  <span
+                  <bdi
                     className="font-semibold flex-shrink-0"
                     style={{ color: replyToAuthorColor ?? "var(--c-text-dim)" }}
                   >
                     {replyToAuthor}:
-                  </span>
+                  </bdi>
                 )}
-                <span className="truncate max-w-xs">
+                <span className="truncate max-w-xs" dir="auto">
                   {replyTo.content_decrypted?.slice(0, 80) || t("message.encrypted")}
                 </span>
               </button>
@@ -235,7 +235,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
                 className="flex items-center gap-1 text-xs mb-0.5"
                 style={{ color: "var(--c-text-dim)" }}
               >
-                <CornerUpLeft size={12} className="flex-shrink-0" />
+                <CornerUpLeft size={12} className="flex-shrink-0 rtl-mirror" />
                 <span>{t("message.redacted")}</span>
               </div>
             )
@@ -244,13 +244,13 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
           {/* Header: sender name + faint timestamp (group start only) */}
           {isGroupStart && (
             <div className="flex items-baseline gap-2 min-w-0">
-              <span
+              <bdi
                 data-testid="message-author"
                 className="text-sm font-semibold flex-shrink-0"
                 style={nameStyle}
               >
                 {displayName}
-              </span>
+              </bdi>
               <span
                 title={formatFullTimestamp(toMs(message.created_at))}
                 className="font-machine text-2xs tabular-nums select-none flex-shrink-0"
@@ -264,6 +264,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
           {/* Message body */}
           <div
             data-testid="message-content"
+            dir="auto"
             className="text-sm break-words"
             style={{
               color: isDeleted ? "var(--c-text-muted)" : "var(--c-text)",
@@ -273,12 +274,12 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
           >
             <MessageBody text={content} />
             {message.edited_at && !isDeleted && (
-              <span className="ml-1 text-xs" style={{ color: "var(--c-text-muted)" }}>
+              <span className="ms-1 text-xs" style={{ color: "var(--c-text-muted)" }}>
                 {t("message.edited")}
               </span>
             )}
             {message.status && message.status !== "sent" && (
-              <span className="ml-1 text-xs font-machine" style={{ color: "var(--c-text-muted)" }}>
+              <span className="ms-1 text-xs font-machine" style={{ color: "var(--c-text-muted)" }}>
                 [{t(`status.${message.status}`)}]
               </span>
             )}
@@ -304,14 +305,14 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
 
         {/* Floating hover action toolbar */}
         {!isDeleted && (
-          <div className="absolute right-4 top-0 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 rounded-[var(--radius-control)] border border-line bg-surface-raised px-1 py-0.5">
+          <div className="absolute end-4 top-0 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 rounded-[var(--radius-control)] border border-line bg-surface-raised px-1 py-0.5">
             <button
               data-testid="reply-button"
               onClick={() => onReply?.(message.id)}
               aria-label={t("actions.reply")}
               className="p-1 text-[var(--c-text-muted)] hover:text-[var(--c-text-accent)]"
             >
-              <Reply size={16} />
+              <Reply size={16} className="rtl-mirror" />
             </button>
             {onOpenThread && (
               <button
@@ -393,29 +394,29 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
           <button
             data-testid={`reply-preview-${message.reply_to_message_id}`}
             onClick={() => onScrollToReply?.(message.reply_to_message_id!)}
-            className="flex items-center gap-1 text-xs font-mono mb-1.5 pl-14 opacity-60 hover:opacity-90 transition-opacity"
+            className="flex items-center gap-1 text-xs font-mono mb-1.5 ps-14 opacity-60 hover:opacity-90 transition-opacity"
             style={{ color: "var(--c-text-muted)" }}
           >
-            <Reply size={10} style={{ transform: "scaleX(-1)" }} />
+            <Reply size={10} className="rtl-unmirror" />
             {replyToAuthor && (
-              <span
+              <bdi
                 className="font-semibold flex-shrink-0"
                 style={{ color: replyToAuthorColor ?? "var(--c-text-dim)" }}
               >
                 {replyToAuthor}:
-              </span>
+              </bdi>
             )}
-            <span className="truncate max-w-xs">
+            <span className="truncate max-w-xs" dir="auto">
               {replyTo.content_decrypted?.slice(0, 80) || t("message.encrypted")}
             </span>
           </button>
         ) : (
           <div
             data-testid={`reply-preview-${message.reply_to_message_id}`}
-            className="flex items-center gap-1 text-xs font-mono mb-1.5 pl-14"
+            className="flex items-center gap-1 text-xs font-mono mb-1.5 ps-14"
             style={{ color: "var(--c-text-dim)" }}
           >
-            <Reply size={10} style={{ transform: "scaleX(-1)" }} />
+            <Reply size={10} className="rtl-unmirror" />
             <span>{t("message.redacted")}</span>
           </div>
         )
@@ -432,24 +433,24 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
           {formatTimeOfDay(toMs(message.created_at))}
         </span>
 
-        <span
+        <bdi
           data-testid="message-author"
-          className="flex-shrink-0 font-mono text-sm font-semibold mr-1"
+          className="flex-shrink-0 font-mono text-sm font-semibold me-1"
           style={isAuthorAdmin ? {
             background: "var(--c-accent)",
             color: "var(--c-bg)",
-            paddingLeft: "0.25rem",
-            paddingRight: "0.25rem",
+            paddingInlineStart: "0.25rem",
+            paddingInlineEnd: "0.25rem",
             borderRadius: "0.125rem",
           } : {
             color: isOwn ? "var(--c-accent)" : authorColor,
           }}
         >
           {displayName}
-        </span>
+        </bdi>
 
         <span
-          className="font-mono text-sm select-none mr-1 flex-shrink-0"
+          className="font-mono text-sm select-none me-1 flex-shrink-0"
           style={{ color: "var(--c-text-muted)" }}
           aria-hidden="true"
         >
@@ -458,6 +459,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
 
         <span
           data-testid="message-content"
+          dir="auto"
           className="font-mono text-sm break-words flex-1 min-w-0"
           style={{
             color: isDeleted ? "var(--c-text-muted)" : "var(--c-text)",
@@ -466,12 +468,12 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
         >
           <MessageBody text={content} />
           {message.edited_at && !isDeleted && (
-            <span className="ml-1 text-xs" style={{ color: "var(--c-text-muted)" }}>
+            <span className="ms-1 text-xs" style={{ color: "var(--c-text-muted)" }}>
               {t("message.edited")}
             </span>
           )}
           {message.status && message.status !== "sent" && (
-            <span className="ml-1 text-xs" style={{ color: "var(--c-text-muted)" }}>
+            <span className="ms-1 text-xs" style={{ color: "var(--c-text-muted)" }}>
               [{t(`status.${message.status}`)}]
             </span>
           )}
@@ -484,14 +486,14 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
 
         {/* Action buttons — only visible on hover */}
         {!isDeleted && (
-          <div className="flex-shrink-0 ml-2 flex items-center gap-4 h-6">
+          <div className="flex-shrink-0 ms-2 flex items-center gap-4 h-6">
             <button
               data-testid="reply-button"
               onClick={() => onReply?.(message.id)}
               aria-label={t("actions.reply")}
               className="opacity-0 group-hover:opacity-100 text-[var(--c-text-muted)] hover:text-[var(--c-text-accent)]"
             >
-              <Reply size={18} />
+              <Reply size={18} className="rtl-mirror" />
             </button>
             {onOpenThread && (
               <button

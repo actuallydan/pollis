@@ -271,8 +271,10 @@ export const VoiceStage: React.FC<VoiceStageProps> = observer(
         {callMode ? (
           <PhoneOff size={14} />
         ) : (
-          // Exit arrow points left (mirrored) — a "leave" gesture.
-          <LogOut size={14} style={{ transform: "scaleX(-1)" }} />
+          // Exit arrow points against the reading direction (mirrored) — a
+          // "leave" gesture. `rtl-unmirror` returns it to its natural drawing
+          // under `dir=rtl`, where "backwards" is rightwards.
+          <LogOut size={14} className="rtl-unmirror" />
         )}
         {callMode ? t("stage.hangUp") : t("stage.leave")}
       </button>
@@ -288,9 +290,9 @@ export const VoiceStage: React.FC<VoiceStageProps> = observer(
           <button
             onClick={onBack}
             aria-label={t("common:actions.back")}
-            className="mr-3 inline-flex items-center gap-1 leading-none transition-colors text-[var(--c-text-muted)] hover:text-[var(--c-accent)]"
+            className="me-3 inline-flex items-center gap-1 leading-none transition-colors text-[var(--c-text-muted)] hover:text-[var(--c-accent)]"
           >
-            <ArrowLeft size={12} />
+            <ArrowLeft size={12} className="rtl-mirror" />
           </button>
           <span style={{ flex: 1, color: "var(--c-accent)" }} className="flex items-center gap-1.5">
             {callMode ? <Phone size={12} /> : <Volume2 size={12} />}

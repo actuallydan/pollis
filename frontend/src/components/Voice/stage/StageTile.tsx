@@ -201,7 +201,7 @@ export const StageTile: React.FC<Props> = ({
           ) : (
             <span className={"vs-ic" + (p.isSpeaking ? " accent" : "")}><Mic size={13} /></span>
           )}
-          <span className="vs-nm" title={p.name}>{p.name}</span>
+          <bdi className="vs-nm" title={p.name}>{p.name}</bdi>
         </span>
       </div>
 

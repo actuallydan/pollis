@@ -229,7 +229,7 @@ export function NavigableList<T>({
   if (items.length === 0) {
     return (
       <div className="flex-1" style={{ paddingTop: "1rem", paddingLeft: "1rem", paddingRight: "1rem" }}>
-        <p className="text-xs font-mono text-left" style={{ color: "var(--c-text-dim)" }}>
+        <p className="text-xs font-mono text-start" style={{ color: "var(--c-text-dim)" }}>
           {resolvedEmptyLabel}
         </p>
       </div>

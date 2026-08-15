@@ -63,7 +63,7 @@ const DeviceSelect: React.FC<DeviceSelectProps> = ({ label, devices, value, onCh
       </select>
       <ChevronDown
         size={14}
-        className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
+        className="absolute end-2 top-1/2 -translate-y-1/2 pointer-events-none"
         style={{ color: "var(--c-text-muted)" }}
       />
     </div>
@@ -107,7 +107,7 @@ const NoiseSuppressionSelect: React.FC<NoiseSuppressionSelectProps> = ({ value, 
         </select>
         <ChevronDown
           size={14}
-          className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
+          className="absolute end-2 top-1/2 -translate-y-1/2 pointer-events-none"
           style={{ color: "var(--c-text-muted)" }}
         />
       </div>
@@ -200,7 +200,11 @@ const selectStyle: React.CSSProperties = {
   background: "var(--c-surface)",
   color: "var(--c-text)",
   border: "2px solid var(--c-border)",
-  padding: "6px 28px 6px 8px",
+  // Logical padding: the trailing 28px reserves room for the caret, which
+  // sits on the inline-END edge and therefore swaps sides under `dir=rtl`.
+  paddingBlock: "6px",
+  paddingInlineStart: "8px",
+  paddingInlineEnd: "28px",
   fontFamily: "var(--font-mono)",
   fontSize: "inherit",
   outline: "none",

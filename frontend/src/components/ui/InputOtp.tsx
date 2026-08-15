@@ -79,7 +79,12 @@ export const InputOtp: React.FC<InputOtpProps> = ({
   };
 
   return (
-    <div className="flex items-center gap-1 justify-evenly">
+    // Pinned `ltr`: a 6-digit code is read left-to-right in every locale,
+    // and this row IS the code. Left to inherit `dir=rtl` the boxes reverse,
+    // so box 1 renders rightmost while the digits still read leftmost-first.
+    // Keeping the container LTR also keeps ArrowLeft/ArrowRight meaning
+    // previous/next, which is what `handleKeyDown` assumes.
+    <div dir="ltr" className="flex items-center gap-1 justify-evenly">
       {digits.map((digit, index) => {
         const isFocused = focusedIndex === index;
         return (

@@ -95,7 +95,7 @@ export const GroupsPage: React.FC = observer(() => {
   items.push({
     id: "__back__",
     label: t("common:actions.goBack"),
-    icon: <ArrowLeft size={14} />,
+    icon: <ArrowLeft size={14} className="rtl-mirror" />,
     action: () => navigate({ to: "/" }),
     type: "system",
   });

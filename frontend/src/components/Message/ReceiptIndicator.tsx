@@ -60,7 +60,7 @@ export function ReceiptIndicator({ receipts, peerCount, visible }: ReceiptIndica
 
   return (
     <span
-      className={`ml-1 inline-flex items-center gap-0.5 align-middle ${tone}`}
+      className={`ms-1 inline-flex items-center gap-0.5 align-middle ${tone}`}
       title={label}
       aria-label={label}
       data-testid={`receipt-${receipts.message_id}`}

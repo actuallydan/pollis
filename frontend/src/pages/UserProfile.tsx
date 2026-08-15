@@ -66,7 +66,7 @@ export const UserProfilePage: React.FC = observer(() => {
         {
           id: "back",
           label: t("common:actions.goBack"),
-          icon: <ArrowLeft size={14} />,
+          icon: <ArrowLeft size={14} className="rtl-mirror" />,
           action: () => navigate({ to: "/dms" }),
           type: "system",
           testId: "user-profile-back",
@@ -94,7 +94,7 @@ export const UserProfilePage: React.FC = observer(() => {
         {
           id: "back",
           label: t("common:actions.goBack"),
-          icon: <ArrowLeft size={14} />,
+          icon: <ArrowLeft size={14} className="rtl-mirror" />,
           action: () => navigate({ to: "/dms" }),
           type: "system",
           testId: "user-profile-back",
@@ -182,6 +182,7 @@ export const UserProfilePage: React.FC = observer(() => {
                   </div>
                   <div className="flex items-start gap-4">
                     <code
+                      dir="ltr"
                       data-testid="safety-number-digits"
                       className="font-mono text-sm leading-relaxed break-all flex-1"
                       style={{ color: "var(--c-text)" }}

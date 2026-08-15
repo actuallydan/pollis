@@ -41,10 +41,12 @@ const iconProps = {
   className: "size-[0.933rem] shrink-0",
 } as const;
 
-// Per-depth left padding (10 + indent*16 px @ 15px base ⇒ rem, scalable).
+// Per-depth LEADING padding (10 + indent*16 px @ 15px base ⇒ rem, scalable).
+// Logical (`ps-`), not `pl-`: the indent scheme is the reading-order nesting
+// of the tree, so under `dir=rtl` it has to grow from the right edge.
 // indent is only ever 1 (group / dm / settings) or 2 (channel).
 const indentPadClass = (indent: number): string =>
-  indent >= 2 ? "pl-[2.8rem]" : "pl-[1.733rem]";
+  indent >= 2 ? "ps-[2.8rem]" : "ps-[1.733rem]";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -159,7 +161,7 @@ export const Sidebar: React.FC<SidebarProps> = observer(({ isOpen, onToggle }) =
   return (
     <aside
       data-testid="sidebar"
-      className="flex w-[var(--side-w)] shrink-0 flex-col border-r border-line bg-surface font-mono"
+      className="flex w-[var(--side-w)] shrink-0 flex-col border-e border-line bg-surface font-mono"
     >
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
         <SectionHeader
@@ -334,7 +336,7 @@ export const Sidebar: React.FC<SidebarProps> = observer(({ isOpen, onToggle }) =
           onClick={onToggle}
           aria-label={t("sidebar.close", { shortcut: toggleSidebarLabel })}
           title={t("sidebar.close", { shortcut: toggleSidebarLabel })}
-          className="flex shrink-0 items-center gap-2 px-2.5 min-h-bar border-t border-line text-xs text-left cursor-pointer transition-colors text-muted hover:text-fg"
+          className="flex shrink-0 items-center gap-2 px-2.5 min-h-bar border-t border-line text-xs text-start cursor-pointer transition-colors text-muted hover:text-fg"
         >
           <span className="flex-1">{t("common:actions.close")}</span>
           <kbd
@@ -367,7 +369,7 @@ interface SectionHeaderProps {
 const SectionHeader: React.FC<SectionHeaderProps> = ({ testId, label, icon, isActive, onClick, badge, bordered, borderedBottom }) => {
   const cls = [
     "sticky top-0 z-[1] flex w-full h-bar items-center gap-1.5 px-2.5",
-    "uppercase tracking-[0.08em] text-left cursor-pointer",
+    "uppercase tracking-[0.08em] text-start cursor-pointer",
     "transition-colors duration-75 bg-surface hover:bg-hover",
     isActive ? "text-accent" : "text-muted",
     bordered ? "mt-1 border-t border-line" : "",
@@ -412,7 +414,7 @@ const Row: React.FC<RowProps> = ({ indent, isActive, onClick, leading, chevron, 
   return (
     <div
       data-active={isActive ? "true" : "false"}
-      className={`sidebar-row flex w-full items-stretch border-l-2 transition-colors ${
+      className={`sidebar-row flex w-full items-stretch border-s-2 transition-colors ${
         isActive
           ? "bg-hover border-accent text-accent"
           : "bg-transparent border-transparent text-fg hover:bg-hover"
@@ -427,20 +429,27 @@ const Row: React.FC<RowProps> = ({ indent, isActive, onClick, leading, chevron, 
             chevron.onToggle();
           }}
           aria-label={chevron.ariaLabel}
-          className={`inline-flex items-center pr-0 cursor-pointer text-inherit ${indentPadClass(indent)}`}
+          className={`inline-flex items-center pe-0 cursor-pointer text-inherit ${indentPadClass(indent)}`}
         >
-          {chevron.isCollapsed ? <ChevronRight {...iconProps} /> : <ChevronDown {...iconProps} />}
+          {chevron.isCollapsed ? (
+            <ChevronRight {...iconProps} className={`${iconProps.className} rtl-mirror`} />
+          ) : (
+            <ChevronDown {...iconProps} />
+          )}
         </button>
       )}
       <button
         type="button"
         onClick={onClick}
-        className={`flex flex-1 min-w-0 items-center gap-1.5 py-0.5 pr-2.5 text-base text-left cursor-pointer text-inherit ${
-          chevron ? "pl-[0.4rem]" : indentPadClass(indent)
+        className={`flex flex-1 min-w-0 items-center gap-1.5 py-0.5 pe-2.5 text-base text-start cursor-pointer text-inherit ${
+          chevron ? "ps-[0.4rem]" : indentPadClass(indent)
         }`}
       >
         {leading}
-        <span className="flex-1 truncate">{label}</span>
+        {/* Group / channel / DM names are user-generated: isolate them so a
+            Latin name in an Arabic sidebar (or the reverse) cannot drag the
+            trailing badge to the wrong end of the row. */}
+        <bdi className="flex-1 truncate">{label}</bdi>
         {trailing}
         {badge != null && <UnreadBadge count={badge} />}
       </button>

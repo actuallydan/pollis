@@ -63,7 +63,9 @@ export const EmojiPickerButton: React.FC<EmojiPickerButtonProps> = ({
 
   const positionClass = [
     placement === "up" ? "bottom-full mb-1" : "top-full mt-1",
-    align === "right" ? "right-0" : "left-0",
+    // `start`/`end`, not `left`/`right`: the panel is anchored to the edge
+    // of the trigger that faces INTO the content, which swaps under RTL.
+    align === "right" ? "end-0" : "start-0",
   ].join(" ");
 
   return (

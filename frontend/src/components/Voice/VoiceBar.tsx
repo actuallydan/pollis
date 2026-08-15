@@ -81,7 +81,7 @@ export const VoiceBar: React.FC<VoiceBarProps> = observer(({ channelId, channelN
   return (
     <div
       data-testid="voice-bar"
-      className="flex items-center pl-1 pr-3 gap-2 font-mono text-xs flex-shrink-0"
+      className="flex items-center ps-1 pe-3 gap-2 font-mono text-xs flex-shrink-0"
       style={{
         height: 28,
         borderTop: "1px solid var(--c-border)",

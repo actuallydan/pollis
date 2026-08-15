@@ -88,7 +88,7 @@ export const Members: React.FC<MembersProps> = observer(({ groupId, isAdmin }) =
             <span className="truncate">{m.username ?? m.user_id}</span>
             {badge}
             {isSelf && (
-              <span className="ml-1" style={{ color: "var(--c-text-muted)" }}>
+              <span className="ms-1" style={{ color: "var(--c-text-muted)" }}>
                 {t("members.self")}
               </span>
             )}

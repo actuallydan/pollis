@@ -161,7 +161,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigateToConversation
                 <button
                   data-testid="search-result-item"
                   onClick={() => handleResultClick(result)}
-                  className="w-full text-left px-4 py-3 transition-colors bg-transparent hover:bg-[var(--c-hover)]"
+                  className="w-full text-start px-4 py-3 transition-colors bg-transparent hover:bg-[var(--c-hover)]"
                   style={{ borderBottom: "1px solid var(--c-border)" }}
                 >
                   {/* Sender and timestamp row */}

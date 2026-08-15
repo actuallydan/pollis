@@ -188,6 +188,7 @@ export const UpdatePage: React.FC = observer(() => {
                         }}
                       >
                         <code
+                          dir="ltr"
                           className="text-xs font-mono"
                           style={{ color: "var(--c-text)" }}
                           data-testid="update-page-managed-command"

@@ -62,7 +62,7 @@ export const EmojiCategoryRail: React.FC<EmojiCategoryRailProps> = ({
     <nav
       data-testid="emoji-category-rail"
       aria-label={t("picker.railLabel")}
-      className="flex flex-col shrink-0 gap-0.5 overflow-y-auto p-1 border-r border-line"
+      className="flex flex-col shrink-0 gap-0.5 overflow-y-auto p-1 border-e border-line"
     >
       {entries.map((entry) => {
         const isActive = entry.id === activeId;
