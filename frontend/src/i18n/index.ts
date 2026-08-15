@@ -21,10 +21,48 @@ import {
   languageDirection,
   normalizeLanguage,
   osLanguageCandidates,
+  registerTestLanguage,
   resolveOsLanguage,
   supportedLanguageCodes,
+  type LanguageOption,
 } from "./languages";
 import { loadDeviceLanguage, saveDeviceLanguage } from "./storage";
+
+/**
+ * Shape a Playwright spec puts on `window.__POLLIS_TEST_LOCALE__` (via
+ * `page.addInitScript`) to inject a synthetic locale.
+ *
+ * The catalogues are deliberately allowed to be PARTIAL: a namespace that
+ * omits a key is how the suite proves the English fallback, and an omitted
+ * namespace is how it proves a whole missing catalogue still renders English.
+ */
+interface TestLocale extends LanguageOption {
+  catalogues: Record<string, Record<string, unknown>>;
+}
+
+/**
+ * Register the injected test locale before `i18n.init` reads `supportedLngs`.
+ * A no-op outside Playwright — `registerTestLanguage` self-guards, and the
+ * whole block is dead code in the real bundle.
+ */
+function installTestLocale(): TestLocale | null {
+  if (import.meta.env.VITE_PLAYWRIGHT !== "true") {
+    return null;
+  }
+  const injected = (window as unknown as Record<string, unknown>)
+    .__POLLIS_TEST_LOCALE__ as TestLocale | undefined;
+  if (!injected?.code) {
+    return null;
+  }
+  registerTestLanguage({
+    code: injected.code,
+    label: injected.label,
+    dir: injected.dir ?? "ltr",
+  });
+  return injected;
+}
+
+const testLocale = installTestLocale();
 
 /**
  * The language to start in: a stored device choice wins over the OS guess,
@@ -55,8 +93,17 @@ function applyDocumentLanguage(language: string): void {
   }
 }
 
+/** Shipped catalogues, plus the injected test locale's partial ones. */
+function initialResources(): Record<string, Record<string, Record<string, unknown>>> {
+  const resources = buildResources();
+  if (testLocale) {
+    resources[testLocale.code] = testLocale.catalogues ?? {};
+  }
+  return resources;
+}
+
 void i18n.use(initReactI18next).init({
-  resources: buildResources(),
+  resources: initialResources(),
   lng: resolveInitialLanguage(),
   fallbackLng: DEFAULT_LANGUAGE,
   supportedLngs: supportedLanguageCodes(),

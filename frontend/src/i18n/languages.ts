@@ -23,21 +23,59 @@ export interface LanguageOption {
 /** The language every missing key falls back to. Always present. */
 export const DEFAULT_LANGUAGE = "en";
 
-export const SUPPORTED_LANGUAGES: readonly LanguageOption[] = [
+/**
+ * The languages Pollis ships. **This is the array you edit to add a locale.**
+ */
+const SHIPPED_LANGUAGES: readonly LanguageOption[] = [
   { code: "en", label: "English", dir: "ltr" },
 ];
 
-/** Every shipped language code, in selector order. */
+/**
+ * The live registry. Seeded from `SHIPPED_LANGUAGES` and, under Playwright
+ * only, extendable with a synthetic locale — see `registerTestLanguage`.
+ */
+const registry: LanguageOption[] = [...SHIPPED_LANGUAGES];
+
+/** Every selectable language, in selector order. */
+export function supportedLanguages(): readonly LanguageOption[] {
+  return registry;
+}
+
+/** Every selectable language code, in selector order. */
 export function supportedLanguageCodes(): string[] {
-  return SUPPORTED_LANGUAGES.map((l) => l.code);
+  return registry.map((l) => l.code);
 }
 
 export function languageOption(code: string): LanguageOption | undefined {
-  return SUPPORTED_LANGUAGES.find((l) => l.code === code);
+  return registry.find((l) => l.code === code);
 }
 
 export function isSupportedLanguage(code: string | null | undefined): boolean {
-  return !!code && SUPPORTED_LANGUAGES.some((l) => l.code === code);
+  return !!code && registry.some((l) => l.code === code);
+}
+
+/**
+ * Playwright-only: add a synthetic locale so the e2e suite can prove that
+ * switching language changes rendered copy, that the choice persists, and
+ * that a key missing from a catalogue falls back to English — none of which
+ * is assertable while English is the only shipped language.
+ *
+ * Guarded by `VITE_PLAYWRIGHT`, so it is dead-code-eliminated from the real
+ * bundle. Same mechanism as `__pollisStore` / `__pollisQueryClient` in
+ * `main.tsx`, and for the same reason: some behaviour can only be proven
+ * from outside the React tree.
+ *
+ * Must be called BEFORE `i18n.init`, because `supportedLngs` is snapshotted
+ * there and `changeLanguage` rejects anything outside it.
+ */
+export function registerTestLanguage(option: LanguageOption): void {
+  if (import.meta.env.VITE_PLAYWRIGHT !== "true") {
+    return;
+  }
+  if (registry.some((l) => l.code === option.code)) {
+    return;
+  }
+  registry.push(option);
 }
 
 /** Writing direction for a language code; unknown codes are treated as `ltr`. */
