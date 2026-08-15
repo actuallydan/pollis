@@ -29,6 +29,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { installTrayVoiceBridge, installVoiceBridge } from "./voice";
 import { clearAllDrafts } from "./utils/drafts";
 import { AUTO_LOCK_EVENT } from "./utils/autoLock";
+import { adoptUserLanguage } from "./i18n";
 
 type AppState =
   | "initializing"
@@ -86,6 +87,10 @@ function MainApp() {
   /// user has account_id_key locally — call only AFTER first-device
   /// signup or device enrollment has completed.
   const completeSignIn = useCallback(async (user: User) => {
+    // Adopt this user's device-local language before the shell renders, so a
+    // shared OS account switches languages at sign-in rather than showing the
+    // previous user's choice until Preferences is opened.
+    await adoptUserLanguage(user.id);
     try {
       await api.initializeIdentity(user.id);
     } catch (err) {

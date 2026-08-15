@@ -1,0 +1,7 @@
+{
+  "language": {
+    "heading": "Language",
+    "ariaLabel": "Language",
+    "description": "Language is per-device — it won't sync to your other devices. Pollis starts in your system language when we ship it, and English otherwise."
+  }
+}

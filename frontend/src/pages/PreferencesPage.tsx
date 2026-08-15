@@ -29,6 +29,7 @@ import {
   type RelayServingConfig,
 } from "../hooks/queries/useRelayServing";
 import { RelayServingSection } from "../components/Preferences/RelayServingSection";
+import { LanguageSection } from "../components/Preferences/LanguageSection";
 import {
   hslToHex,
   hexToHsl,
@@ -453,6 +454,11 @@ export const PreferencesPage: React.FC = observer(() => {
       >
         <div className="flex-1 flex justify-center overflow-auto px-6 py-8">
           <div className="w-full max-w-md flex flex-col gap-8">
+
+            {/* Language (this device). Deliberately first: someone who cannot
+                read the UI needs the control that fixes that at the top, not
+                buried under colour pickers. */}
+            <LanguageSection userId={currentUser?.id ?? null} />
 
             {/* Appearance — UI skin (synced across devices) */}
             <section className="flex flex-col gap-4 mb-12">
