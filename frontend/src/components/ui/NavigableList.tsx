@@ -228,7 +228,7 @@ export function NavigableList<T>({
 
   if (items.length === 0) {
     return (
-      <div className="flex-1" style={{ paddingTop: "1rem", paddingLeft: "1rem", paddingRight: "1rem" }}>
+      <div className="flex-1" style={{ paddingTop: "1rem", paddingInline: "1rem" }}>
         <p className="text-xs font-mono text-start" style={{ color: "var(--c-text-dim)" }}>
           {resolvedEmptyLabel}
         </p>
@@ -257,7 +257,7 @@ export function NavigableList<T>({
             className="flex items-center px-4 py-2 gap-3 text-xs font-mono select-none"
             style={{
               background: isRowFocused ? "var(--c-active)" : undefined,
-              borderLeft: isRowFocused
+              borderInlineStart: isRowFocused
                 ? "2px solid var(--c-accent)"
                 : "2px solid transparent",
             }}

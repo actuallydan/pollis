@@ -184,7 +184,7 @@ export const DMPage: React.FC = observer(() => {
               }}
               aria-label={t("conversation.viewProfile", { name: username })}
             >
-              @{username}
+              <bdi>@{username}</bdi>
             </button>
           ) : conv || pendingRequest ? (
             `@${username}`
@@ -230,7 +230,7 @@ export const DMPage: React.FC = observer(() => {
               className="icon-btn-sm flex-shrink-0"
               style={{
                 position: "absolute",
-                right: "0.75rem",
+                insetInlineEnd: "0.75rem",
                 color: inCallWithThisUser ? "var(--c-accent)" : undefined,
               }}
             >

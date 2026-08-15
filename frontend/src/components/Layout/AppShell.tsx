@@ -737,7 +737,7 @@ export const AppShell: React.FC = observer(() => {
               }}
               aria-label={t("statusBar.answerCall", { username: incomingCall.callerUsername })}
             >
-              <Phone className="w-4 h-4" />: @{incomingCall.callerUsername}
+              <Phone className="w-4 h-4" />: <bdi>@{incomingCall.callerUsername}</bdi>
             </button>
             <button
               data-testid="status-bar-incoming-call-decline"
@@ -814,7 +814,7 @@ export const AppShell: React.FC = observer(() => {
               setStatusBarAlert(null);
             }}
           >
-            <Mail className="w-4 h-4" />: @{statusBarAlert.senderUsername}
+            <Mail className="w-4 h-4" />: <bdi>@{statusBarAlert.senderUsername}</bdi>
           </button>
         ) : isSyncing ? (
           <div

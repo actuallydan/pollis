@@ -247,7 +247,7 @@ export const VoiceBar: React.FC<VoiceBarProps> = observer(({ channelId, channelN
       {/* Security indicator — audio is transport-encrypted (TLS) but not E2EE for v1 */}
       <span
         data-testid="voice-bar-security-indicator"
-        style={{ marginLeft: "auto", color: "var(--c-text-dim)" }}
+        style={{ marginInlineStart: "auto", color: "var(--c-text-dim)" }}
         className="flex items-center gap-1"
       >
         {lastRemoteSpeakerId

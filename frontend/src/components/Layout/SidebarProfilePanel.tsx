@@ -73,7 +73,7 @@ export const SidebarProfilePanel: React.FC = observer(() => {
             {displayName}
           </span>
           {handle && (
-            <span className="truncate text-2xs text-muted">{handle}</span>
+            <bdi className="truncate text-2xs text-muted">{handle}</bdi>
           )}
         </div>
         <button

@@ -45,8 +45,12 @@ That one covers the design decisions; this one is the working checklist.
    machines you are shipping for anyway. Script differences that matter (`zh`
    Simplified vs Traditional) are one locale per catalogue, distinguished by
    the endonym, and would need `normalizeLanguage` reworked to ship both.
-   Setting `dir: "rtl"` flips `<html dir>` but does **not** flip the component
-   layout — see the RTL section of the wiki article for what still assumes LTR.
+   Setting `dir: "rtl"` flips `<html dir>` **and** the component layout, which
+   is written with logical properties throughout (#855). You are inheriting
+   that work, not redoing it — but read the RTL section of the wiki article
+   before writing any new UI, because the conventions there (logical utilities,
+   `.rtl-mirror` / `.rtl-unmirror`, `<bdi>` vs `dir="ltr"`) are what keep it
+   true, and `e2e/rtl.spec.ts` is what catches you if they slip.
 
 4. **Check the plural forms.** See below — this is the step that gets skipped
    and it is the one that cannot be fixed later without a re-translation.

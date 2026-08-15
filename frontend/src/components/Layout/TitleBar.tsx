@@ -74,8 +74,12 @@ export const TitleBar: React.FC = () => {
         height: isMac ? 32 : 36,
         background: "var(--c-surface)",
         borderBottom: "1px solid var(--c-border)",
-        // 12px left inset matches Finder/Safari/native NSWindow placement;
-        // the previous 8px sat the dots noticeably tighter to the corner.
+        // PHYSICAL on purpose (#855): these insets frame the OS window
+        // controls — macOS traffic lights top-left, Windows caption buttons
+        // top-right — whose positions come from the platform, not from the
+        // app's reading direction. 12px left matches Finder/Safari/native
+        // NSWindow placement; the previous 8px sat the dots noticeably
+        // tighter to the corner.
         paddingLeft: isMac ? 12 : 12,
         paddingRight: isMac ? 12 : 0,
         ...dragStyle,

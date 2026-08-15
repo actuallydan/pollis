@@ -83,7 +83,7 @@ export const SettingsHubPage: React.FC = observer(() => {
                   className="font-mono text-xs truncate"
                   style={{ color: "var(--c-text-muted)" }}
                 >
-                  @{profile.username}
+                  <bdi>@{profile.username}</bdi>
                 </div>
               )}
             </div>

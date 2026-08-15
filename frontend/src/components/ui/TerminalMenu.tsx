@@ -202,7 +202,7 @@ export const TerminalMenu: React.FC<TerminalMenuProps> = ({
               data-testid={item.testId}
               className="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors"
               style={{
-                borderLeft: `3px solid ${isSelected ? "var(--c-accent)" : "transparent"}`,
+                borderInlineStart: `3px solid ${isSelected ? "var(--c-accent)" : "transparent"}`,
                 background: isSelected ? "var(--c-active)" : undefined,
                 opacity: item.disabled ? 0.4 : 1,
                 cursor: item.disabled ? "not-allowed" : "pointer",

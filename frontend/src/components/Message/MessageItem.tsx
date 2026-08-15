@@ -195,13 +195,14 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
           {isGroupStart ? (
             <MessageAvatar userId={message.sender_id} username={displayName} size={36} />
           ) : (
-            <span
+            <bdi
+              dir="ltr"
               title={formatFullTimestamp(toMs(message.created_at))}
               className="font-machine text-2xs tabular-nums whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity"
               style={{ color: "var(--c-text-muted)" }}
             >
               {formatTimeOfDay(toMs(message.created_at))}
-            </span>
+            </bdi>
           )}
         </div>
 
@@ -251,13 +252,15 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
               >
                 {displayName}
               </bdi>
-              <span
+              <bdi
+                data-testid="message-timestamp"
+                dir="ltr"
                 title={formatFullTimestamp(toMs(message.created_at))}
                 className="font-machine text-2xs tabular-nums select-none flex-shrink-0"
                 style={{ color: "var(--c-text-muted)" }}
               >
                 {formatTimeOfDay(toMs(message.created_at))}
-              </span>
+              </bdi>
             </div>
           )}
 
@@ -424,14 +427,15 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
 
       {/* IRC-style inline row: HH:MM  username  message */}
       <div className="flex items-start gap-0 min-w-0">
-        <span
+        <bdi
           data-testid="message-timestamp"
+          dir="ltr"
           title={formatFullTimestamp(toMs(message.created_at))}
           className="flex-shrink-0 text-xs font-mono tabular-nums select-none w-20"
           style={{ color: "var(--c-text-muted)", lineHeight: "1.5rem" }}
         >
           {formatTimeOfDay(toMs(message.created_at))}
-        </span>
+        </bdi>
 
         <bdi
           data-testid="message-author"

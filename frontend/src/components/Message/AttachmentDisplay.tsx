@@ -589,7 +589,7 @@ export const AttachmentDisplay: React.FC<{ attachment: MessageAttachment }> = ({
               style={{
                 position: "absolute",
                 bottom: 4,
-                right: 4,
+                insetInlineEnd: 4,
                 zIndex: 2,
                 fontSize: 10,
                 lineHeight: 1,

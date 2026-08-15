@@ -78,7 +78,7 @@ export const AllJoinRequestsPage: React.FC = () => {
           className="flex-1 flex flex-col overflow-auto"
           style={{ background: "var(--c-bg)" }}
         >
-          <div className="flex-1" style={{ paddingTop: "1rem", paddingLeft: "1rem", paddingRight: "1rem" }}>
+          <div className="flex-1" style={{ paddingTop: "1rem", paddingInline: "1rem" }}>
             <p className="text-xs font-mono text-start" style={{ color: "var(--c-text-dim)" }}>
               {t("joinRequests.allEmpty")}
             </p>
