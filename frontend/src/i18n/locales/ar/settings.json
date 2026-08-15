@@ -285,7 +285,7 @@
     "mediaNoteOther": "عناصر التحكم في أذونات الوسائط غير متاحة على هذه المنصة.",
     "dangerZoneHeading": "منطقة الخطر",
     "dangerZoneDescription": "حذف حسابك وكل البيانات المرتبطة به نهائيًا. لا يمكن التراجع عن ذلك.",
-    "deleteConfirmLabel": "اكتب DELETE للتأكيد",
+    "deleteConfirmLabel": "اكتب {{word}} للتأكيد",
     "deleteAccountButton": "حذف حسابي",
     "deletingAccount": "جارٍ حذف الحساب…",
     "deleteAccountFailed": "تعذّر حذف الحساب"

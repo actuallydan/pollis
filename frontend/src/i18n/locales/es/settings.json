@@ -261,7 +261,7 @@
     "mediaNoteOther": "Los controles de permisos multimedia no están disponibles en esta plataforma.",
     "dangerZoneHeading": "Zona de peligro",
     "dangerZoneDescription": "Elimina de forma permanente tu cuenta y todos los datos asociados. No se puede deshacer.",
-    "deleteConfirmLabel": "Escribe DELETE para confirmar",
+    "deleteConfirmLabel": "Escribe {{word}} para confirmar",
     "deleteAccountButton": "Eliminar mi cuenta",
     "deletingAccount": "Eliminando la cuenta…",
     "deleteAccountFailed": "No se pudo eliminar la cuenta"

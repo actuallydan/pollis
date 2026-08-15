@@ -273,7 +273,7 @@
     "mediaNoteOther": "Управление разрешениями на медиа недоступно на этой платформе.",
     "dangerZoneHeading": "Опасная зона",
     "dangerZoneDescription": "Безвозвратно удалить ваш аккаунт и все связанные с ним данные. Отменить это будет нельзя.",
-    "deleteConfirmLabel": "Введите DELETE для подтверждения",
+    "deleteConfirmLabel": "Введите {{word}} для подтверждения",
     "deleteAccountButton": "Удалить мой аккаунт",
     "deletingAccount": "Удаление аккаунта…",
     "deleteAccountFailed": "Не удалось удалить аккаунт"

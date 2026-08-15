@@ -261,7 +261,7 @@
     "mediaNoteOther": "Les contrôles d'autorisation média ne sont pas disponibles sur cette plateforme.",
     "dangerZoneHeading": "Zone de danger",
     "dangerZoneDescription": "Supprimer définitivement votre compte et toutes les données associées. Cette action est irréversible.",
-    "deleteConfirmLabel": "Saisissez DELETE pour confirmer",
+    "deleteConfirmLabel": "Saisissez {{word}} pour confirmer",
     "deleteAccountButton": "Supprimer mon compte",
     "deletingAccount": "Suppression du compte…",
     "deleteAccountFailed": "Échec de la suppression du compte"

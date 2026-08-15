@@ -255,7 +255,7 @@
     "mediaNoteOther": "此平台不提供媒体权限控制。",
     "dangerZoneHeading": "危险区域",
     "dangerZoneDescription": "永久删除你的账户及所有相关数据。此操作无法撤销。",
-    "deleteConfirmLabel": "输入 DELETE 以确认",
+    "deleteConfirmLabel": "输入 {{word}} 以确认",
     "deleteAccountButton": "删除我的账户",
     "deletingAccount": "正在删除账户…",
     "deleteAccountFailed": "删除账户失败"

@@ -115,9 +115,21 @@ for (const code of localeCodes.filter((c) => c !== BASE)) {
   // is a real defect that renders wrong grammar to real users; missing an
   // unreachable one is a note, since i18next falls back to `other` anyway.
   const reachable = new Set();
+  // How many distinct integers select each category. A category selected by
+  // exactly ONE value states its own number — Arabic's dual `_two` means
+  // precisely two, so "[مرفقان]" needs no `{{count}}`, exactly as English
+  // `_one` needs none. Russian `_one` also covers 21 and 101, so there the
+  // same omission is a real bug. Counting, rather than assuming by suffix
+  // name, is what tells those two cases apart.
+  const selectors = new Map();
   for (let n = 0; n <= 10000; n += 1) {
-    reachable.add(rules.select(n));
+    const category = rules.select(n);
+    reachable.add(category);
+    selectors.set(category, (selectors.get(category) ?? 0) + 1);
   }
+  const exactCategories = new Set(
+    [...selectors.entries()].filter(([, n]) => n === 1).map(([c]) => c),
+  );
   // `other` is i18next's mandatory fallback and is required even where integer
   // counts never select it (Russian reaches it only via fractions).
   const expected = declared.filter((s) => reachable.has(s) || s === "other");
@@ -189,7 +201,29 @@ for (const code of localeCodes.filter((c) => c !== BASE)) {
         )
       : new Set(want);
     const unknown = got.filter((p) => !familyAllowed.has(p));
-    const dropped = want.filter((p) => !got.includes(p));
+    const exact = plural && exactCategories.has(plural.suffix);
+    const dropped = want.filter(
+      (p) => !got.includes(p) && !(exact && p === "count"),
+    );
+    // A form covering MORE than one number must show that number. English
+    // `_one` means 1 and reads fine as "[attachment]", so comparing against it
+    // proves nothing — Russian `_one` also covers 21 and 101, where the bare
+    // noun is simply wrong. This is a positive requirement on the locale, not
+    // a diff against the base.
+    if (
+      plural &&
+      !exact &&
+      familyAllowed.has("count") &&
+      !got.includes("count")
+    ) {
+      placeholderProblems += 1;
+      if (placeholderProblems <= 5) {
+        fail(
+          `${key}: ${code} '${plural.suffix}' covers more than one number, so it must show {{count}}`,
+        );
+      }
+      continue;
+    }
     if (unknown.length || dropped.length) {
       placeholderProblems += 1;
       if (placeholderProblems <= 5) {

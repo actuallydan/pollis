@@ -71,7 +71,7 @@
   "preview": {
     "noMessages": "Aucun message pour l'instant",
     "withSender": "{{name}} : {{text}}",
-    "attachments_one": "[pièce jointe]",
+    "attachments_one": "[{{count}} pièce jointe]",
     "attachments_other": "[{{count}} pièces jointes]"
   },
   "attachment": {
