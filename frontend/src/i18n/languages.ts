@@ -41,6 +41,7 @@ const SHIPPED_LANGUAGES: readonly LanguageOption[] = [
   // (`zh-CN`, `zh-Hans-CN`), which the script subtag would not have matched.
   { code: "zh", label: "简体中文", dir: "ltr" },
   { code: "ar", label: "العربية", dir: "rtl" },
+  { code: "uk", label: "Українська", dir: "ltr" },
 ];
 
 /**
