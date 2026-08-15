@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { observer } from "mobx-react-lite";
 import { useNavigate } from "@tanstack/react-router";
 import { useSkin } from "../../../hooks/queries/usePreferences";
@@ -22,6 +23,7 @@ interface MemberRowProps {
  */
 export const MemberRow: React.FC<MemberRowProps> = observer(
   ({ userId, label, avatarKey, isAdmin }) => {
+    const { t } = useTranslation("nav");
     const navigate = useNavigate();
     const isTerminal = useSkin() === "terminal";
 
@@ -63,7 +65,7 @@ export const MemberRow: React.FC<MemberRowProps> = observer(
               isTerminal ? "text-2xs" : "text-xs"
             }`}
           >
-            admin
+            {t("members.admin")}
           </span>
         )}
       </button>

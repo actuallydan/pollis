@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import {
   Clock,
   Flag,
@@ -55,10 +56,12 @@ export const EmojiCategoryRail: React.FC<EmojiCategoryRailProps> = ({
   activeId,
   onJump,
 }) => {
+  const { t } = useTranslation("emoji");
+
   return (
     <nav
       data-testid="emoji-category-rail"
-      aria-label="Emoji categories"
+      aria-label={t("picker.railLabel")}
       className="flex flex-col shrink-0 gap-0.5 overflow-y-auto p-1 border-r border-line"
     >
       {entries.map((entry) => {

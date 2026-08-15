@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useRef,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke, listen } from "./bridge";
 import { observer } from "mobx-react-lite";
 import { appStore } from "./stores/appStore";
@@ -59,6 +60,7 @@ function setupDebugDevices(userId: string) {
 }
 
 function MainApp() {
+  const { t } = useTranslation("auth");
   const {
     currentUser,
     setCurrentUser,
@@ -521,7 +523,7 @@ function MainApp() {
           className="text-xs font-mono"
           style={{ color: "var(--c-text-muted)" }}
         >
-          initializing…
+          {t("shell.initializing")}
         </span>
       </div>
     );
@@ -555,10 +557,10 @@ function MainApp() {
             <div className="flex flex-col gap-5">
               <div>
                 <h2 className="text-sm font-mono font-semibold" style={{ color: "var(--c-text)" }}>
-                  Sign out
+                  {t("shell.signOutTitle")}
                 </h2>
                 <p className="text-xs mt-1 font-mono" style={{ color: "var(--c-text-muted)" }}>
-                  Do you want to delete your locally stored messages and keys?
+                  {t("shell.signOutQuestion")}
                 </p>
               </div>
 
@@ -569,14 +571,14 @@ function MainApp() {
                   variant="danger"
                   className="w-full"
                 >
-                  Delete data and sign out
+                  {t("shell.signOutDelete")}
                 </Button>
                 <Button
                   data-testid="logout-keep-data-button"
                   onClick={() => handleLogoutConfirm(false)}
                   className="w-full"
                 >
-                  Keep data and sign out
+                  {t("shell.signOutKeep")}
                 </Button>
                 <Button
                   data-testid="logout-cancel-button"
@@ -584,7 +586,7 @@ function MainApp() {
                   variant="ghost"
                   className="w-full"
                 >
-                  Cancel
+                  {t("common:actions.cancel")}
                 </Button>
               </div>
             </div>
@@ -613,11 +615,11 @@ function MainApp() {
                 className="font-mono font-semibold"
                 style={{ color: "var(--c-accent)" }}
               >
-                Welcome to Pollis
+                {t("shell.welcome")}
               </span>
               <p className="text-xs font-mono flex items-center gap-2" style={{ color: "var(--c-text)" }}>
                 <span>
-                  Getting things ready
+                  {t("shell.gettingReady")}
                 </span>
                 <LoadingSpinner size="sm" />
               </p>
@@ -642,8 +644,8 @@ function MainApp() {
     return (
       <PinCreateScreen
         onCreated={handlePinCreated}
-        headline="Set a PIN"
-        subline="4 digits. You'll use it to unlock Pollis on this device."
+        headline={t("pinCreate.headline")}
+        subline={t("pinCreate.subline")}
       />
     );
   }
@@ -714,7 +716,7 @@ function MainApp() {
         className="text-xs font-mono"
         style={{ color: "var(--c-text-muted)" }}
       >
-        loading…
+        {t("shell.loading")}
       </span>
     </div>
   );

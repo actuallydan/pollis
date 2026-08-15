@@ -1,7 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../ui/Button";
-import { SUPPORTED_LANGUAGES } from "../../i18n/languages";
+import { supportedLanguages } from "../../i18n/languages";
 import { setLanguage } from "../../i18n";
 
 interface LanguageSectionProps {
@@ -31,6 +31,7 @@ export const LanguageSection: React.FC<LanguageSectionProps> = ({ userId }) => {
   return (
     <section className="flex flex-col gap-4 mb-12" data-testid="pref-language">
       <h2
+        data-testid="pref-language-heading"
         className="text-xs font-mono font-medium uppercase tracking-widest pb-1 border-b"
         style={{ color: "var(--c-text)", borderColor: "var(--c-border)" }}
       >
@@ -41,7 +42,7 @@ export const LanguageSection: React.FC<LanguageSectionProps> = ({ userId }) => {
         aria-label={t("language.ariaLabel")}
         className="flex gap-2 flex-wrap"
       >
-        {SUPPORTED_LANGUAGES.map((option) => {
+        {supportedLanguages().map((option) => {
           const selected = active === option.code;
           return (
             <Button

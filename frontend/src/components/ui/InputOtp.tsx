@@ -1,4 +1,5 @@
 import React, { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface InputOtpProps {
   length?: number;
@@ -17,6 +18,7 @@ export const InputOtp: React.FC<InputOtpProps> = ({
   autoFocus = false,
   mask = false,
 }) => {
+  const { t } = useTranslation("common");
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const inputsRef = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -99,7 +101,7 @@ export const InputOtp: React.FC<InputOtpProps> = ({
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
-            aria-label={`OTP digit ${index + 1}`}
+            aria-label={t("a11y.otpDigit", { index: index + 1 })}
             className="w-10 h-12 text-center font-mono text-lg font-medium transition-all"
             style={{
               background: isFocused ? "var(--c-accent)" : "var(--c-surface)",

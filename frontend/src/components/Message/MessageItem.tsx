@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { Reply, CornerUpLeft, Edit2, Trash2, MessagesSquare, Bookmark, Link, Check, AlertCircle } from "lucide-react";
 import { ThreadReplyCount } from "./ThreadReplyCount";
 import { formatTimeOfDay, formatFullTimestamp } from "../../utils/format";
@@ -61,7 +62,7 @@ const toMs = (timestamp: number): number =>
 export const MessageItem: React.FC<MessageItemProps> = observer(({
   message,
   allMessages = [],
-  authorUsername = "unknown",
+  authorUsername,
   isAuthorAdmin = false,
   canModerate = false,
   isGroupStart = true,
@@ -79,10 +80,14 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
   peerCount = 0,
   isDm = false,
 }) => {
+  const { t } = useTranslation("chat");
   const { currentUser } = appStore;
   const isOwn = message.sender_id === currentUser?.id;
   const isLightBg = useBackgroundIsLight();
   const skin = useSkin();
+  // Falls back to the same placeholder the default prop used to supply, but
+  // resolved at render so it follows the active language.
+  const displayName = authorUsername ?? t("message.unknownAuthor");
   // Copy-link feedback (#889). A clipboard write that failed used to look
   // exactly like one that succeeded — both silent — so the affordance read as
   // broken. Both skins show the same three states; only the glyph size differs.
@@ -94,10 +99,10 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
         : Link;
   const copyLinkLabel =
     copyLinkState === "copied"
-      ? "Link copied"
+      ? t("actions.copyLinkCopied")
       : copyLinkState === "failed"
-        ? "Couldn't copy link"
-        : "Copy link to message";
+        ? t("actions.copyLinkFailed")
+        : t("actions.copyLink");
   const copyLinkTone =
     copyLinkState === "copied"
       ? "text-[var(--c-text-accent)]"
@@ -126,7 +131,9 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
 
   // content_decrypted is undefined when decryption failed (the server returned
   // null). Show [encrypted] in that case rather than an empty row.
-  const content = isDeleted ? "[deleted]" : (message.content_decrypted ?? "[encrypted]");
+  const content = isDeleted
+    ? t("message.deleted")
+    : (message.content_decrypted ?? t("message.encrypted"));
 
   // Split attachments into a visual media strip (images + videos rendered as
   // uniform 96×96 thumbs) and everything else (audio, files) which render as
@@ -176,7 +183,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
     return (
       <div
         data-testid={`message-${message.id}`}
-        aria-label={`Message from ${authorUsername}`}
+        aria-label={t("message.fromLabel", { name: displayName })}
         className="group relative grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-2 items-start px-4 hover:bg-hover transition-colors duration-75"
         style={{
           paddingTop: isGroupStart ? "var(--msg-header-gap)" : "var(--msg-group-gap)",
@@ -186,7 +193,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
         {/* Left gutter: avatar on a group start, hover-only timestamp otherwise */}
         <div className="flex justify-center pt-0.5 select-none">
           {isGroupStart ? (
-            <MessageAvatar userId={message.sender_id} username={authorUsername} size={36} />
+            <MessageAvatar userId={message.sender_id} username={displayName} size={36} />
           ) : (
             <span
               title={formatFullTimestamp(toMs(message.created_at))}
@@ -219,7 +226,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
                   </span>
                 )}
                 <span className="truncate max-w-xs">
-                  {replyTo.content_decrypted?.slice(0, 80) || "[encrypted]"}
+                  {replyTo.content_decrypted?.slice(0, 80) || t("message.encrypted")}
                 </span>
               </button>
             ) : (
@@ -229,7 +236,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
                 style={{ color: "var(--c-text-dim)" }}
               >
                 <CornerUpLeft size={12} className="flex-shrink-0" />
-                <span>[redacted]</span>
+                <span>{t("message.redacted")}</span>
               </div>
             )
           )}
@@ -242,7 +249,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
                 className="text-sm font-semibold flex-shrink-0"
                 style={nameStyle}
               >
-                {authorUsername}
+                {displayName}
               </span>
               <span
                 title={formatFullTimestamp(toMs(message.created_at))}
@@ -267,12 +274,12 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
             <MessageBody text={content} />
             {message.edited_at && !isDeleted && (
               <span className="ml-1 text-xs" style={{ color: "var(--c-text-muted)" }}>
-                (edited)
+                {t("message.edited")}
               </span>
             )}
             {message.status && message.status !== "sent" && (
               <span className="ml-1 text-xs font-machine" style={{ color: "var(--c-text-muted)" }}>
-                [{message.status}]
+                [{t(`status.${message.status}`)}]
               </span>
             )}
             <ReceiptIndicator
@@ -301,7 +308,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
             <button
               data-testid="reply-button"
               onClick={() => onReply?.(message.id)}
-              aria-label="Reply"
+              aria-label={t("actions.reply")}
               className="p-1 text-[var(--c-text-muted)] hover:text-[var(--c-text-accent)]"
             >
               <Reply size={16} />
@@ -310,7 +317,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
               <button
                 data-testid="thread-button"
                 onClick={() => onOpenThread(message.id)}
-                aria-label="Reply in thread"
+                aria-label={t("actions.replyInThread")}
                 className="p-1 text-[var(--c-text-muted)] hover:text-[var(--c-text-accent)]"
               >
                 <MessagesSquare size={16} />
@@ -320,7 +327,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
               <button
                 data-testid="save-button"
                 onClick={() => onToggleSave(message.id)}
-                aria-label={isSaved ? "Remove bookmark" : "Save message"}
+                aria-label={isSaved ? t("actions.removeBookmark") : t("actions.save")}
                 className="p-1 text-[var(--c-text-muted)] hover:text-[var(--c-text-accent)]"
               >
                 <Bookmark size={16} fill={isSaved ? "currentColor" : "none"} />
@@ -342,7 +349,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
               <button
                 data-testid="edit-button"
                 onClick={() => onEdit(message.id)}
-                aria-label="Edit message"
+                aria-label={t("actions.edit")}
                 className="p-1 text-[var(--c-text-muted)] hover:text-[var(--c-text-accent)]"
               >
                 <Edit2 size={16} />
@@ -352,7 +359,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
               <button
                 data-testid="delete-button"
                 onClick={() => onDelete(message.id)}
-                aria-label="Delete message"
+                aria-label={t("actions.delete")}
                 className="p-1 text-[var(--c-text-muted)] hover:text-[var(--c-text-accent)]"
               >
                 <Trash2 size={16} />
@@ -362,7 +369,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
               <button
                 data-testid="admin-delete-button"
                 onClick={() => onDelete(message.id)}
-                aria-label="Delete message (admin)"
+                aria-label={t("actions.deleteAsAdmin")}
                 className="p-1 text-[var(--c-text-muted)] hover:text-[var(--c-text-accent)]"
               >
                 <Trash2 size={16} />
@@ -377,7 +384,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
   return (
     <div
       data-testid={`message-${message.id}`}
-      aria-label={`Message from ${authorUsername}`}
+      aria-label={t("message.fromLabel", { name: displayName })}
       className="group relative px-4 py-1 hover:bg-[var(--c-hover)] transition-colors duration-75"
     >
       {/* Reply thread indicator */}
@@ -399,7 +406,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
               </span>
             )}
             <span className="truncate max-w-xs">
-              {replyTo.content_decrypted?.slice(0, 80) || "[encrypted]"}
+              {replyTo.content_decrypted?.slice(0, 80) || t("message.encrypted")}
             </span>
           </button>
         ) : (
@@ -409,7 +416,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
             style={{ color: "var(--c-text-dim)" }}
           >
             <Reply size={10} style={{ transform: "scaleX(-1)" }} />
-            <span>[redacted]</span>
+            <span>{t("message.redacted")}</span>
           </div>
         )
       )}
@@ -438,7 +445,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
             color: isOwn ? "var(--c-accent)" : authorColor,
           }}
         >
-          {authorUsername}
+          {displayName}
         </span>
 
         <span
@@ -460,12 +467,12 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
           <MessageBody text={content} />
           {message.edited_at && !isDeleted && (
             <span className="ml-1 text-xs" style={{ color: "var(--c-text-muted)" }}>
-              (edited)
+              {t("message.edited")}
             </span>
           )}
           {message.status && message.status !== "sent" && (
             <span className="ml-1 text-xs" style={{ color: "var(--c-text-muted)" }}>
-              [{message.status}]
+              [{t(`status.${message.status}`)}]
             </span>
           )}
           <ReceiptIndicator
@@ -481,7 +488,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
             <button
               data-testid="reply-button"
               onClick={() => onReply?.(message.id)}
-              aria-label="Reply"
+              aria-label={t("actions.reply")}
               className="opacity-0 group-hover:opacity-100 text-[var(--c-text-muted)] hover:text-[var(--c-text-accent)]"
             >
               <Reply size={18} />
@@ -490,7 +497,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
               <button
                 data-testid="thread-button"
                 onClick={() => onOpenThread(message.id)}
-                aria-label="Reply in thread"
+                aria-label={t("actions.replyInThread")}
                 className="opacity-0 group-hover:opacity-100 text-[var(--c-text-muted)] hover:text-[var(--c-text-accent)]"
               >
                 <MessagesSquare size={18} />
@@ -500,7 +507,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
               <button
                 data-testid="save-button"
                 onClick={() => onToggleSave(message.id)}
-                aria-label={isSaved ? "Remove bookmark" : "Save message"}
+                aria-label={isSaved ? t("actions.removeBookmark") : t("actions.save")}
                 className="opacity-0 group-hover:opacity-100 text-[var(--c-text-muted)] hover:text-[var(--c-text-accent)]"
               >
                 <Bookmark size={18} fill={isSaved ? "currentColor" : "none"} />
@@ -526,7 +533,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
               <button
                 data-testid="edit-button"
                 onClick={() => onEdit(message.id)}
-                aria-label="Edit message"
+                aria-label={t("actions.edit")}
                 className="opacity-0 group-hover:opacity-100 text-[var(--c-text-muted)] hover:text-[var(--c-text-accent)]"
               >
                 <Edit2 size={18} />
@@ -536,7 +543,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
               <button
                 data-testid="delete-button"
                 onClick={() => onDelete(message.id)}
-                aria-label="Delete message"
+                aria-label={t("actions.delete")}
                 className="opacity-0 group-hover:opacity-100 text-[var(--c-text-muted)] hover:text-[var(--c-text-accent)]"
               >
                 <Trash2 size={18} />
@@ -546,7 +553,7 @@ export const MessageItem: React.FC<MessageItemProps> = observer(({
               <button
                 data-testid="admin-delete-button"
                 onClick={() => onDelete(message.id)}
-                aria-label="Delete message (admin)"
+                aria-label={t("actions.deleteAsAdmin")}
                 className="opacity-0 group-hover:opacity-100 text-[var(--c-text-muted)] hover:text-[var(--c-text-accent)]"
               >
                 <Trash2 size={18} />

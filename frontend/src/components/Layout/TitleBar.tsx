@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { Minus, Square, X } from "lucide-react";
 import { getCurrentWindow } from "../../bridge";
 import { PollisLogo } from "../ui/PollisLogo";
@@ -7,6 +8,7 @@ import { isMac } from "../../utils/platform";
 const win = () => getCurrentWindow();
 
 export const TitleBar: React.FC = () => {
+  const { t } = useTranslation("nav");
   const handleMinimize = () => win().minimize().catch(console.error);
   const handleMaximize = () => win().toggleMaximize().catch(console.error);
   const handleClose = () => win().close().catch(console.error);
@@ -28,7 +30,7 @@ export const TitleBar: React.FC = () => {
       <button
         data-testid="title-bar-minimize"
         onClick={handleMinimize}
-        aria-label="Minimize"
+        aria-label={t("titleBar.minimize")}
         className="icon-btn"
       >
         <Minus size={12} aria-hidden="true" />
@@ -36,7 +38,7 @@ export const TitleBar: React.FC = () => {
       <button
         data-testid="title-bar-maximize"
         onClick={handleMaximize}
-        aria-label="Maximize"
+        aria-label={t("titleBar.maximize")}
         className="icon-btn"
       >
         <Square size={11} aria-hidden="true" />
@@ -44,7 +46,7 @@ export const TitleBar: React.FC = () => {
       <button
         data-testid="title-bar-close"
         onClick={handleClose}
-        aria-label="Close"
+        aria-label={t("common:actions.close")}
         className="flex items-center justify-center w-8 h-8 transition-colors text-[var(--c-text-muted)] hover:bg-[#c42b1c] hover:text-white"
       >
         <X size={12} aria-hidden="true" />
