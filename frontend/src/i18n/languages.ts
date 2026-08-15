@@ -29,6 +29,7 @@ export const DEFAULT_LANGUAGE = "en";
 const SHIPPED_LANGUAGES: readonly LanguageOption[] = [
   { code: "en", label: "English", dir: "ltr" },
   { code: "es", label: "Español", dir: "ltr" },
+  { code: "ru", label: "Русский", dir: "ltr" },
 ];
 
 /**
@@ -59,7 +60,9 @@ export function isSupportedLanguage(code: string | null | undefined): boolean {
  * Playwright-only: add a synthetic locale so the e2e suite can prove that
  * switching language changes rendered copy, that the choice persists, and
  * that a key missing from a catalogue falls back to English — none of which
- * is assertable while English is the only shipped language.
+ * is assertable against the shipped catalogues alone: they are complete, so
+ * there is no missing key to fall back on, and asserting on real translated
+ * copy would tie the suite to whichever locales happen to ship.
  *
  * Guarded by `VITE_PLAYWRIGHT`, so it is dead-code-eliminated from the real
  * bundle. Same mechanism as `__pollisStore` / `__pollisQueryClient` in
