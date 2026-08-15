@@ -104,9 +104,26 @@ for (const code of localeCodes.filter((c) => c !== BASE)) {
   const locale = loadLocale(code);
 
   // Expected CLDR categories for THIS locale, straight from the platform.
-  const categories = new Intl.PluralRules(code).resolvedOptions()
-    .pluralCategories;
-  const expected = PLURAL_SUFFIXES.filter((s) => categories.includes(s));
+  const rules = new Intl.PluralRules(code);
+  const categories = rules.resolvedOptions().pluralCategories;
+  const declared = PLURAL_SUFFIXES.filter((s) => categories.includes(s));
+
+  // Categories reachable by a count this UI can actually render. Modern CLDR
+  // gives Spanish and French a `many` category, but only for magnitudes at or
+  // above a million — and nothing here counts members, attachments or minutes
+  // that high. Missing a reachable category (Russian `few` at 2, Arabic `two`)
+  // is a real defect that renders wrong grammar to real users; missing an
+  // unreachable one is a note, since i18next falls back to `other` anyway.
+  const reachable = new Set();
+  for (let n = 0; n <= 10000; n += 1) {
+    reachable.add(rules.select(n));
+  }
+  // `other` is i18next's mandatory fallback and is required even where integer
+  // counts never select it (Russian reaches it only via fractions).
+  const expected = declared.filter((s) => reachable.has(s) || s === "other");
+  const unreachable = declared.filter(
+    (s) => !reachable.has(s) && s !== "other",
+  );
 
   // 1. Non-plural key parity.
   const flatBase = baseKeys.filter((k) => !splitPlural(k));
@@ -128,7 +145,7 @@ for (const code of localeCodes.filter((c) => c !== BASE)) {
   for (const family of baseFamilies) {
     const present = expected.filter((s) => `${family}_${s}` in locale);
     const extra = PLURAL_SUFFIXES.filter(
-      (s) => !expected.includes(s) && `${family}_${s}` in locale,
+      (s) => !declared.includes(s) && `${family}_${s}` in locale,
     );
     if (present.length !== expected.length) {
       const absent = expected.filter((s) => !(`${family}_${s}` in locale));
@@ -141,22 +158,37 @@ for (const code of localeCodes.filter((c) => c !== BASE)) {
     }
   }
 
-  // 3. Placeholder parity — checked against the base member of the family so
-  //    that a locale with more forms than English still gets every one checked.
+  // 3. Placeholder parity.
+  //
+  //    Compared like-for-like against the SAME plural form where the base has
+  //    one. A locale legitimately ADDS `{{count}}` to a form English left bare:
+  //    English `_one` means exactly 1 so "[attachment]" reads fine, but Russian
+  //    `_one` also covers 21 and 101, where a bare noun is wrong. So anything
+  //    the family uses somewhere is allowed; only a placeholder that appears
+  //    nowhere in the family is an error, as is dropping one this same form had.
   let placeholderProblems = 0;
   for (const [key, value] of Object.entries(locale)) {
     const plural = splitPlural(key);
+    const sameForm = plural ? key : key;
     const baseKey = plural
-      ? [`${plural.family}_other`, `${plural.family}_one`].find((k) => k in base)
+      ? [sameForm, `${plural.family}_other`, `${plural.family}_one`].find(
+          (k) => k in base,
+        )
       : key;
     if (!baseKey || !(baseKey in base)) {
       continue;
     }
     const want = placeholdersOf(base[baseKey]);
     const got = placeholdersOf(value);
-    // A translation may legitimately DROP a placeholder only if the base
-    // member itself had none; introducing an unknown one is always wrong.
-    const unknown = got.filter((p) => !want.includes(p));
+    // Everything this family uses anywhere in the base catalogue.
+    const familyAllowed = plural
+      ? new Set(
+          PLURAL_SUFFIXES.flatMap((s) =>
+            placeholdersOf(base[`${plural.family}_${s}`]),
+          ),
+        )
+      : new Set(want);
+    const unknown = got.filter((p) => !familyAllowed.has(p));
     const dropped = want.filter((p) => !got.includes(p));
     if (unknown.length || dropped.length) {
       placeholderProblems += 1;

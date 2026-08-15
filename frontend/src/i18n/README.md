@@ -34,6 +34,18 @@ That one covers the design decisions; this one is the working checklist.
    is useless to the person reaching for this control. `dir` is `rtl` only for
    Arabic/Hebrew-script languages.
 
+   `code` is a **base tag only** — `zh`, never `zh-Hans`; `pt`, never `pt-BR`.
+   A subtagged code cannot work here from either end: `normalizeLanguage`
+   lowercases every tag it is handed, while i18next canonicalizes codes
+   through `Intl.getCanonicalLocales` before testing them against
+   `supportedLngs`, so `zh-hans` is rejected by i18next and `zh-Hans` is
+   rejected by `normalizeLanguage`. Either way the catalogue silently renders
+   English. Base tags are also what real OS locales degrade to — `zh-CN` and
+   `zh-Hans-CN` both reduce to `zh` — so the subtag would not have matched the
+   machines you are shipping for anyway. Script differences that matter (`zh`
+   Simplified vs Traditional) are one locale per catalogue, distinguished by
+   the endonym, and would need `normalizeLanguage` reworked to ship both.
+
 4. **Check the plural forms.** See below — this is the step that gets skipped
    and it is the one that cannot be fixed later without a re-translation.
 
@@ -95,6 +107,14 @@ t("channels:members.count", { count: members.length });
 
 i18next selects the suffix from the active language's CLDR plural rules, so a
 translator adding `count_few` / `count_many` for `ru` needs no code change.
+
+**The suffix set is per language, not copied from `en`.** CLDR gives Chinese
+one category, so `zh` carries `count_other` and no `count_one` at all —
+mirroring English's two forms there would leave a `_one` entry i18next can
+never select. Its key count is therefore legitimately lower than `en`'s: one
+key per plural family instead of two. Check the language's categories with
+`new Intl.PluralRules("<code>").resolvedOptions().pluralCategories` and write
+exactly those.
 
 **A count rendered next to a static noun is still a count-bearing string.**
 `<b>{n}</b> members` must be one plural key, not a number glued to `t("members")`.
