@@ -3,6 +3,7 @@ name = "pollis-api"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+publish = false
 description = "The Delivery Service's write API, as types: one Rust struct per POST endpoint, plus the path each one is addressed at. pollis-core builds requests from these and pollis-delivery parses them, so a field the client forgets or misspells is a COMPILE error instead of a runtime 403/404. Mirrors pollis-schema (the DB schema as data) and pollis-device-cert (the cert format), both shared the same way so pollis-delivery need not depend on pollis-core."
 
 [lib]
