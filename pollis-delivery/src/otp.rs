@@ -524,10 +524,6 @@ mod tests {
     use crate::db::Db;
     use crate::session::SessionStore;
 
-    // Minimal `users` schema the account-write path reads/writes (id, email UNIQUE,
-    // username, account_id_pub). Matches the columns `apply_verify_otp` touches.
-    const USERS_SCHEMA: &str = "CREATE TABLE users (\
-        id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, username TEXT, account_id_pub BLOB);";
 
     // A local libsql connection for the account-write path. `with_users` toggles
     // whether the `users` table exists — omitting it makes the write fail, which is
@@ -539,7 +535,11 @@ mod tests {
         let db = Db::connect_local(path.to_str().unwrap()).await.expect("local db");
         let conn = db.conn().unwrap();
         if with_users {
-            conn.execute_batch(USERS_SCHEMA).await.unwrap();
+            // Production is Turso, where foreign-key enforcement is off; libsql's LOCAL
+        // backend turns it ON by default, so say so explicitly rather than
+        // inherit a constraint no deploy has (`Db::connect_local` does the same).
+        conn.execute_batch("PRAGMA foreign_keys=OFF;").await.unwrap();
+        pollis_schema::apply::single_db(&conn).await.expect("schema");
         }
         (db, conn)
     }
@@ -729,7 +729,11 @@ mod tests {
         );
 
         // Heal the DB and retry the SAME code — it must succeed (was not burned).
-        conn.execute_batch(USERS_SCHEMA).await.unwrap();
+        // Production is Turso, where foreign-key enforcement is off; libsql's LOCAL
+        // backend turns it ON by default, so say so explicitly rather than
+        // inherit a constraint no deploy has (`Db::connect_local` does the same).
+        conn.execute_batch("PRAGMA foreign_keys=OFF;").await.unwrap();
+        pollis_schema::apply::single_db(&conn).await.expect("schema");
         let second =
             apply_verify_otp(&conn, &otp, &sessions, &cfg, "a@x.com", "123456", "dev-1").await;
         assert!(

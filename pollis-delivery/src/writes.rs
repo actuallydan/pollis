@@ -700,17 +700,15 @@ mod conversation_namespace_tests {
     use super::*;
     use libsql::Connection;
 
-    const SCHEMA: &str = "\
-        CREATE TABLE dm_channel (id TEXT PRIMARY KEY);\
-        CREATE TABLE dm_channel_member (dm_channel_id TEXT NOT NULL, user_id TEXT NOT NULL);\
-        CREATE TABLE groups (id TEXT PRIMARY KEY);\
-        CREATE TABLE group_member (group_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT);\
-        CREATE TABLE channels (id TEXT PRIMARY KEY, group_id TEXT NOT NULL);";
 
     async fn conn() -> Connection {
         let db = libsql::Builder::new_local(":memory:").build().await.unwrap();
         let c = db.connect().unwrap();
-        c.execute_batch(SCHEMA).await.unwrap();
+        // Production is Turso, where foreign-key enforcement is off; libsql's LOCAL
+        // backend turns it ON by default, so say so explicitly rather than
+        // inherit a constraint no deploy has (`Db::connect_local` does the same).
+        c.execute_batch("PRAGMA foreign_keys=OFF;").await.unwrap();
+        pollis_schema::apply::single_db(&c).await.expect("schema");
         c
     }
 
@@ -718,7 +716,7 @@ mod conversation_namespace_tests {
     #[tokio::test]
     async fn an_existing_group_id_is_taken_for_every_conversation_kind() {
         let c = conn().await;
-        c.execute("INSERT INTO groups (id) VALUES ('victim-group')", ())
+        c.execute("INSERT INTO groups (id, name, owner_id) VALUES ('victim-group', 'grp', 'owner')", ())
             .await
             .unwrap();
 
@@ -732,11 +730,11 @@ mod conversation_namespace_tests {
     #[tokio::test]
     async fn dm_and_channel_ids_are_taken_too() {
         let c = conn().await;
-        c.execute("INSERT INTO dm_channel (id) VALUES ('a-dm')", ())
+        c.execute("INSERT INTO dm_channel (id, created_by) VALUES ('a-dm', 'creator')", ())
             .await
             .unwrap();
         c.execute(
-            "INSERT INTO channels (id, group_id) VALUES ('a-channel', 'g')",
+            "INSERT INTO channels (id, group_id, name) VALUES ('a-channel', 'g', 'chan')",
             (),
         )
         .await
@@ -751,7 +749,7 @@ mod conversation_namespace_tests {
     #[tokio::test]
     async fn an_unused_id_is_free() {
         let c = conn().await;
-        c.execute("INSERT INTO groups (id) VALUES ('some-group')", ())
+        c.execute("INSERT INTO groups (id, name, owner_id) VALUES ('some-group', 'grp', 'owner')", ())
             .await
             .unwrap();
 
@@ -767,16 +765,16 @@ mod conversation_namespace_tests {
     async fn a_shared_id_would_grant_membership_of_the_other_conversation() {
         let c = conn().await;
         // The victim's group — mallory is NOT a member.
-        c.execute("INSERT INTO groups (id) VALUES ('victim-group')", ())
+        c.execute("INSERT INTO groups (id, name, owner_id) VALUES ('victim-group', 'grp', 'owner')", ())
             .await
             .unwrap();
         // What the attack inserts if the guard is absent.
-        c.execute("INSERT INTO dm_channel (id) VALUES ('victim-group')", ())
+        c.execute("INSERT INTO dm_channel (id, created_by) VALUES ('victim-group', 'creator')", ())
             .await
             .unwrap();
         c.execute(
-            "INSERT INTO dm_channel_member (dm_channel_id, user_id) \
-             VALUES ('victim-group', 'mallory')",
+            "INSERT INTO dm_channel_member (dm_channel_id, user_id, added_by) \
+             VALUES ('victim-group', 'mallory', 'creator')",
             (),
         )
         .await

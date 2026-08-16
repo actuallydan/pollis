@@ -1634,23 +1634,15 @@ mod tombstone_floor_tests {
 
     use super::*;
 
-    // `reported_at` mirrors migration 000013 (#720). Without it this fixture
-    // diverges from the real schema and every test that writes a watermark
-    // through the production INSERT fails with "no column named reported_at" —
-    // which is exactly what `admin_tombstone_always_reaches_a_caught_up_recipient`
-    // did on main. Nullable, as in the migration: NULL reads as "report time
-    // unknown" and is treated as live, so a legacy row keeps pinning.
-    const SCHEMA: &str = "\
-CREATE TABLE message_envelope (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, sent_at TEXT NOT NULL);\
-CREATE TABLE conversation_watermark (\
-  conversation_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL, \
-  last_fetched_at TEXT NOT NULL, reported_at TEXT, \
-  PRIMARY KEY (conversation_id, user_id, device_id));";
 
     async fn conn() -> Connection {
         let db = libsql::Builder::new_local(":memory:").build().await.unwrap();
         let conn = db.connect().unwrap();
-        conn.execute_batch(SCHEMA).await.unwrap();
+        // Production is Turso, where foreign-key enforcement is off; libsql's LOCAL
+        // backend turns it ON by default, so say so explicitly rather than
+        // inherit a constraint no deploy has (`Db::connect_local` does the same).
+        conn.execute_batch("PRAGMA foreign_keys=OFF;").await.unwrap();
+        pollis_schema::apply::single_db(&conn).await.expect("schema");
         conn
     }
 
@@ -1663,7 +1655,7 @@ CREATE TABLE conversation_watermark (\
 
     async fn add_envelope(conn: &Connection, id: &str, conv: &str, sent_at: &str) {
         conn.execute(
-            "INSERT INTO message_envelope (id, conversation_id, sent_at) VALUES (?1, ?2, ?3)",
+            "INSERT INTO message_envelope (id, conversation_id, sent_at, sender_id, ciphertext) VALUES (?1, ?2, ?3, 'sender', 'ct')",
             libsql::params![id.to_string(), conv.to_string(), sent_at.to_string()],
         )
         .await
@@ -1839,18 +1831,6 @@ mod gc_sql_tests {
 
     use super::*;
 
-    const SCHEMA: &str = "\
-CREATE TABLE message_envelope (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, sent_at TEXT NOT NULL);\
-CREATE TABLE user_device (user_id TEXT NOT NULL, device_id TEXT NOT NULL, revoked_at TEXT);\
-CREATE TABLE group_member (group_id TEXT NOT NULL, user_id TEXT NOT NULL);\
-CREATE TABLE channels (id TEXT PRIMARY KEY, group_id TEXT NOT NULL);\
-CREATE TABLE dm_channel_member (dm_channel_id TEXT NOT NULL, user_id TEXT NOT NULL);\
-CREATE TABLE conversation_watermark (\
-  conversation_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL, \
-  last_fetched_at TEXT NOT NULL, reported_at TEXT);\
-CREATE TABLE attachment_object (content_hash TEXT PRIMARY KEY, r2_key TEXT NOT NULL);\
-CREATE TABLE attachment_ref (content_hash TEXT NOT NULL, message_id TEXT NOT NULL, \
-  PRIMARY KEY (content_hash, message_id));";
 
     /// A staleness window wide enough that none of the legacy fixtures (which seed
     /// `reported_at = NULL`, i.e. "report time unknown" → treated as live) are ever
@@ -1861,7 +1841,11 @@ CREATE TABLE attachment_ref (content_hash TEXT NOT NULL, message_id TEXT NOT NUL
     async fn conn() -> Connection {
         let db = libsql::Builder::new_local(":memory:").build().await.unwrap();
         let conn = db.connect().unwrap();
-        conn.execute_batch(SCHEMA).await.unwrap();
+        // Production is Turso, where foreign-key enforcement is off; libsql's LOCAL
+        // backend turns it ON by default, so say so explicitly rather than
+        // inherit a constraint no deploy has (`Db::connect_local` does the same).
+        conn.execute_batch("PRAGMA foreign_keys=OFF;").await.unwrap();
+        pollis_schema::apply::single_db(&conn).await.expect("schema");
         conn
     }
 
@@ -1927,8 +1911,8 @@ CREATE TABLE attachment_ref (content_hash TEXT NOT NULL, message_id TEXT NOT NUL
     /// Insert one envelope at `datetime('now', offset)`.
     async fn add_envelope(conn: &Connection, id: &str, conv: &str, offset: &str) {
         conn.execute(
-            "INSERT INTO message_envelope (id, conversation_id, sent_at) \
-             VALUES (?1, ?2, datetime('now', ?3))",
+            "INSERT INTO message_envelope (id, conversation_id, sent_at, sender_id, ciphertext) \
+             VALUES (?1, ?2, datetime('now', ?3), 'sender', 'ct')",
             libsql::params![id.to_string(), conv.to_string(), offset.to_string()],
         )
         .await
@@ -1952,7 +1936,7 @@ CREATE TABLE attachment_ref (content_hash TEXT NOT NULL, message_id TEXT NOT NUL
         conn.execute("INSERT INTO group_member (group_id, user_id) VALUES ('g1', 'alice')", ())
             .await
             .unwrap();
-        conn.execute("INSERT INTO channels (id, group_id) VALUES ('c1', 'g1')", ())
+        conn.execute("INSERT INTO channels (id, group_id, name) VALUES ('c1', 'g1', 'chan')", ())
             .await
             .unwrap();
     }
@@ -2006,7 +1990,7 @@ CREATE TABLE attachment_ref (content_hash TEXT NOT NULL, message_id TEXT NOT NUL
     // ── DM ───────────────────────────────────────────────────────────────────
 
     async fn dm_fixture(conn: &Connection) {
-        conn.execute("INSERT INTO dm_channel_member (dm_channel_id, user_id) VALUES ('d1', 'alice')", ())
+        conn.execute("INSERT INTO dm_channel_member (dm_channel_id, user_id, added_by) VALUES ('d1', 'alice', 'creator')", ())
             .await
             .unwrap();
     }
@@ -2114,7 +2098,7 @@ CREATE TABLE attachment_ref (content_hash TEXT NOT NULL, message_id TEXT NOT NUL
     async fn no_ttl_dm_uncollected_ancient_envelope_survives() {
         let conn = conn().await;
         dm_fixture(&conn).await;
-        conn.execute("INSERT INTO dm_channel_member (dm_channel_id, user_id) VALUES ('d1', 'bob')", ())
+        conn.execute("INSERT INTO dm_channel_member (dm_channel_id, user_id, added_by) VALUES ('d1', 'bob', 'creator')", ())
             .await
             .unwrap();
         add_device(&conn, "alice", "a1", false).await;
@@ -2279,7 +2263,7 @@ CREATE TABLE attachment_ref (content_hash TEXT NOT NULL, message_id TEXT NOT NUL
         add_envelope(&conn, "eA", "c1", "-5 days").await;
 
         // A DM whose one member device has caught up (exercises the DM predicate).
-        conn.execute("INSERT INTO dm_channel_member (dm_channel_id, user_id) VALUES ('d1', 'dave')", ())
+        conn.execute("INSERT INTO dm_channel_member (dm_channel_id, user_id, added_by) VALUES ('d1', 'dave', 'creator')", ())
             .await
             .unwrap();
         add_device(&conn, "dave", "d-dev", false).await;
@@ -2290,7 +2274,7 @@ CREATE TABLE attachment_ref (content_hash TEXT NOT NULL, message_id TEXT NOT NUL
         conn.execute("INSERT INTO group_member (group_id, user_id) VALUES ('g2', 'bob')", ())
             .await
             .unwrap();
-        conn.execute("INSERT INTO channels (id, group_id) VALUES ('c2', 'g2')", ())
+        conn.execute("INSERT INTO channels (id, group_id, name) VALUES ('c2', 'g2', 'chan')", ())
             .await
             .unwrap();
         add_device(&conn, "bob", "b1", false).await;
@@ -2469,7 +2453,7 @@ CREATE TABLE attachment_ref (content_hash TEXT NOT NULL, message_id TEXT NOT NUL
     async fn dm_dormant_device_stops_pinning_after_the_bound() {
         let conn = conn().await;
         dm_fixture(&conn).await;
-        conn.execute("INSERT INTO dm_channel_member (dm_channel_id, user_id) VALUES ('d1', 'bob')", ())
+        conn.execute("INSERT INTO dm_channel_member (dm_channel_id, user_id, added_by) VALUES ('d1', 'bob', 'creator')", ())
             .await
             .unwrap();
         add_device(&conn, "alice", "a1", false).await;
@@ -2642,27 +2626,15 @@ mod roster_parity_tests {
         dm_member_device_rows!()
     );
 
-    /// Production shapes, keys included — the PKs matter here. `user_device`'s
-    /// PK is what makes a device id globally unique (so the Rust side's
-    /// `DISTINCT` and the SQL side's raw rows are comparable), and
-    /// `conversation_watermark`'s is what stops the LEFT JOIN fanning a roster
-    /// row out into several.
-    const SCHEMA: &str = "\
-CREATE TABLE message_envelope (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, sent_at TEXT NOT NULL);\
-CREATE TABLE user_device (device_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, revoked_at TEXT);\
-CREATE TABLE group_member (group_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (group_id, user_id));\
-CREATE TABLE channels (id TEXT PRIMARY KEY, group_id TEXT NOT NULL);\
-CREATE TABLE dm_channel_member (\
-  dm_channel_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (dm_channel_id, user_id));\
-CREATE TABLE conversation_watermark (\
-  conversation_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL, \
-  last_fetched_at TEXT NOT NULL, reported_at TEXT, \
-  PRIMARY KEY (conversation_id, user_id, device_id));";
 
     async fn conn() -> Connection {
         let db = libsql::Builder::new_local(":memory:").build().await.unwrap();
         let conn = db.connect().unwrap();
-        conn.execute_batch(SCHEMA).await.unwrap();
+        // Production is Turso, where foreign-key enforcement is off; libsql's LOCAL
+        // backend turns it ON by default, so say so explicitly rather than
+        // inherit a constraint no deploy has (`Db::connect_local` does the same).
+        conn.execute_batch("PRAGMA foreign_keys=OFF;").await.unwrap();
+        pollis_schema::apply::single_db(&conn).await.expect("schema");
         conn
     }
 
@@ -2697,8 +2669,8 @@ CREATE TABLE conversation_watermark (\
 
     async fn envelope(conn: &Connection, id: &str, conv: &str, offset: &str) {
         conn.execute(
-            "INSERT INTO message_envelope (id, conversation_id, sent_at) \
-             VALUES (?1, ?2, datetime('now', ?3))",
+            "INSERT INTO message_envelope (id, conversation_id, sent_at, sender_id, ciphertext) \
+             VALUES (?1, ?2, datetime('now', ?3), 'sender', 'ct')",
             libsql::params![id.to_string(), conv.to_string(), offset.to_string()],
         )
         .await
@@ -2756,8 +2728,8 @@ CREATE TABLE conversation_watermark (\
     /// Watermarks are seeded only where a test needs them; membership and
     /// devices are the shared part.
     async fn fixture(conn: &Connection) {
-        exec(conn, "INSERT INTO channels (id, group_id) VALUES ('c-main', 'g-main')").await;
-        exec(conn, "INSERT INTO channels (id, group_id) VALUES ('c-other', 'g-other')").await;
+        exec(conn, "INSERT INTO channels (id, group_id, name) VALUES ('c-main', 'g-main', 'chan')").await;
+        exec(conn, "INSERT INTO channels (id, group_id, name) VALUES ('c-other', 'g-other', 'chan')").await;
         for user in ["alice", "bob", "carol", "dave"] {
             conn.execute(
                 "INSERT INTO group_member (group_id, user_id) VALUES ('g-main', ?1)",
@@ -2766,7 +2738,7 @@ CREATE TABLE conversation_watermark (\
             .await
             .unwrap();
             conn.execute(
-                "INSERT INTO dm_channel_member (dm_channel_id, user_id) VALUES ('dm-main', ?1)",
+                "INSERT INTO dm_channel_member (dm_channel_id, user_id, added_by) VALUES ('dm-main', ?1, 'creator')",
                 libsql::params![user.to_string()],
             )
             .await
@@ -2775,7 +2747,7 @@ CREATE TABLE conversation_watermark (\
         exec(conn, "INSERT INTO group_member (group_id, user_id) VALUES ('g-other', 'eve')").await;
         exec(
             conn,
-            "INSERT INTO dm_channel_member (dm_channel_id, user_id) VALUES ('dm-other', 'eve')",
+            "INSERT INTO dm_channel_member (dm_channel_id, user_id, added_by) VALUES ('dm-other', 'eve', 'creator')",
         )
         .await;
 
@@ -2891,11 +2863,11 @@ CREATE TABLE conversation_watermark (\
     #[tokio::test]
     async fn an_all_revoked_member_yields_the_empty_roster_on_both_paths() {
         let conn = conn().await;
-        exec(&conn, "INSERT INTO channels (id, group_id) VALUES ('c-dead', 'g-dead')").await;
+        exec(&conn, "INSERT INTO channels (id, group_id, name) VALUES ('c-dead', 'g-dead', 'chan')").await;
         exec(&conn, "INSERT INTO group_member (group_id, user_id) VALUES ('g-dead', 'carol')").await;
         exec(
             &conn,
-            "INSERT INTO dm_channel_member (dm_channel_id, user_id) VALUES ('dm-dead', 'carol')",
+            "INSERT INTO dm_channel_member (dm_channel_id, user_id, added_by) VALUES ('dm-dead', 'carol', 'creator')",
         )
         .await;
         device(&conn, "carol", "carol-old-1", true).await;
@@ -3102,19 +3074,6 @@ mod admin_delete_visibility_tests {
     use super::*;
     use tempfile::TempDir;
 
-    /// message_envelope + conversation_watermark, matching the baseline columns
-    /// `apply_send_message` / `apply_delete_message` / `apply_advance_watermark`
-    /// write and the ingest fetch reads.
-    const SCHEMA: &str = "\
-CREATE TABLE message_envelope (\
-  id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, sender_id TEXT NOT NULL, \
-  ciphertext TEXT NOT NULL, reply_to_id TEXT, sent_at TEXT NOT NULL, \
-  delivered INTEGER NOT NULL DEFAULT 0, type TEXT NOT NULL DEFAULT 'message', \
-  target_message_id TEXT, sealed INTEGER NOT NULL DEFAULT 0);\
-CREATE TABLE conversation_watermark (\
-  conversation_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL, \
-  last_fetched_at TEXT NOT NULL, reported_at TEXT, \
-  PRIMARY KEY (conversation_id, user_id, device_id));";
 
     /// The exact shape a CLIENT writes for `sent_at`
     /// (`chrono::Utc::now().to_rfc3339()`, i.e. `SecondsFormat::AutoSi`), at a
@@ -3137,7 +3096,11 @@ CREATE TABLE conversation_watermark (\
         {
             let conn = db.connect().expect("connect");
             conn.query("PRAGMA journal_mode=WAL", ()).await.expect("wal");
-            conn.execute_batch(SCHEMA).await.expect("schema");
+            // Production is Turso, where foreign-key enforcement is off; libsql's LOCAL
+        // backend turns it ON by default, so say so explicitly rather than
+        // inherit a constraint no deploy has (`Db::connect_local` does the same).
+        conn.execute_batch("PRAGMA foreign_keys=OFF;").await.unwrap();
+        pollis_schema::apply::single_db(&conn).await.expect("schema");
         }
         (dir, db)
     }
@@ -3495,7 +3458,11 @@ CREATE TABLE conversation_watermark (\
         {
             let c = db.connect().expect("connect");
             c.query("PRAGMA journal_mode=WAL", ()).await.expect("wal");
-            c.execute_batch(SCHEMA).await.expect("schema");
+            // Production is Turso, where foreign-key enforcement is off; libsql's LOCAL
+        // backend turns it ON by default, so say so explicitly rather than
+        // inherit a constraint no deploy has (`Db::connect_local` does the same).
+        c.execute_batch("PRAGMA foreign_keys=OFF;").await.unwrap();
+        pollis_schema::apply::single_db(&c).await.expect("schema");
         }
 
         let writer = db.connect().expect("writer");
@@ -3551,25 +3518,15 @@ mod delete_scope_tests {
     use super::*;
     use libsql::Connection;
 
-    const SCHEMA: &str = "\
-        CREATE TABLE message_envelope (\
-            id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, sender_id TEXT NOT NULL,\
-            ciphertext TEXT NOT NULL, sent_at TEXT NOT NULL, type TEXT,\
-            target_message_id TEXT, delivered INTEGER NOT NULL DEFAULT 0);\
-        CREATE TABLE dm_channel_member (dm_channel_id TEXT NOT NULL, user_id TEXT NOT NULL);\
-        CREATE TABLE dm_channel (id TEXT PRIMARY KEY);\
-        CREATE TABLE groups (id TEXT PRIMARY KEY);\
-        CREATE TABLE channels (id TEXT PRIMARY KEY, group_id TEXT NOT NULL);\
-        CREATE TABLE group_member (group_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT);\
-        CREATE TABLE conversation_watermark (\
-            conversation_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL,\
-            last_fetched_at TEXT NOT NULL,\
-            PRIMARY KEY (conversation_id, user_id, device_id));";
 
     async fn conn() -> Connection {
         let db = libsql::Builder::new_local(":memory:").build().await.unwrap();
         let c = db.connect().unwrap();
-        c.execute_batch(SCHEMA).await.unwrap();
+        // Production is Turso, where foreign-key enforcement is off; libsql's LOCAL
+        // backend turns it ON by default, so say so explicitly rather than
+        // inherit a constraint no deploy has (`Db::connect_local` does the same).
+        c.execute_batch("PRAGMA foreign_keys=OFF;").await.unwrap();
+        pollis_schema::apply::single_db(&c).await.expect("schema");
         c
     }
 
@@ -3601,12 +3558,12 @@ mod delete_scope_tests {
         let c = conn().await;
         // The attacker is a legitimate member of exactly one conversation.
         c.execute(
-            "INSERT INTO dm_channel_member (dm_channel_id, user_id) VALUES ('mine', 'mallory')",
+            "INSERT INTO dm_channel_member (dm_channel_id, user_id, added_by) VALUES ('mine', 'mallory', 'creator')",
             (),
         )
         .await
         .unwrap();
-        c.execute("INSERT INTO dm_channel (id) VALUES ('mine')", ())
+        c.execute("INSERT INTO dm_channel (id, created_by) VALUES ('mine', 'creator')", ())
             .await
             .unwrap();
         seed_envelope(&c, "victim-envelope", "someone-elses-conversation", "alice").await;
@@ -3633,11 +3590,11 @@ mod delete_scope_tests {
     #[tokio::test]
     async fn admin_delete_cannot_reach_another_conversation() {
         let c = conn().await;
-        c.execute("INSERT INTO groups (id) VALUES ('g1')", ())
+        c.execute("INSERT INTO groups (id, name, owner_id) VALUES ('g1', 'grp', 'owner')", ())
             .await
             .unwrap();
         c.execute(
-            "INSERT INTO channels (id, group_id) VALUES ('my-channel', 'g1')",
+            "INSERT INTO channels (id, group_id, name) VALUES ('my-channel', 'g1', 'chan')",
             (),
         )
         .await
@@ -3672,12 +3629,12 @@ mod delete_scope_tests {
     async fn self_delete_still_removes_your_own_envelope() {
         let c = conn().await;
         c.execute(
-            "INSERT INTO dm_channel_member (dm_channel_id, user_id) VALUES ('mine', 'mallory')",
+            "INSERT INTO dm_channel_member (dm_channel_id, user_id, added_by) VALUES ('mine', 'mallory', 'creator')",
             (),
         )
         .await
         .unwrap();
-        c.execute("INSERT INTO dm_channel (id) VALUES ('mine')", ())
+        c.execute("INSERT INTO dm_channel (id, created_by) VALUES ('mine', 'creator')", ())
             .await
             .unwrap();
         seed_envelope(&c, "my-envelope", "mine", "mallory").await;

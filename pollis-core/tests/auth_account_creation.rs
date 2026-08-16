@@ -19,16 +19,13 @@ use pollis_core::commands::auth::resolve_or_create_user_by_email;
 async fn conn() -> libsql::Connection {
     let db = libsql::Builder::new_local(":memory:").build().await.unwrap();
     let conn = db.connect().unwrap();
-    conn.execute(
-        "CREATE TABLE users (\
-            id TEXT PRIMARY KEY, \
-            email TEXT NOT NULL UNIQUE, \
-            username TEXT NOT NULL, \
-            account_id_pub BLOB)",
-        (),
-    )
-    .await
-    .unwrap();
+    // The SHIPPED remote schema (#875): the old fixture's `users` had a
+    // non-UNIQUE `username` and no `identity_version`, so "did this create a
+    // second account?" was asked of a table that permits collisions the real
+    // one rejects.
+    for sql in pollis_schema::main_scripts() {
+        conn.execute_batch(sql).await.unwrap();
+    }
     conn
 }
 

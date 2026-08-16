@@ -1518,12 +1518,16 @@ pub async fn is_current_device_registered(
 mod tests {
     use rusqlite::Connection;
 
-    use crate::db::BASELINE_SQL as BASELINE;
 
     fn db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
-        conn.execute_batch(BASELINE).unwrap();
+        // The SHIPPED schema: baseline plus every numbered migration, in the order
+        // `scripts/db-apply.sh` applies them. #875 — applying the baseline alone left
+        // the fixture on a pre-migration schema no deploy has run for months.
+        for sql in pollis_schema::main_scripts() {
+            conn.execute_batch(sql).unwrap();
+        }
         conn
     }
 
