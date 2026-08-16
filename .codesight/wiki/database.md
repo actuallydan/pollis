@@ -89,6 +89,25 @@ now reused rather than rebuilt.
 - `preferred_name` TEXT _(migration `000001`)_
 - There is **no** `identity_key` column. This doc used to list one as "legacy, unused"; it does not exist in the schema (#804). The local DB has an unrelated table of that name — see below.
 
+**`email` is the account's identity, so it must be canonicalized before it reaches
+this table** — `NOT NULL UNIQUE` cannot merge `" a@x.com "` with `"a@x.com"`, it just
+lets both exist as two accounts for one person. Canonical form is **trim only**
+(deliberately *not* lowercased: only the OTP store key is lowercased, in
+`pollis_delivery::otp::normalize_email`). Both writers apply it at the function
+holding the INSERT, not at their handlers, because both are also called directly by
+in-process harnesses:
+
+| writer | function | when |
+|---|---|---|
+| DS (authoritative) | `pollis_delivery::otp::apply_verify_otp` | every real sign-in |
+| client (dev only) | `auth::resolve_or_create_user_by_email` + `canonical_login_email` | `#[cfg(debug_assertions)]` no-DS `dev_login` shortcut |
+
+The two are deliberate twins — same query, same server-generated ULID id, same default
+username `<email-prefix>_<last 4 of the ULID>`. `pollis-core` and `pollis-delivery` do
+not depend on each other, so this is kept identical by hand and by matching tests on
+both sides; diff them if you change either. (Before #875 they had drifted: the client
+copy did not trim.)
+
 ### groups
 - `id` TEXT PK
 - `name` TEXT NOT NULL

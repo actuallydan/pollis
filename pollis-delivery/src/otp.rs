@@ -409,10 +409,23 @@ pub async fn apply_verify_otp(
         }
     }
 
-    // Code is good: create or load the account. Mirrors pollis-core
-    // `auth::verify_otp` — server-gen ULID id + a default username from the email
-    // prefix plus a 4-char ULID suffix for uniqueness. Any error here
-    // `?`-propagates to a 5xx WITHOUT consuming the code (the retry then heals).
+    // Code is good: create or load the account — server-gen ULID id + a default
+    // username from the email prefix plus a 4-char ULID suffix for uniqueness.
+    // Any error here `?`-propagates to a 5xx WITHOUT consuming the code (the
+    // retry then heals).
+    //
+    // `pollis-core`'s `auth::resolve_or_create_user_by_email` is the client twin
+    // of this block (its dev-only, no-DS login shortcut). The two crates cannot
+    // depend on each other, so they are kept deliberately identical instead —
+    // diff them if you change either.
+    //
+    // Canonicalize here rather than relying on the handler having done it:
+    // `users.email` is `NOT NULL UNIQUE`, so the string IS the account identity,
+    // and the only place that can guarantee "one address, one row" is the
+    // function holding the INSERT. `apply_verify_otp` is also called directly by
+    // the in-process test harnesses, which do not go through the handler's trim.
+    let email = email.trim();
+
     let mut rows = conn
         .query(
             "SELECT id, username, account_id_pub FROM users WHERE email = ?1",
@@ -598,6 +611,111 @@ mod tests {
             store.prepare("a@x.com", "222222", 600, 30, 1010),
             PrepareOutcome::Throttled
         ));
+    }
+
+    /// Count the `users` rows, so "did this create a second account?" is a
+    /// direct observation rather than an inference.
+    async fn user_count(conn: &crate::db::ConnGuard) -> i64 {
+        let mut rows = conn.query("SELECT COUNT(*) FROM users", ()).await.unwrap();
+        rows.next().await.unwrap().unwrap().get(0).unwrap()
+    }
+
+    async fn verify(
+        conn: &crate::db::ConnGuard,
+        otp: &OtpStore,
+        sessions: &SessionStore,
+        cfg: &OtpConfig,
+        email: &str,
+    ) -> VerifyOtpResult {
+        otp.prepare(email, "123456", cfg.ttl_secs, 0, now_unix());
+        apply_verify_otp(conn, otp, sessions, cfg, email, "123456", "dev-1")
+            .await
+            .expect("verify-otp must succeed")
+    }
+
+    /// `users.email` is `NOT NULL UNIQUE`, so the address string IS the account's
+    /// identity: two spellings of one address must land on one row. The handler
+    /// trims, but `apply_verify_otp` is also called directly (the desktop and TUI
+    /// in-process harnesses do), so the guarantee has to live here — at the
+    /// function that holds the INSERT.
+    #[tokio::test]
+    async fn the_same_address_spelled_two_ways_resolves_to_one_account() {
+        let (_db, conn) = conn_with(true).await;
+        let (otp, sessions, cfg) = (OtpStore::default(), SessionStore::default(), OtpConfig::default());
+
+        let first = verify(&conn, &otp, &sessions, &cfg, "alice@x.com").await;
+        let padded = verify(&conn, &otp, &sessions, &cfg, "  alice@x.com \n").await;
+
+        let (id_a, new_a) = match first {
+            VerifyOtpResult::Ok { user_id, is_new_account, .. } => (user_id, is_new_account),
+            _ => panic!("expected Ok"),
+        };
+        let (id_b, new_b) = match padded {
+            VerifyOtpResult::Ok { user_id, is_new_account, .. } => (user_id, is_new_account),
+            _ => panic!("expected Ok"),
+        };
+
+        assert!(new_a, "the first sign-in creates the account");
+        assert!(!new_b, "the padded spelling must find the account, not make one");
+        assert_eq!(id_a, id_b);
+        assert_eq!(user_count(&conn).await, 1, "one address must never own two accounts");
+    }
+
+    /// The default username contract the client mirrors: the email's local part,
+    /// an underscore, and the last four characters of the account's ULID. An
+    /// address with no local part yields `"_<suffix>"` — `split('@')` returns an
+    /// empty first segment, never `None`.
+    #[tokio::test]
+    async fn the_default_username_is_the_email_prefix_and_a_ulid_suffix() {
+        let (_db, conn) = conn_with(true).await;
+        let (otp, sessions, cfg) = (OtpStore::default(), SessionStore::default(), OtpConfig::default());
+
+        match verify(&conn, &otp, &sessions, &cfg, "alice@x.com").await {
+            VerifyOtpResult::Ok { user_id, username, .. } => {
+                assert_eq!(username, format!("alice_{}", &user_id[user_id.len() - 4..]));
+            }
+            _ => panic!("expected Ok"),
+        }
+
+        match verify(&conn, &otp, &sessions, &cfg, "@x.com").await {
+            VerifyOtpResult::Ok { user_id, username, .. } => {
+                assert_eq!(username, format!("_{}", &user_id[user_id.len() - 4..]));
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    /// A returning account reports whether it has published an identity key —
+    /// the flag the client's enrollment gate turns on. A NULL column is "not
+    /// yet", never an error.
+    #[tokio::test]
+    async fn has_identity_reflects_the_stored_key_and_null_reads_as_absent() {
+        let (_db, conn) = conn_with(true).await;
+        let (otp, sessions, cfg) = (OtpStore::default(), SessionStore::default(), OtpConfig::default());
+
+        // No key yet.
+        match verify(&conn, &otp, &sessions, &cfg, "bob@x.com").await {
+            VerifyOtpResult::Ok { has_identity, is_new_account, .. } => {
+                assert!(is_new_account);
+                assert!(!has_identity);
+            }
+            _ => panic!("expected Ok"),
+        }
+
+        conn.execute(
+            "UPDATE users SET account_id_pub = ?1 WHERE email = 'bob@x.com'",
+            libsql::params![vec![7u8; 32]],
+        )
+        .await
+        .unwrap();
+
+        match verify(&conn, &otp, &sessions, &cfg, "bob@x.com").await {
+            VerifyOtpResult::Ok { has_identity, is_new_account, .. } => {
+                assert!(!is_new_account);
+                assert!(has_identity);
+            }
+            _ => panic!("expected Ok"),
+        }
     }
 
     // #518: a correct code + a failing account-write must surface as an error (5xx),
