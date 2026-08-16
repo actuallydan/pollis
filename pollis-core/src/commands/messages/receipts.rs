@@ -208,7 +208,7 @@ pub(crate) async fn emit_receipt(
     // caller: a group channel must never produce a receipt.
     let dm = is_dm(state, conversation_id).await?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = super::envelope_sent_at();
     let ciphertext_remote = {
         let guard = state.local_db.lock().await;
         let db = guard

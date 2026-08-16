@@ -27,6 +27,29 @@ The path in each section header below points at the implementation in `pollis-co
 >
 > When you add or change a command, update the relevant section here **and** Appendix A in the same PR (per `CLAUDE.md`: update the wiki alongside the code).
 
+### Every DS write body must NAME ITS ACTOR (#875)
+
+`pollis-delivery` resolves the acting user for every `POST /v1/…` write through one
+helper, `writes::resolve_actor`:
+
+| DS `require_auth` | actor comes from | body's actor field |
+| --- | --- | --- |
+| **on** (production) | the device-signed `X-Pollis-User` | must EQUAL the signer, else `403` |
+| **off** | the body's actor field | **required** — missing/empty is `403` |
+
+So a client body that omits the field works perfectly against a signed deployment
+and hard-`403`s against an unsigned one. The field's NAME varies per endpoint —
+`actor_id`, `user_id`, `sender_id`, `requester_id`, `created_by`, `owner_id`,
+`approver_id`, `blocker_id`, `inviter_id` — so there is no single global check;
+the rule is per call site. **When you add or edit a `ds_post*` body, read the DS
+handler's `resolve_actor(...)` line and include exactly the field it names.**
+Sending it is never a privilege escalation (auth-on binds it to the signer), and
+omitting it is always a latent outage.
+
+`current_user_id` (`commands/mls/ds_client.rs`) is the value to send when the
+command has no `user_id` parameter of its own — it is the same identity `ds_post`
+signs as, so the two cannot disagree.
+
 ## auth (`commands/auth.rs`)
 - `initialize_identity(user_id)` — ensure MLS credentials + KPs, poll welcomes. Requires the local DB to be open (post-`set_pin` / `unlock`).
 - `get_identity()` — check if MLS identity exists locally
@@ -97,7 +120,7 @@ Idle auto-lock (#851) — the timer that was missing from `pin::lock`. Rust owns
 - `get_channel_messages(user_id, channel_id, limit, cursor?)` → `MessagePage`
 - `get_dm_messages(user_id, dm_channel_id, limit, cursor?)` → `MessagePage`
 - `edit_message(message_id, conversation_id, sender_id, new_content)`
-- `delete_message(message_id, user_id)` — hard-deletes the envelope on Turso + the sender's local row. If the message had attachments (`_att` in the plaintext JSON payload), each `content_hash` is reference-counted against the sender's other non-deleted local messages; unreferenced ones have their `attachment_object` row + R2 object removed (best-effort, logged on failure). Cross-user references are invisible because attachment metadata lives inside the MLS-encrypted payload — convergent encryption means another member re-uploading the same file simply re-registers the dedup row.
+- `delete_message(message_id, user_id)` — hard-deletes the envelope on Turso + the sender's local row. Both branches (self and admin) build the `POST /v1/messages/delete` body through the one `delete_message_body(...)` helper so `actor_id` cannot be forgotten on either — see "Every DS write body must NAME ITS ACTOR" above; it was missing on both before #875, which made deletion 403 on any `require_auth = false` deployment. If the message had attachments (`_att` in the plaintext JSON payload), each `content_hash` is reference-counted against the sender's other non-deleted local messages; unreferenced ones have their `attachment_object` row + R2 object removed (best-effort, logged on failure). Cross-user references are invisible because attachment metadata lives inside the MLS-encrypted payload — convergent encryption means another member re-uploading the same file simply re-registers the dedup row.
 - `search_messages(user_id, query, conversation_id?)` → `Message[]`
 
 ## dm (`commands/dm.rs`)
@@ -219,7 +242,7 @@ Invariant: **`deafened ⇒ self_muted`** — the gate's fields are private and u
 - Internal: `delete_r2_object(state, r2_key)` — DS-presigned DELETE (via `presign_r2`) used by `delete_message` to purge orphaned attachments. Treats 404 as success. The client holds no R2 credentials — every get/put/delete is presigned by the DS secrets broker (`POST /v1/r2/presign`, #393).
 
 ## emoji (`commands/emoji.rs`)
-Custom per-group emoji (#848). Remote metadata lives in `custom_emoji_object` (content-addressed, one row per stored image) + `group_emoji` (one row per group that uses it); writes go through the DS (`POST /v1/emoji/{create,remove,gc}`). The objects are **unencrypted** in R2, deliberately — see the module docs and migration `000015_custom_emoji.sql`.
+Custom per-group emoji (#848). Remote metadata lives in `custom_emoji_object` (content-addressed, one row per stored image) + `group_emoji` (one row per group that uses it); writes go through the DS (`POST /v1/emoji/{create,remove,gc}`). The objects are **unencrypted** in R2, deliberately — see the module docs and migration `000015_custom_emoji.sql`. `create` names its actor as `created_by` and `remove` as `actor_id` (both filled from `current_user_id`) — neither did before #875, so both 403'd on an unsigned deployment; see "Every DS write body must NAME ITS ACTOR" at the top of this page.
 - `list_usable_emoji(user_id)` → `CustomEmoji[]` — every custom emoji the user may SEND, i.e. every emoji registered to any group they are a current member of. Discord's rule: usable in ANY conversation, not just the registering group. This is both the picker's source and the permission predicate — deliberately one query, so the set offered and the set permitted cannot drift.
 - `list_group_emoji(group_id)` → `CustomEmoji[]` — one group's emoji (the management page).
 - `upload_group_emoji(group_id, shortcode, path)` → `CustomEmoji` — reads the file from disk (no bytes over IPC), **re-encodes** it to WebP/GIF under 48 KiB (`encode_emoji`), content-hashes the *re-encoded* bytes, skips the R2 PUT on a dedup hit, uploads under a length-bound presign, then registers via the DS. `shortcode` must be `[a-z0-9_]{2,32}`.

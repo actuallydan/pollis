@@ -5,6 +5,34 @@ use ulid::Ulid;
 use crate::error::Result;
 use crate::state::AppState;
 
+/// The `POST /v1/messages/delete` request body.
+///
+/// A named builder rather than an inline `json!` at each call site because the
+/// endpoint has TWO call sites (self-delete and admin-delete) and the DS reads
+/// `actor_id` as the acting user whenever request signing is off
+/// (`pollis_delivery::writes::resolve_actor`: auth on → the signed user, auth off
+/// → this field, missing → `Forbidden`). Omitting it made the endpoint return a
+/// hard 403 on every no-auth deployment while the authenticated path looked
+/// healthy — a shape that is only representable if the two call sites can build
+/// the body independently, so they no longer can.
+///
+/// `actor_id` is NOT a permission grant on the signed path: `resolve_actor`
+/// requires it to equal the authenticated user and rejects otherwise, so sending
+/// it can never widen what the caller may do.
+pub fn delete_message_body(
+    message_id: &str,
+    conversation_id: &str,
+    msg_sender_id: &str,
+    actor_id: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "message_id": message_id,
+        "conversation_id": conversation_id,
+        "msg_sender_id": msg_sender_id,
+        "actor_id": actor_id,
+    })
+}
+
 /// Delete a message.
 ///
 /// Two paths, selected automatically by comparing `user_id` (the caller) to the
@@ -141,13 +169,14 @@ pub async fn delete_message(
         // authority (it must not trust the client's branch choice). DS seam:
         // route the whole 3-write op (one transaction server-side) through the
         // Delivery Service.
-        let now = chrono::Utc::now().to_rfc3339();
-        let body = serde_json::json!({
-            "message_id": message_id,
-            "conversation_id": conversation_id,
-            "msg_sender_id": msg_sender_id,
-        });
+        let body = delete_message_body(&message_id, &conversation_id, &msg_sender_id, &user_id);
         crate::commands::mls::ds_post_ok(state, "/v1/messages/delete", &body).await?;
+
+        // Local `message.deleted_at` only — a display/presence field, never
+        // compared lexically against a cursor, so it deliberately does NOT go
+        // through `envelope_sent_at` (which exists for the watermark-ordered
+        // `message_envelope.sent_at` column).
+        let now = chrono::Utc::now().to_rfc3339();
 
         // Soft-delete locally and collect orphaned attachments. The admin
         // may not have a local row (joined after the message was sent and
@@ -224,11 +253,7 @@ pub async fn delete_message(
     // Remove the original envelope (best-effort — may already be GC'd) and any
     // pending edit. DS seam: route both deletes (one transaction server-side,
     // scoped to the authenticated sender) through the Delivery Service.
-    let body = serde_json::json!({
-        "message_id": message_id,
-        "conversation_id": conversation_id,
-        "msg_sender_id": user_id,
-    });
+    let body = delete_message_body(&message_id, &conversation_id, &user_id, &user_id);
     crate::commands::mls::ds_post_ok(state, "/v1/messages/delete", &body).await?;
 
     // Read the local plaintext content before soft-deleting so we can inspect
@@ -250,6 +275,10 @@ pub async fn delete_message(
             )
             .optional()?;
 
+        // Local `message.deleted_at` only — a display/presence field, never
+        // compared lexically against a cursor, so it deliberately does NOT go
+        // through `envelope_sent_at` (which exists for the watermark-ordered
+        // `message_envelope.sent_at` column).
         let now = chrono::Utc::now().to_rfc3339();
         let rows_affected = db.conn().execute(
             "UPDATE message SET content = NULL, deleted_at = ?1
@@ -356,7 +385,7 @@ pub async fn edit_message_as(
     new_content: &str,
 ) -> Result<()> {
     let envelope_id = Ulid::new().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = super::envelope_sent_at();
     let (mls_group_id, _is_channel) = resolve_mls_group(state, conversation_id).await?;
 
     // Catch up (welcomes + interleaved) so the edit is sealed at the current
@@ -435,7 +464,7 @@ async fn send_redaction_message(
     user_id: &str,
 ) -> Result<()> {
     let envelope_id = Ulid::new().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = super::envelope_sent_at();
     let (mls_group_id, _is_channel) = resolve_mls_group(state, conversation_id).await?;
 
     // Catch up MLS before encrypting so the redaction is sealed at the current
@@ -728,7 +757,7 @@ pub async fn edit_message(
     state: &Arc<AppState>,
 ) -> Result<()> {
     let envelope_id = Ulid::new().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = super::envelope_sent_at();
 
     // Resolve the MLS group for this conversation (channel → group_id, DM → conversation_id).
     let mls_group_id = {

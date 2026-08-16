@@ -163,6 +163,38 @@ the conversation's **floor** (`sent_at_after` / `TOMBSTONE_FLOOR` in
 `pollis-delivery/src/messages.rs`), so client/DS clock skew cannot reintroduce
 the same burial.
 
+**The CLIENT side is correct as it stands, and must not be "fixed" to match
+(#875).** `chrono::Utc::now().to_rfc3339()` is `SecondsFormat::AutoSi`, which
+emits 0, 3, 6 or 9 fraction digits — it **omits** the fraction only when the
+instant's nanoseconds are genuinely zero, and it never **truncates** a real one.
+A fraction-less client stamp therefore denotes `.000000000`, the earliest instant
+of its second, so sorting below every fractional stamp in that second is the
+*correct* answer and `'+' < '.'` is what produces it. The #692 bug was a
+hand-rolled DS formatter that threw a real fraction away; that is a different
+thing, and only the DS needed `SecondsFormat::Nanos`. Switching the ~25
+`to_rfc3339()` call sites in `pollis-core` to `Nanos` would change no ordering
+and buy nothing.
+
+What #875 *did* change is where the client's format is decided: the five sites
+that write a `message_envelope.sent_at` now all go through
+`pollis_core::commands::messages::envelope_sent_at`, so the format is one
+function with `sent_at_format_tests` around it rather than five independent
+`now()` calls. The sites that write LOCAL-only timestamps (`message.deleted_at`,
+`message.edited_at`, `mls_self_update.last_at`, profile/group `created_at`, …)
+deliberately do **not** use it — those columns are never compared against a
+cursor, and routing them through an envelope-specific helper would imply a
+constraint they do not have.
+
+Four tests pin the ordering: `sent_at_format_tests::
+sent_at_never_truncates_a_real_fraction` (pollis-core), `timestamp_tests::
+lexical_order_matches_chronological_order_across_precisions`,
+`admin_delete_visibility_tests::admin_tombstone_always_reaches_a_caught_up_recipient`
+(which runs the zero-nanosecond shape through the real delete path) and
+`…::a_zero_nanosecond_client_message_still_outsorts_the_preceding_tombstone`
+(the reverse direction — a message sent on a second boundary after a tombstone
+still clears the recipient's watermark). Any change to timestamp formatting on
+either side must keep all four green.
+
 That floor is the greater of `MAX(sent_at)` over `message_envelope` **and**
 `MAX(last_fetched_at)` over `conversation_watermark`, both scoped to the
 conversation (#692). The envelope side alone is not enough: envelope GC deletes

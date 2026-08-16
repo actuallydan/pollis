@@ -28,7 +28,7 @@ pub async fn send_message(
 ) -> Result<Message> {
     state.check_not_outdated()?;
     let id = Ulid::new().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = super::envelope_sent_at();
 
     // For group channels, all channels share the group's MLS group (keyed by group_id).
     // For DM conversations, the MLS group is keyed by conversation_id directly.

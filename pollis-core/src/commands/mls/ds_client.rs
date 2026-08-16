@@ -59,7 +59,7 @@ fn canonical_message(method: &str, path: &str, timestamp: i64, body: &[u8]) -> V
 /// makes the device-signature lookup miss its `user_device` row → 401. Fall back
 /// to the accounts index only before a session is unlocked (single-user installs
 /// / early startup).
-async fn current_user_id(state: &Arc<AppState>) -> Result<String> {
+pub(crate) async fn current_user_id(state: &Arc<AppState>) -> Result<String> {
     if let Some(u) = state.unlock.lock().await.as_ref() {
         if !u.user_id.is_empty() {
             return Ok(u.user_id.clone());
