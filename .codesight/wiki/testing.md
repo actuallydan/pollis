@@ -201,11 +201,43 @@ cargo test -p pollis-core --no-default-features --features test-harness \
 - **Register new commands in `build_client_app`.** The `tauri::generate_handler![...]` macro call in `src-tauri/src/test_harness.rs` must include every command invoked by a test.
 - **Add FK-safe wipes.** If you introduce a new table referenced by tests, add it to `wipe_remote` in the correct order (child tables before parent).
 
+## The in-process Delivery Service — the REAL router (#918)
+
+`spawn_in_process_delivery` (in `harness.rs`) boots **`pollis_delivery::
+build_router_with_state`** — the production router, verbatim — on a loopback port,
+against the harness's own libsql handles. Every DS call a flows test makes lands
+on the shipped handler.
+
+It did not always. The harness used to re-declare the route table and wrap all ~60
+handlers itself, because its DB handle was a `pollis-core` `RemoteDb` and the DS
+wanted a `pollis_delivery::db::Db`. `RemoteDb::shared_database()` (test-harness
+feature) and `Db::from_shared()` remove that: both now wrap the SAME libsql
+`Database`, so the DS writes through the very handle the clients read from —
+which was the whole reason for the copy. Opening a second `Builder::new_local` on
+one file is NOT equivalent: two independent handles do not share WAL writes
+promptly, and a client reading rows the DS "already wrote" is exactly the ghost
+failure this suite exists to rule out.
+
+The copy was not free while it lasted. It silently omitted ten routes:
+`/v1/invite-links/redeem` 404'd under test while working in production, and
+custom emoji (#848) had no integration coverage at all. Two tests keep the mirror
+from coming back — `flows/ds_surface.rs::every_declared_endpoint_is_reachable`
+and `pollis-delivery/tests/endpoint_coverage.rs::every_declared_endpoint_is_routed`
+— both walking `pollis_api::ENDPOINTS`, the single table the client and both
+routers are built from.
+
+**Auth is ENFORCED** in the harness DS (`require_auth = true`), so the suite drives
+the signed write path end to end. Per-IP rate limits are raised (every request in
+the run comes from 127.0.0.1, which the production limits read as one abusive
+client); `ratelimit.rs`'s own unit tests pin the real numbers.
+
 ## The `DsFault` seam — injecting DS-side faults
 
-The flows harness routes every commit submit through an **in-process
-`pollis-delivery`** instance (`spawn_in_process_delivery` in `harness.rs`). That
-seam is the only place a fault can be injected *without* touching production code:
+`/v1/commits` is the ONE path the harness serves itself, mounted on an outer
+router whose `fallback_service` is the real one — so the override is an
+*addition*, not a re-declaration, and every other endpoint (today's and
+tomorrow's) reaches production code with no edit to the harness. That seam is the
+only place a fault can be injected *without* touching production code:
 the client's `SubmitResult` is lossy (it discards the DS's `Rejected` detail) and
 `http_submit` is hardwired, so there is no client-side network seam to mock. All
 faults therefore live **DS/harness-side**, and the real client code path runs

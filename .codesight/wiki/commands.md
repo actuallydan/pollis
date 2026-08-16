@@ -41,14 +41,49 @@ So a client body that omits the field works perfectly against a signed deploymen
 and hard-`403`s against an unsigned one. The field's NAME varies per endpoint —
 `actor_id`, `user_id`, `sender_id`, `requester_id`, `created_by`, `owner_id`,
 `approver_id`, `blocker_id`, `inviter_id` — so there is no single global check;
-the rule is per call site. **When you add or edit a `ds_post*` body, read the DS
-handler's `resolve_actor(...)` line and include exactly the field it names.**
-Sending it is never a privilege escalation (auth-on binds it to the signer), and
-omitting it is always a latent outage.
+the rule is per call site. Sending it is never a privilege escalation (auth-on
+binds it to the signer), and omitting it is always a latent outage.
 
 `current_user_id` (`commands/mls/ds_client.rs`) is the value to send when the
 command has no `user_id` parameter of its own — it is the same identity `ds_post`
 signs as, so the two cannot disagree.
+
+**You can no longer omit it by accident.** Each body is now a Rust struct in
+`pollis-api`, the crate `pollis-delivery` parses the request into, and a struct
+literal must name every field — so a forgotten actor is a compile error rather
+than an absent JSON key. What the type still cannot check is the *value*: writing
+`user_id: None` compiles fine and reintroduces the same outage, so `None` on an
+actor field needs a comment saying why.
+
+## The DS write API is one declaration (`pollis-api`)
+
+`pollis-api` holds one `#[derive(Serialize, Deserialize)]` struct per
+`POST /v1/…` endpoint plus the path it is addressed at, and BOTH ends are built
+from it:
+
+- `pollis-core`'s `ds_post(&state, &body)` takes **no path argument** — the path is
+  `DsRequest::PATH`, a property of the body type, so a body cannot be sent to the
+  wrong endpoint and a route cannot be misspelled.
+- `pollis-delivery` re-exports each module (`pollis_delivery::messages::
+  SendMessageBody` still resolves) and routes on `<Body as DsRequest>::PATH`.
+- `pollis_api::ENDPOINTS` is the table both route-coverage tests walk
+  (`pollis-delivery/tests/endpoint_coverage.rs`, `flows/ds_surface.rs`), so a
+  declared endpoint that no router serves fails the build rather than 404ing at
+  runtime.
+
+**Adding an endpoint:** add the struct to the matching `pollis-api` module, add one
+line to the `endpoints!` table in `pollis-api/src/lib.rs`, bump the count in
+`endpoint_coverage.rs::the_endpoint_table_covers_the_whole_write_surface`, and
+route it in `pollis-delivery` as `.route(<Body as DsRequest>::PATH, post(handler))`.
+The flows harness needs no edit — it mounts the real router.
+
+**What the contract does not cover:** response bodies (callers still derive their
+own local structs), field *values*, and version skew against an
+already-deployed DS — additive/optional/defaulted wire rules still apply.
+
+The `pollis-api` crate is dependency-light (serde only) on purpose, mirroring
+`pollis-schema` and `pollis-device-cert`: sharing it does not make the DS depend
+on `pollis-core`.
 
 ## auth (`commands/auth.rs`)
 - `initialize_identity(user_id)` — ensure MLS credentials + KPs, poll welcomes. Requires the local DB to be open (post-`set_pin` / `unlock`).
