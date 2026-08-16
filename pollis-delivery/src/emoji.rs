@@ -273,39 +273,11 @@ async fn creator_row_count(conn: &Connection, user_id: &str) -> anyhow::Result<i
     })
 }
 
-/// Is `user_id` a current member of `group_id`?
-async fn is_group_member(
-    conn: &Connection,
-    group_id: &str,
-    user_id: &str,
-) -> anyhow::Result<bool> {
-    let mut rows = conn
-        .query(
-            "SELECT EXISTS (SELECT 1 FROM group_member WHERE group_id = ?1 AND user_id = ?2)",
-            libsql::params![group_id.to_string(), user_id.to_string()],
-        )
-        .await?;
-    Ok(match rows.next().await? {
-        Some(row) => row.get::<i64>(0)? != 0,
-        None => false,
-    })
-}
-
-/// Is `user_id` an ADMIN of `group_id`? Re-derived server-side from
-/// `group_member`, never trusted from the body — same discipline as
-/// [`crate::groups`].
-async fn is_group_admin(conn: &Connection, group_id: &str, user_id: &str) -> anyhow::Result<bool> {
-    let mut rows = conn
-        .query(
-            "SELECT role FROM group_member WHERE group_id = ?1 AND user_id = ?2",
-            libsql::params![group_id.to_string(), user_id.to_string()],
-        )
-        .await?;
-    Ok(match rows.next().await? {
-        Some(row) => row.get::<String>(0).ok().as_deref() == Some("admin"),
-        None => false,
-    })
-}
+// Membership / admin come from [`crate::groups`] — this module used to keep its
+// own pair, and the copy's `row.get::<String>(0).ok()` turned a decode error on
+// the `role` column into `false` (a silent deny) where the original propagates
+// it. #875 deleted the copy rather than fixing it twice.
+use crate::groups::{is_admin as is_group_admin, is_member as is_group_member};
 
 // ── POST /v1/emoji/create ────────────────────────────────────────────────────
 

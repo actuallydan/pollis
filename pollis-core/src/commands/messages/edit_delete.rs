@@ -145,22 +145,17 @@ pub async fn delete_message(
             }
         };
 
-        let mut role_rows = conn.query(
-            "SELECT role FROM group_member WHERE group_id = ?1 AND user_id = ?2",
-            libsql::params![group_id.clone(), user_id.clone()],
-        ).await?;
-        let role: String = if let Some(row) = role_rows.next().await? {
-            row.get(0)?
-        } else {
-            return Err(crate::error::Error::Other(anyhow::anyhow!(
-                "only the sender can delete this message"
-            )));
-        };
-        if role != "admin" {
-            return Err(crate::error::Error::Other(anyhow::anyhow!(
-                "only group admins can delete other members' messages"
-            )));
-        }
+        // #875: non-membership used to answer "only the sender can delete this
+        // message" — the same string as the DM case above, which is a different
+        // condition. A DM genuinely has no admin concept; being outside the
+        // group is being outside the group, and the shared preflight says so.
+        crate::commands::groups::authz::require_admin(
+            &conn,
+            &group_id,
+            &user_id,
+            "delete other members' messages",
+        )
+        .await?;
 
         // Remove the original message envelope and any pending edit so
         // late-joiners or unsynced devices never receive the now-deleted

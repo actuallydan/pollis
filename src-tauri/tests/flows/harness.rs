@@ -1048,6 +1048,22 @@ delivery_b!(
     pollis_delivery::groups::apply_decline_invite,
     "invites/decline"
 );
+// #847 invite links. These were missing from the harness router entirely — the
+// client posted to /v1/invite-links/* and got a 404, so no flows test could
+// reach the feature. Redeem is deliberately absent: it answers a `RedeemOutcome`
+// rather than a `WriteOutcome`, so it does not fit `delivery_b!`.
+delivery_b!(
+    delivery_invite_links_create,
+    pollis_delivery::groups::CreateInviteLinkBody,
+    pollis_delivery::groups::apply_create_invite_link,
+    "invite-links/create"
+);
+delivery_b!(
+    delivery_invite_links_revoke,
+    pollis_delivery::groups::RevokeInviteLinkBody,
+    pollis_delivery::groups::apply_revoke_invite_link,
+    "invite-links/revoke"
+);
 delivery_b!(
     delivery_join_requests_create,
     pollis_delivery::groups::CreateJoinRequestBody,
@@ -2191,6 +2207,14 @@ async fn spawn_in_process_delivery(main: Arc<RemoteDb>, log: Arc<RemoteDb>) -> S
                     .route(
                         "/v1/invites/decline",
                         axum::routing::post(delivery_invites_decline),
+                    )
+                    .route(
+                        "/v1/invite-links/create",
+                        axum::routing::post(delivery_invite_links_create),
+                    )
+                    .route(
+                        "/v1/invite-links/revoke",
+                        axum::routing::post(delivery_invite_links_revoke),
                     )
                     .route(
                         "/v1/join-requests/create",

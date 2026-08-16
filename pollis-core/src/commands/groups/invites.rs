@@ -5,6 +5,7 @@ use crate::error::{Error, Result};
 use crate::state::AppState;
 
 use super::types::{CreatedInviteLink, InviteLinkSummary, PendingInvite, RedeemedInvite};
+use super::authz;
 
 /// Invite a user (by username) to a group. Inviter must be a current member.
 pub async fn send_group_invite(
@@ -15,19 +16,7 @@ pub async fn send_group_invite(
 ) -> Result<()> {
     let conn = state.remote_db.conn().await?;
 
-    // Only admins can send invites
-    let mut rows = conn.query(
-        "SELECT role FROM group_member WHERE group_id = ?1 AND user_id = ?2",
-        libsql::params![group_id.clone(), inviter_id.clone()],
-    ).await?;
-    let inviter_role: String = if let Some(row) = rows.next().await? {
-        row.get(0)?
-    } else {
-        return Err(Error::Other(anyhow::anyhow!("you are not a member of this group")));
-    };
-    if inviter_role != "admin" {
-        return Err(Error::Other(anyhow::anyhow!("only admins can invite members")));
-    }
+    authz::require_admin(&conn, &group_id, &inviter_id, "invite members").await?;
 
     // Look up invitee by username or email
     let mut user_rows = conn.query(
@@ -284,24 +273,7 @@ pub async fn create_group_invite_link(
 
     // Client-side admin check for a clean error message. The DS re-derives this
     // server-side and is the authority — this is UX, not enforcement.
-    let mut rows = conn
-        .query(
-            "SELECT role FROM group_member WHERE group_id = ?1 AND user_id = ?2",
-            libsql::params![group_id.clone(), creator_id.clone()],
-        )
-        .await?;
-    let role: String = if let Some(row) = rows.next().await? {
-        row.get(0)?
-    } else {
-        return Err(Error::Other(anyhow::anyhow!(
-            "you are not a member of this group"
-        )));
-    };
-    if role != "admin" {
-        return Err(Error::Other(anyhow::anyhow!(
-            "only admins can create invite links"
-        )));
-    }
+    authz::require_admin(&conn, &group_id, &creator_id, "create invite links").await?;
 
     if max_uses.is_some_and(|m| m <= 0) {
         return Err(Error::Other(anyhow::anyhow!(
@@ -341,8 +313,12 @@ pub async fn create_group_invite_link(
     })
 }
 
-/// List a group's invite links. Admins only; everyone else gets an empty list,
-/// mirroring `get_group_join_requests`.
+/// List a group's invite links. Admins only.
+///
+/// #875: this used to answer `Ok(vec![])` for a non-member and for a non-admin
+/// member alike, which is the same value as "this group has no invite links" —
+/// so the caller could not tell a permission boundary from an empty page. Both
+/// now report the real condition, exactly as every sibling command does.
 ///
 /// Returns no tokens — see [`InviteLinkSummary`].
 pub async fn list_group_invite_links(
@@ -352,20 +328,7 @@ pub async fn list_group_invite_links(
 ) -> Result<Vec<InviteLinkSummary>> {
     let conn = state.remote_db.conn().await?;
 
-    let mut rows = conn
-        .query(
-            "SELECT role FROM group_member WHERE group_id = ?1 AND user_id = ?2",
-            libsql::params![group_id.clone(), user_id],
-        )
-        .await?;
-    let role: String = if let Some(row) = rows.next().await? {
-        row.get(0)?
-    } else {
-        return Ok(Vec::new());
-    };
-    if role != "admin" {
-        return Ok(Vec::new());
-    }
+    authz::require_admin(&conn, &group_id, &user_id, "view invite links").await?;
 
     // `is_live` is computed by SQLite with the same `datetime()` normalisation
     // the redeem path uses, so the badge cannot disagree with what redemption

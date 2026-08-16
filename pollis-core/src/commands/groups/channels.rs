@@ -5,6 +5,7 @@ use crate::error::{Error, Result};
 use crate::state::AppState;
 
 use super::types::Channel;
+use super::authz;
 
 pub async fn list_group_channels(
     group_id: String,
@@ -80,20 +81,7 @@ pub async fn update_channel(
         return Err(Error::Other(anyhow::anyhow!("channel not found")));
     };
 
-    let mut role_rows = conn.query(
-        "SELECT role FROM group_member WHERE group_id = ?1 AND user_id = ?2",
-        libsql::params![group_id.clone(), requester_id.clone()],
-    ).await?;
-
-    let role: String = if let Some(row) = role_rows.next().await? {
-        row.get(0)?
-    } else {
-        return Err(Error::Other(anyhow::anyhow!("requester is not a group member")));
-    };
-
-    if role != "admin" {
-        return Err(Error::Other(anyhow::anyhow!("only group admins can update channels")));
-    }
+    authz::require_admin(&conn, &group_id, &requester_id, "update channels").await?;
 
     // DS seam: route the column updates through the Delivery Service (admin
     // re-derived server-side).
@@ -141,20 +129,7 @@ pub async fn delete_channel(
         return Err(Error::Other(anyhow::anyhow!("channel not found")));
     };
 
-    let mut role_rows = conn.query(
-        "SELECT role FROM group_member WHERE group_id = ?1 AND user_id = ?2",
-        libsql::params![group_id.clone(), requester_id.clone()],
-    ).await?;
-
-    let role: String = if let Some(row) = role_rows.next().await? {
-        row.get(0)?
-    } else {
-        return Err(Error::Other(anyhow::anyhow!("requester is not a group member")));
-    };
-
-    if role != "admin" {
-        return Err(Error::Other(anyhow::anyhow!("only group admins can delete channels")));
-    }
+    authz::require_admin(&conn, &group_id, &requester_id, "delete channels").await?;
 
     // DS seam: route the envelope/watermark/channel deletes through the Delivery
     // Service (one transactional, admin-gated write).

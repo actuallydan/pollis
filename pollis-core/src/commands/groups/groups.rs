@@ -6,6 +6,7 @@ use crate::state::AppState;
 
 use super::derive_slug;
 use super::types::{Channel, Group, GroupWithChannels};
+use super::authz;
 
 pub async fn list_user_groups_with_channels(
     user_id: String,
@@ -154,21 +155,7 @@ pub async fn update_group(
 ) -> Result<Group> {
     let conn = state.remote_db.conn().await?;
 
-    // Only admins can update group settings
-    let mut rows = conn.query(
-        "SELECT role FROM group_member WHERE group_id = ?1 AND user_id = ?2",
-        libsql::params![group_id.clone(), requester_id.clone()],
-    ).await?;
-
-    let role: String = if let Some(row) = rows.next().await? {
-        row.get(0)?
-    } else {
-        return Err(Error::Other(anyhow::anyhow!("you are not a member of this group")));
-    };
-
-    if role != "admin" {
-        return Err(Error::Other(anyhow::anyhow!("only group admins can update group settings")));
-    }
+    authz::require_admin(&conn, &group_id, &requester_id, "update group settings").await?;
 
     // Route the column updates through the Delivery Service (which re-derives the
     // admin role server-side).
@@ -206,21 +193,7 @@ pub async fn delete_group(
 ) -> Result<()> {
     let conn = state.remote_db.conn().await?;
 
-    // Only admins can delete the group
-    let mut rows = conn.query(
-        "SELECT role FROM group_member WHERE group_id = ?1 AND user_id = ?2",
-        libsql::params![group_id.clone(), requester_id.clone()],
-    ).await?;
-
-    let role: String = if let Some(row) = rows.next().await? {
-        row.get(0)?
-    } else {
-        return Err(Error::Other(anyhow::anyhow!("you are not a member of this group")));
-    };
-
-    if role != "admin" {
-        return Err(Error::Other(anyhow::anyhow!("only group admins can delete the group")));
-    }
+    authz::require_admin(&conn, &group_id, &requester_id, "delete the group").await?;
 
     // CASCADE deletes group_member and channels entries. Route the delete through
     // the Delivery Service (admin re-checked server-side).

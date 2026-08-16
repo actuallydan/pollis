@@ -57,7 +57,12 @@ use crate::AppState;
 /// The actor's role in `group_id`, re-derived server-side from `group_member`.
 /// `None` when the actor is not a member. Every admin-gated domain-B write
 /// re-derives this rather than trusting any client-supplied role.
-async fn group_role(
+///
+/// `pub(crate)` because it is the ONLY group-role read in the DS: `emoji.rs`
+/// used to carry its own copy whose `row.get::<String>(0).ok()` swallowed a
+/// decode error into "not an admin", so a corrupt `role` column silently denied
+/// instead of erroring (#875). One reader, one behaviour.
+pub(crate) async fn group_role(
     conn: &Connection,
     group_id: &str,
     user_id: &str,
@@ -74,8 +79,17 @@ async fn group_role(
     })
 }
 
+/// True when the actor is a current member of `group_id` (re-derived server-side).
+pub(crate) async fn is_member(
+    conn: &Connection,
+    group_id: &str,
+    user_id: &str,
+) -> anyhow::Result<bool> {
+    Ok(group_role(conn, group_id, user_id).await?.is_some())
+}
+
 /// True when the actor is a current admin of `group_id` (re-derived server-side).
-async fn is_admin(conn: &Connection, group_id: &str, user_id: &str) -> anyhow::Result<bool> {
+pub(crate) async fn is_admin(conn: &Connection, group_id: &str, user_id: &str) -> anyhow::Result<bool> {
     Ok(group_role(conn, group_id, user_id).await?.as_deref() == Some("admin"))
 }
 
