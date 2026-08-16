@@ -929,19 +929,25 @@ async fn dev_login_ds(state: &Arc<AppState>, email: String) -> Result<UserProfil
 /// lowercases only the OTP store key — see `otp::normalize_email`), and the
 /// point of this function is to match the DS exactly, not to be independently
 /// sensible.
-fn canonical_login_email(email: &str) -> String {
+#[doc(hidden)]
+pub fn canonical_login_email(email: &str) -> String {
     email.trim().to_string()
 }
 
 /// The `users` row for an email address, after resolve-or-create.
+///
+/// `pub` only so `tests/auth_account_creation.rs` can drive
+/// [`resolve_or_create_user_by_email`] in its own process — see that file for
+/// why the assertions cannot live in pollis-core's `--lib` test binary.
 #[cfg(debug_assertions)]
-struct ResolvedUser {
-    user_id: String,
-    username: String,
+#[doc(hidden)]
+pub struct ResolvedUser {
+    pub user_id: String,
+    pub username: String,
     /// The account's published identity key, or `None` when it has none yet.
-    account_id_pub: Option<Vec<u8>>,
+    pub account_id_pub: Option<Vec<u8>>,
     /// True when this call is what created the row.
-    is_new: bool,
+    pub is_new: bool,
 }
 
 /// Resolve the `users` row for `email`, creating it if absent, and report which
@@ -960,7 +966,8 @@ struct ResolvedUser {
 /// login shortcut: this is a **client-side remote INSERT**, which the DS
 /// otherwise owns exclusively, and it must not exist in a shipped binary.
 #[cfg(debug_assertions)]
-async fn resolve_or_create_user_by_email(
+#[doc(hidden)]
+pub async fn resolve_or_create_user_by_email(
     conn: &libsql::Connection,
     email: &str,
 ) -> Result<ResolvedUser> {
@@ -1791,132 +1798,17 @@ mod tests {
 }
 
 
-/// Resolve-or-create of the `users` row from an email address — the client twin
-/// of the DS's `apply_verify_otp`.
-///
-/// Driven against a real local libSQL database (never a Turso), so the
-/// `NOT NULL UNIQUE` on `users.email` is actually in force: the point of these
-/// tests is what the *constraint* does when the same address arrives spelled two
-/// ways, which an in-memory stand-in cannot show.
-#[cfg(all(test, debug_assertions))]
-mod resolve_user_tests {
+/// The pure half of the account-creation contract. The DB-touching half lives in
+/// `tests/auth_account_creation.rs`, which needs its own process (libsql's local
+/// backend cannot initialise SQLite after rusqlite already has).
+#[cfg(test)]
+mod canonical_email_tests {
     use super::*;
-
-    async fn conn() -> libsql::Connection {
-        let db = libsql::Builder::new_local(":memory:").build().await.unwrap();
-        let conn = db.connect().unwrap();
-        conn.execute(
-            "CREATE TABLE users (\
-                id TEXT PRIMARY KEY, \
-                email TEXT NOT NULL UNIQUE, \
-                username TEXT NOT NULL, \
-                account_id_pub BLOB)",
-            (),
-        )
-        .await
-        .unwrap();
-        conn
-    }
-
-    async fn user_count(conn: &libsql::Connection) -> i64 {
-        let mut rows = conn.query("SELECT COUNT(*) FROM users", ()).await.unwrap();
-        rows.next().await.unwrap().unwrap().get(0).unwrap()
-    }
-
-    /// The default username the DS mints: the email's local part, an underscore,
-    /// and the last four characters of the account's ULID.
-    #[tokio::test]
-    async fn a_new_address_creates_one_row_with_the_ds_default_username() {
-        let c = conn().await;
-        let r = resolve_or_create_user_by_email(&c, "alice@x.com")
-            .await
-            .unwrap();
-
-        assert!(r.is_new);
-        assert!(r.account_id_pub.is_none());
-        assert_eq!(user_count(&c).await, 1);
-
-        let suffix = &r.user_id[r.user_id.len() - 4..];
-        assert_eq!(r.username, format!("alice_{suffix}"));
-    }
-
-    /// **The drift.** The DS trims before it touches `users`; the client copy did
-    /// not. Two spellings of one address therefore missed each other's row and
-    /// each INSERTed their own — two accounts for one person, which the UNIQUE
-    /// constraint cannot catch because the two strings genuinely differ.
-    #[tokio::test]
-    async fn the_same_address_spelled_two_ways_resolves_to_one_account() {
-        let c = conn().await;
-        let first = resolve_or_create_user_by_email(&c, "alice@x.com")
-            .await
-            .unwrap();
-        let padded = resolve_or_create_user_by_email(&c, "  alice@x.com \n")
-            .await
-            .unwrap();
-
-        assert!(!padded.is_new, "the padded spelling must find the existing row");
-        assert_eq!(padded.user_id, first.user_id);
-        assert_eq!(
-            user_count(&c).await,
-            1,
-            "one address must never own two accounts"
-        );
-    }
-
-    /// A returning account reports its published identity key, which is what
-    /// drives the enrollment gate.
-    #[tokio::test]
-    async fn an_existing_row_reports_its_identity_key() {
-        let c = conn().await;
-        c.execute(
-            "INSERT INTO users (id, email, username, account_id_pub) VALUES (?1, ?2, ?3, ?4)",
-            libsql::params!["u-1", "bob@x.com", "bob", vec![7u8; 32]],
-        )
-        .await
-        .unwrap();
-
-        let r = resolve_or_create_user_by_email(&c, "bob@x.com").await.unwrap();
-        assert!(!r.is_new);
-        assert_eq!(r.user_id, "u-1");
-        assert_eq!(r.username, "bob");
-        assert_eq!(r.account_id_pub, Some(vec![7u8; 32]));
-    }
-
-    /// A NULL `account_id_pub` is "no identity yet", not an error and not a
-    /// panic. Regression guard: the old `row.get::<Vec<u8>>(2).ok()` spelling
-    /// happened to reach the same answer, so this passes either way — it pins
-    /// the behaviour the enrollment gate depends on rather than proving a fix.
-    #[tokio::test]
-    async fn a_null_identity_key_reads_as_none() {
-        let c = conn().await;
-        c.execute(
-            "INSERT INTO users (id, email, username) VALUES ('u-2', 'carol@x.com', 'carol')",
-            (),
-        )
-        .await
-        .unwrap();
-
-        let r = resolve_or_create_user_by_email(&c, "carol@x.com")
-            .await
-            .unwrap();
-        assert!(!r.is_new);
-        assert!(r.account_id_pub.is_none());
-    }
-
-    /// An address with no local part still yields a username — the DS produces
-    /// `"_<suffix>"` here (`split('@')` returns an empty first segment, never
-    /// `None`), and the client must not "improve" on that.
-    #[tokio::test]
-    async fn an_empty_local_part_matches_the_ds_exactly() {
-        let c = conn().await;
-        let r = resolve_or_create_user_by_email(&c, "@x.com").await.unwrap();
-        let suffix = &r.user_id[r.user_id.len() - 4..];
-        assert_eq!(r.username, format!("_{suffix}"));
-    }
 
     #[test]
     fn canonicalization_trims_but_never_lowercases() {
-        // Lowercasing would silently merge two rows the DS keeps apart.
+        // Lowercasing would silently merge two rows the DS keeps apart: the DS
+        // lowercases only the OTP store key, never `users.email`.
         assert_eq!(canonical_login_email("  a@x.com \t"), "a@x.com");
         assert_eq!(canonical_login_email("Alice@X.com"), "Alice@X.com");
     }
