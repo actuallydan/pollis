@@ -56,7 +56,7 @@ pub struct AccountKeyVersion {
     pub identity_version: u64,
     /// Global insertion order (`account_key_log.seq`).
     pub seq: i64,
-    /// The Ed25519 account identity public key authoritative at this version,
+    /// The ML-DSA-44 account identity public key authoritative at this version,
     /// lowercase hex.
     pub account_id_pub: String,
     /// Did this entry's inclusion proof verify against the latest account STH?
