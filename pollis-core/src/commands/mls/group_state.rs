@@ -67,14 +67,14 @@ pub async fn publish_group_info(
     // W4 seam: route the GroupInfo republish through the Delivery Service (the
     // sole writer of the log DB). Mirrors `submit_commit`.
     use base64::Engine as _;
-    let body = serde_json::json!({
-        "conversation_id": conversation_id,
-        "generation": generation,
-        "epoch": epoch as i64,
-        "group_info": base64::engine::general_purpose::STANDARD.encode(&bytes),
-        "updated_by_device_id": device_id,
-    });
-    let resp = super::ds_client::ds_post(state, "/v1/group-info", &body).await?;
+    let body = pollis_api::writes::GroupInfoBody {
+        conversation_id: conversation_id.to_string(),
+        generation,
+        epoch: epoch as i64,
+        group_info: base64::engine::general_purpose::STANDARD.encode(&bytes),
+        updated_by_device_id: device_id,
+    };
+    let resp = super::ds_client::ds_post(state, &body).await?;
     if !resp.status().is_success() {
         let s = resp.status();
         let txt = resp.text().await.unwrap_or_default();

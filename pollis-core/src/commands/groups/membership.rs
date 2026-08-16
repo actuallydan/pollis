@@ -54,12 +54,12 @@ pub async fn remove_member_from_group(
 
     // Route the member-row delete through the Delivery Service (which re-derives
     // the admin/self rule server-side).
-    let body = serde_json::json!({
-        "group_id": group_id,
-        "user_id": user_id,
-        "requester_id": requester_id,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/members/remove", &body).await?;
+    let body = pollis_api::groups::RemoveMemberBody {
+        group_id: group_id.clone(),
+        user_id,
+        requester_id: Some(requester_id.clone()),
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // Ingest-before-advance (issue #440, committer strand): catch this device up
     // to head with the INTERLEAVED ingesting catch-up — decrypting every bound
@@ -111,11 +111,11 @@ pub async fn leave_group(
     // Route the leaver's member-row delete (and, when the group empties, the group
     // delete) through the Delivery Service — one server-authorized write scoped to
     // the signer's own row.
-    let body = serde_json::json!({
-        "group_id": group_id,
-        "user_id": user_id,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/groups/leave", &body).await?;
+    let body = pollis_api::groups::LeaveGroupBody {
+        group_id: group_id.clone(),
+        user_id: Some(user_id),
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // A user cannot commit their own removal in MLS ("remove_members with self
     // as target" is rejected by the spec).  Instead, wipe the local group state
@@ -164,13 +164,13 @@ pub async fn set_member_role(
 
     // Route the role update through the Delivery Service (admin re-derived
     // server-side, target-membership re-checked).
-    let body = serde_json::json!({
-        "group_id": group_id,
-        "user_id": user_id,
-        "role": role,
-        "requester_id": requester_id,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/members/role", &body).await?;
+    let body = pollis_api::groups::SetMemberRoleBody {
+        group_id: group_id.clone(),
+        user_id,
+        role,
+        requester_id: Some(requester_id),
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // Notify other online group members so their members list refreshes.
     // Best-effort realtime push; routed through the livekit boundary so this

@@ -235,15 +235,17 @@ pub(crate) async fn emit_receipt(
     // Blind the envelope sender exactly like every other send — sealing is
     // unconditional (#607). The reader's true identity is the MLS credential
     // inside the ciphertext, which is what the recipient records as `reader_id`.
-    let body = serde_json::json!({
-        "id": ulid::Ulid::new().to_string(),
-        "conversation_id": conversation_id,
-        "sender_id": super::send::SEALED_SENDER_SENTINEL,
-        "sealed": 1,
-        "ciphertext": ciphertext_remote,
-        "sent_at": now,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/messages/send", &body).await?;
+    let body = pollis_api::messages::SendMessageBody {
+        id: ulid::Ulid::new().to_string(),
+        conversation_id: conversation_id.to_string(),
+        sender_id: Some(super::send::SEALED_SENDER_SENTINEL.to_string()),
+        ciphertext: ciphertext_remote,
+        // A receipt is not a reply.
+        reply_to_id: None,
+        sent_at: now,
+        sealed: 1,
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // Wake the peers so the sender sees the tick without polling. This is the
     // same routing-only hint an ordinary message publishes, which is also why it

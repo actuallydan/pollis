@@ -49,11 +49,11 @@ pub async fn block_user(
     // accepted_at in shared DMs) through the Delivery Service. Server-side authz
     // binds the block to the authenticated user's own list and runs both writes
     // in one transaction.
-    let body = serde_json::json!({
-        "blocker_id": blocker_id,
-        "blocked_id": blocked_id,
+    let body = pollis_api::profile::AddBlock(pollis_api::profile::BlockBody {
+        blocker_id,
+        blocked_id,
     });
-    crate::commands::mls::ds_post_ok(state, "/v1/blocks/add", &body).await?;
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     Ok(())
 }
@@ -65,11 +65,11 @@ pub async fn unblock_user(
 ) -> Result<()> {
     // DS seam: route the unblock (delete block row) through the Delivery
     // Service.
-    let body = serde_json::json!({
-        "blocker_id": blocker_id,
-        "blocked_id": blocked_id,
+    let body = pollis_api::profile::RemoveBlock(pollis_api::profile::BlockBody {
+        blocker_id,
+        blocked_id,
     });
-    crate::commands::mls::ds_post_ok(state, "/v1/blocks/remove", &body).await?;
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     Ok(())
 }

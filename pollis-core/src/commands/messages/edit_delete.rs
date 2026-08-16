@@ -2,19 +2,25 @@ use rusqlite::OptionalExtension;
 use std::sync::Arc;
 use ulid::Ulid;
 
+use pollis_api::messages::DeleteMessageBody;
+
 use crate::error::Result;
 use crate::state::AppState;
 
 /// The `POST /v1/messages/delete` request body.
 ///
-/// A named builder rather than an inline `json!` at each call site because the
-/// endpoint has TWO call sites (self-delete and admin-delete) and the DS reads
-/// `actor_id` as the acting user whenever request signing is off
+/// The DS reads `actor_id` as the acting user whenever request signing is off
 /// (`pollis_delivery::writes::resolve_actor`: auth on → the signed user, auth off
 /// → this field, missing → `Forbidden`). Omitting it made the endpoint return a
 /// hard 403 on every no-auth deployment while the authenticated path looked
-/// healthy — a shape that is only representable if the two call sites can build
-/// the body independently, so they no longer can.
+/// healthy.
+///
+/// Since #875 the OMISSION is caught by the type: [`DeleteMessageBody`] is the
+/// same struct `pollis-delivery` parses, and a Rust struct literal must name
+/// every field, so a call site that forgets `actor_id` does not compile. This
+/// builder survives that change because it still gives the two call sites
+/// (self-delete and admin-delete) one place to agree on which id goes in which
+/// slot — a thing the type cannot check, since both are `String`.
 ///
 /// `actor_id` is NOT a permission grant on the signed path: `resolve_actor`
 /// requires it to equal the authenticated user and rejects otherwise, so sending
@@ -24,13 +30,13 @@ pub fn delete_message_body(
     conversation_id: &str,
     msg_sender_id: &str,
     actor_id: &str,
-) -> serde_json::Value {
-    serde_json::json!({
-        "message_id": message_id,
-        "conversation_id": conversation_id,
-        "msg_sender_id": msg_sender_id,
-        "actor_id": actor_id,
-    })
+) -> DeleteMessageBody {
+    DeleteMessageBody {
+        message_id: message_id.to_string(),
+        conversation_id: conversation_id.to_string(),
+        msg_sender_id: Some(msg_sender_id.to_string()),
+        actor_id: Some(actor_id.to_string()),
+    }
 }
 
 /// Delete a message.
@@ -165,7 +171,7 @@ pub async fn delete_message(
         // route the whole 3-write op (one transaction server-side) through the
         // Delivery Service.
         let body = delete_message_body(&message_id, &conversation_id, &msg_sender_id, &user_id);
-        crate::commands::mls::ds_post_ok(state, "/v1/messages/delete", &body).await?;
+        crate::commands::mls::ds_post_ok(state, &body).await?;
 
         // Local `message.deleted_at` only — a display/presence field, never
         // compared lexically against a cursor, so it deliberately does NOT go
@@ -249,7 +255,7 @@ pub async fn delete_message(
     // pending edit. DS seam: route both deletes (one transaction server-side,
     // scoped to the authenticated sender) through the Delivery Service.
     let body = delete_message_body(&message_id, &conversation_id, &user_id, &user_id);
-    crate::commands::mls::ds_post_ok(state, "/v1/messages/delete", &body).await?;
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // Read the local plaintext content before soft-deleting so we can inspect
     // any embedded attachment metadata. Then SOFT-delete the local row (content
@@ -430,15 +436,15 @@ pub async fn edit_message_as(
     // Edit envelopes are NOT sealed (the DS membership-gates the write on the
     // authenticated writer, so `sender_id` binds to the caller); the recipient's
     // author check reads the MLS credential, not this column.
-    let body = serde_json::json!({
-        "envelope_id": envelope_id,
-        "conversation_id": conversation_id,
-        "target_message_id": target_message_id,
-        "sender_id": user_id,
-        "ciphertext": ciphertext_remote,
-        "sent_at": now,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/messages/edit", &body).await?;
+    let body = pollis_api::messages::EditMessageBody {
+        envelope_id,
+        conversation_id: conversation_id.to_string(),
+        target_message_id: target_message_id.to_string(),
+        sender_id: Some(user_id.to_string()),
+        ciphertext: ciphertext_remote,
+        sent_at: now,
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     Ok(())
 }
@@ -513,15 +519,17 @@ async fn send_redaction_message(
     // UNCONDITIONAL (#607). The true author is the MLS credential inside the
     // ciphertext, which is what the recipient's redaction-authorization check
     // reads; the stored `sender_id` is always the non-identifying sentinel.
-    let body = serde_json::json!({
-        "id": envelope_id,
-        "conversation_id": conversation_id,
-        "sender_id": super::send::SEALED_SENDER_SENTINEL,
-        "sealed": 1,
-        "ciphertext": ciphertext_remote,
-        "sent_at": now,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/messages/send", &body).await?;
+    let body = pollis_api::messages::SendMessageBody {
+        id: envelope_id,
+        conversation_id: conversation_id.to_string(),
+        sender_id: Some(super::send::SEALED_SENDER_SENTINEL.to_string()),
+        ciphertext: ciphertext_remote,
+        // A redaction is not a reply.
+        reply_to_id: None,
+        sent_at: now,
+        sealed: 1,
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     Ok(())
 }
@@ -664,12 +672,12 @@ pub(crate) async fn register_attachment_refs(
     content: &str,
 ) {
     for att in parse_attachment_refs(content) {
-        let body = serde_json::json!({
-            "content_hash": att.content_hash,
-            "r2_key": att.r2_key,
-            "message_id": message_id,
-        });
-        if let Err(e) = crate::commands::mls::ds_post_ok(state, "/v1/attachments/register", &body).await {
+        let body = pollis_api::messages::AttachmentRegisterBody {
+            content_hash: att.content_hash.clone(),
+            r2_key: att.r2_key,
+            message_id: Some(message_id.to_string()),
+        };
+        if let Err(e) = crate::commands::mls::ds_post_ok(state, &body).await {
             eprintln!(
                 "[send_message] failed to register attachment ref for {} (msg {message_id}): {e}",
                 att.content_hash
@@ -708,11 +716,11 @@ async fn cleanup_attachment(
     // reference was already released by deleting the message envelope above).
     // Best-effort — failures are logged, never bubbled.
     let remote_result = async {
-        let body = serde_json::json!({
-            "content_hash": att.content_hash,
-            "message_id": message_id,
-        });
-        crate::commands::mls::ds_post_ok(state, "/v1/attachments/delete", &body).await
+        let body = pollis_api::messages::AttachmentDeleteBody {
+            content_hash: att.content_hash.clone(),
+            message_id: Some(message_id.to_string()),
+        };
+        crate::commands::mls::ds_post_ok(state, &body).await
     }
     .await;
 
@@ -848,15 +856,15 @@ pub async fn edit_message(
     // Replace any existing edit envelope for this message with the new one
     // (DELETE + INSERT, single transaction on the DS side). DS seam: route the
     // replace through the Delivery Service.
-    let body = serde_json::json!({
-        "envelope_id": envelope_id,
-        "conversation_id": conversation_id,
-        "target_message_id": message_id,
-        "sender_id": user_id,
-        "ciphertext": ciphertext_remote,
-        "sent_at": now,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/messages/edit", &body).await?;
+    let body = pollis_api::messages::EditMessageBody {
+        envelope_id,
+        conversation_id: conversation_id.clone(),
+        target_message_id: message_id.clone(),
+        sender_id: Some(user_id),
+        ciphertext: ciphertext_remote,
+        sent_at: now,
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // Notify recipients via LiveKit so they invalidate their cache immediately.
     // Non-fatal — errors are logged, not returned.

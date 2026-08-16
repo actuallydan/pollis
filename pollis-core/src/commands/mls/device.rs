@@ -319,21 +319,20 @@ pub async fn ensure_device_cert(
     let bootstrap_session = state.bootstrap_session.lock().await.clone();
     use base64::Engine as _;
     let b64 = base64::engine::general_purpose::STANDARD;
-    let body = serde_json::json!({
-        "user_id": user_id,
-        "device_id": device_id,
-        "device_cert": b64.encode(&cert),
-        "cert_issued_at": issued_at as i64,
-        "cert_identity_version": identity_version,
-        "mls_signature_pub": b64.encode(&sig_pub_bytes),
-        "mls_signature_pub_pq": b64.encode(&pq_sig_pub_bytes),
-    });
+    let body = pollis_api::bootstrap::PublishCertBody {
+        device_id: device_id.to_string(),
+        device_cert: b64.encode(&cert),
+        cert_issued_at: issued_at as i64,
+        cert_identity_version: identity_version,
+        mls_signature_pub: b64.encode(&sig_pub_bytes),
+        mls_signature_pub_pq: b64.encode(&pq_sig_pub_bytes),
+        user_id: Some(user_id.to_string()),
+    };
     match bootstrap_session {
         Some(token) => {
             // First-device signup: session + cert-validity, single-use.
             crate::commands::mls::ds_post_session_ok(
                 state,
-                "/v1/auth/publish-device-cert",
                 &token,
                 &body,
             )
@@ -347,7 +346,6 @@ pub async fn ensure_device_cert(
             // Subsequent device: cert-validity ALONE — no session header.
             let resp = crate::commands::mls::ds_post_plain(
                 state,
-                "/v1/auth/publish-device-cert",
                 &body,
             )
             .await?;
@@ -495,19 +493,20 @@ pub async fn resign_stale_device_certs(
     // never another user's.
     if !signed.is_empty() {
         use base64::Engine as _;
-        let certs: Vec<serde_json::Value> = signed
+        let certs: Vec<pollis_api::devices::ResignedCert> = signed
             .iter()
-            .map(|(device_id, cert, issued_at_str)| {
-                serde_json::json!({
-                    "device_id": device_id,
-                    "device_cert": base64::engine::general_purpose::STANDARD.encode(cert),
-                    "cert_issued_at": issued_at_str,
-                    "cert_identity_version": identity_version as i64,
-                })
+            .map(|(device_id, cert, issued_at_str)| pollis_api::devices::ResignedCert {
+                device_id: device_id.clone(),
+                device_cert: base64::engine::general_purpose::STANDARD.encode(cert),
+                cert_issued_at: issued_at_str.clone(),
+                cert_identity_version: identity_version as i64,
             })
             .collect();
-        let body = serde_json::json!({ "certs": certs, "user_id": user_id });
-        crate::commands::mls::ds_post_ok(state, "/v1/devices/resign", &body).await?;
+        let body = pollis_api::devices::ResignDeviceCertsBody {
+            certs,
+            user_id: Some(user_id.to_string()),
+        };
+        crate::commands::mls::ds_post_ok(state, &body).await?;
     }
 
     eprintln!(

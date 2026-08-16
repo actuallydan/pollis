@@ -113,13 +113,13 @@ pub async fn create_dm_channel(
     // performs all writes in one transaction and re-checks the block
     // relationships server-side; the block check above is the client-side
     // fast-fail for the generic BLOCK_ERR.
-    let body = serde_json::json!({
-        "id": id,
-        "creator_id": creator_id,
-        "member_ids": member_ids,
-        "created_at": now,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/dm/create", &body).await?;
+    let body = pollis_api::profile::CreateDmBody {
+        id: id.clone(),
+        creator_id: creator_id.clone(),
+        member_ids,
+        created_at: now.clone(),
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     let members = fetch_dm_members(&conn, &id).await?;
 
@@ -283,12 +283,12 @@ pub async fn accept_dm_request(
     // DS seam: route the accept (flip the user's own accepted_at NULL → now)
     // through the Delivery Service. Server-side authz binds the accept to the
     // authenticated recipient's own membership row.
-    let body = serde_json::json!({
-        "dm_channel_id": dm_channel_id,
-        "user_id": user_id,
-        "accepted_at": now,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/dm/accept", &body).await?;
+    let body = pollis_api::profile::AcceptDmBody {
+        dm_channel_id,
+        user_id,
+        accepted_at: now,
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     Ok(())
 }
@@ -326,13 +326,13 @@ pub async fn add_user_to_dm_channel(
     // re-derives the actor's DM membership server-side (a non-member cannot add
     // anyone).
     let now = chrono::Utc::now().to_rfc3339();
-    let body = serde_json::json!({
-        "dm_channel_id": dm_channel_id,
-        "user_id": user_id,
-        "added_by": added_by,
-        "added_at": now,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/dm/add", &body).await?;
+    let body = pollis_api::profile::AddDmMemberBody {
+        dm_channel_id: dm_channel_id.clone(),
+        user_id,
+        added_by: added_by.clone(),
+        added_at: now,
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // Reconcile adds the new member's devices to the MLS tree.
     if let Err(e) = crate::commands::mls::reconcile_group_mls_impl(
@@ -353,12 +353,12 @@ pub async fn remove_user_from_dm_channel(
     // DS seam: route the membership DELETE through the Delivery Service. The
     // authz rule (only the channel creator or the user themselves may remove a
     // member) is enforced server-side.
-    let body = serde_json::json!({
-        "dm_channel_id": dm_channel_id,
-        "user_id": user_id,
-        "requester_id": requester_id,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/dm/remove", &body).await?;
+    let body = pollis_api::profile::RemoveDmMemberBody {
+        dm_channel_id: dm_channel_id.clone(),
+        user_id,
+        requester_id: requester_id.clone(),
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // Reconcile removes the member's leaves from the MLS tree (was a security gap).
     if let Err(e) = crate::commands::mls::reconcile_group_mls_impl(
@@ -380,11 +380,11 @@ pub async fn leave_dm_channel(
     // member-delete + count + conditional teardown in ONE transaction so a DM
     // never lingers half-deleted; authz binds the leave to the actor's own
     // membership.
-    let body = serde_json::json!({
-        "dm_channel_id": dm_channel_id,
-        "user_id": user_id,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/dm/leave", &body).await?;
+    let body = pollis_api::profile::LeaveDmBody {
+        dm_channel_id: dm_channel_id.clone(),
+        user_id,
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // Wipe local MLS state so the leaver can't decrypt future messages.
     match crate::commands::mls::forget_local_mls_group(state, &dm_channel_id).await {

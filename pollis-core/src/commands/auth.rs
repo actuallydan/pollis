@@ -81,8 +81,9 @@ pub async fn request_otp(
     );
     let resp = crate::commands::mls::ds_post_plain(
         state,
-        "/v1/auth/request-otp",
-        &serde_json::json!({ "email": email }),
+        &pollis_api::otp::RequestOtpBody {
+            email,
+        },
     )
     .await?;
     let status = resp.status();
@@ -159,12 +160,14 @@ async fn verify_otp_ds(
     );
     let resp = crate::commands::mls::ds_post_plain(
         state,
-        "/v1/auth/verify-otp",
-        &serde_json::json!({
-            "email": email,
-            "code": code,
-            "device_id": candidate_device_id,
-        }),
+        &pollis_api::otp::VerifyOtpBody {
+            email: email.clone(),
+            code,
+            device_id: candidate_device_id.clone(),
+            // verify-otp never writes the identity key — `establish-identity`
+            // does, under its CAS guard. Accepted here and ignored.
+            account_id_pub: None,
+        },
     )
     .await?;
     let status = resp.status();
@@ -260,14 +263,13 @@ async fn verify_otp_ds(
         let b64 = base64::engine::general_purpose::STANDARD;
         crate::commands::mls::ds_post_session_ok(
             state,
-            "/v1/auth/establish-identity",
             &session_token,
-            &serde_json::json!({
-                "account_id_pub": b64.encode(material.account_id_pub),
-                "salt": b64.encode(material.salt),
-                "nonce": b64.encode(material.nonce),
-                "wrapped_key": b64.encode(&material.wrapped_key),
-            }),
+            &pollis_api::bootstrap::EstablishIdentityBody {
+                account_id_pub: b64.encode(material.account_id_pub),
+                salt: b64.encode(material.salt),
+                nonce: b64.encode(material.nonce),
+                wrapped_key: b64.encode(&material.wrapped_key),
+            },
         )
         .await
         .map_err(|e| {
@@ -282,9 +284,11 @@ async fn verify_otp_ds(
         let device_name = format!("{hostname} ({})", std::env::consts::OS);
         crate::commands::mls::ds_post_session_ok(
             state,
-            "/v1/auth/register-device",
             &session_token,
-            &serde_json::json!({ "device_id": device_id, "device_name": device_name }),
+            &pollis_api::bootstrap::RegisterDeviceBody {
+                device_id: device_id.clone(),
+                device_name: Some(device_name),
+            },
         )
         .await
         .map_err(|e| {
@@ -317,9 +321,11 @@ async fn verify_otp_ds(
             let device_name = format!("{hostname} ({})", std::env::consts::OS);
             crate::commands::mls::ds_post_session_ok(
                 state,
-                "/v1/auth/register-device",
                 &session_token,
-                &serde_json::json!({ "device_id": device_id, "device_name": device_name }),
+                &pollis_api::bootstrap::RegisterDeviceBody {
+                    device_id: device_id.clone(),
+                    device_name: Some(device_name),
+                },
             )
             .await?;
             // Hold the session for the session-gated enrollment REQUEST write that
@@ -462,8 +468,9 @@ pub async fn request_email_change_otp(
         // `ds_post`; the body carries only the new email.
         crate::commands::mls::ds_post_ok(
             state,
-            "/v1/auth/request-email-change-otp",
-            &serde_json::json!({ "new_email": trimmed }),
+            &pollis_api::email_change::RequestEmailChangeBody {
+                new_email: trimmed,
+            },
         )
         .await?;
         return Ok(());
@@ -507,8 +514,10 @@ pub async fn verify_email_change(
 
     let resp = crate::commands::mls::ds_post(
         state,
-        "/v1/auth/verify-email-change",
-        &serde_json::json!({ "new_email": trimmed, "code": code }),
+        &pollis_api::email_change::VerifyEmailChangeBody {
+            new_email: trimmed.clone(),
+            code,
+        },
     )
     .await?;
     match resp.status().as_u16() {
@@ -831,12 +840,14 @@ async fn dev_login_ds(state: &Arc<AppState>, email: String) -> Result<UserProfil
 
     let resp = crate::commands::mls::ds_post_plain(
         state,
-        "/v1/auth/verify-otp",
-        &serde_json::json!({
-            "email": email,
-            "code": dev_otp_code(),
-            "device_id": bound_device_id,
-        }),
+        &pollis_api::otp::VerifyOtpBody {
+            email: email.clone(),
+            code: dev_otp_code(),
+            device_id: bound_device_id.clone(),
+            // verify-otp never writes the identity key — `establish-identity`
+            // does, under its CAS guard. Accepted here and ignored.
+            account_id_pub: None,
+        },
     )
     .await?;
     let status = resp.status();
@@ -887,9 +898,11 @@ async fn dev_login_ds(state: &Arc<AppState>, email: String) -> Result<UserProfil
     let device_name = format!("{hostname} ({})", std::env::consts::OS);
     crate::commands::mls::ds_post_session_ok(
         state,
-        "/v1/auth/register-device",
         &session_token,
-        &serde_json::json!({ "device_id": device_id, "device_name": device_name }),
+        &pollis_api::bootstrap::RegisterDeviceBody {
+            device_id: device_id.clone(),
+            device_name: Some(device_name),
+        },
     )
     .await?;
 
@@ -1143,8 +1156,11 @@ pub async fn logout(state: &Arc<AppState>, delete_data: bool) -> Result<()> {
     // (re-registered/overwritten on next login).
     if delete_data {
         if let (Some(uid), Some(did)) = (user_id.as_ref(), device_id.as_ref()) {
-            let body = serde_json::json!({ "device_id": did, "user_id": uid });
-            if let Err(e) = crate::commands::mls::ds_post_ok(state, "/v1/auth/logout", &body).await {
+            let body = pollis_api::account::LogoutDeviceBody {
+                device_id: did.clone(),
+                user_id: Some(uid.clone()),
+            };
+            if let Err(e) = crate::commands::mls::ds_post_ok(state, &body).await {
                 eprintln!("[auth] logout device removal via DS failed (non-fatal): {e}");
             }
         }
@@ -1264,8 +1280,15 @@ pub async fn delete_account(
     // together or not at all — a half-deleted account is a corrupt state. The
     // device is still fully enrolled here (the local DB is unloaded only in Phase
     // 3 below), so it can sign the request.
-    let body = serde_json::json!({});
-    crate::commands::mls::ds_post_ok(state, "/v1/account/delete", &body).await?;
+    let body = pollis_api::account::DeleteAccountBody {
+        // The DS's no-auth fallback for the acting user
+        // (`pollis_delivery::writes::resolve_actor`): auth on → the signed
+        // user and this must EQUAL it; auth off → this IS the actor, and a
+        // body without it is refused outright. Sending it never widens what
+        // the caller may do.
+        user_id: Some(user_id.clone()),
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // ── Phase 3: local cleanup ─────────────────────────────────────────
 
@@ -1420,8 +1443,16 @@ pub async fn revoke_device(
     // transaction when configured — the CURRENT device drives this and is fully
     // enrolled, so it can sign; the DS binds both writes to the signer
     // (`WHERE user_id = actor`).
-    let body = serde_json::json!({ "device_id": device_id });
-    crate::commands::mls::ds_post_ok(state, "/v1/devices/revoke", &body).await?;
+    let body = pollis_api::account::RevokeDeviceBody {
+        device_id: device_id.clone(),
+        // The DS's no-auth fallback for the acting user
+        // (`pollis_delivery::writes::resolve_actor`): auth on → the signed
+        // user and this must EQUAL it; auth off → this IS the actor, and a
+        // body without it is refused outright. Sending it never widens what
+        // the caller may do.
+        user_id: Some(user_id.clone()),
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // Collect every conversation the user belongs to (groups + DMs) so
     // we can reconcile each one as the calling device.

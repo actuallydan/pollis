@@ -317,14 +317,14 @@ pub async fn catch_up_mls_group_interleaved(
     for res in &results {
         let cid = &res.conversation_id;
         if let (Some(ts), Some(did)) = (res.watermark.as_ref(), device_id.as_ref()) {
-            let body = serde_json::json!({
-                "conversation_id": cid,
-                "user_id": user_id,
-                "device_id": did,
-                "last_fetched_at": ts,
-            });
+            let body = pollis_api::messages::WatermarkBody {
+                conversation_id: cid.clone(),
+                user_id: Some(user_id.to_string()),
+                device_id: did.clone(),
+                last_fetched_at: ts.clone(),
+            };
             if let Err(e) =
-                crate::commands::mls::ds_post_ok(state, "/v1/watermarks/advance", &body).await
+                crate::commands::mls::ds_post_ok(state, &body).await
             {
                 eprintln!("[watermark] catch_up_group: DS advance failed for {cid}: {e}");
             }

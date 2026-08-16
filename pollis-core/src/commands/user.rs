@@ -48,14 +48,14 @@ pub async fn update_user_profile(
 ) -> Result<()> {
     // Route the profile write through the Delivery Service (the write API).
     // Server-side authz binds the edit to the authenticated user's own row.
-    let body = serde_json::json!({
-        "user_id": user_id,
-        "username": username,
-        "preferred_name": preferred_name,
-        "phone": phone,
-        "avatar_url": avatar_url,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/profile/update", &body).await?;
+    let body = pollis_api::profile::UpdateProfileBody {
+        user_id,
+        username,
+        preferred_name,
+        phone,
+        avatar_url,
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     Ok(())
 }
@@ -121,11 +121,11 @@ pub async fn save_preferences(
 
     // Route the remote preferences upsert through the Delivery Service. The
     // local cache above is written unconditionally beforehand.
-    let body = serde_json::json!({
-        "user_id": user_id,
-        "preferences": preferences_json,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/profile/preferences", &body).await?;
+    let body = pollis_api::profile::SavePreferencesBody {
+        user_id,
+        preferences: preferences_json,
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     Ok(())
 }

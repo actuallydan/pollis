@@ -28,6 +28,8 @@ use openmls::prelude::Ciphersuite;
 use openmls_traits::signatures::Signer;
 use sha2::{Digest, Sha256};
 
+use pollis_api::DsRequest;
+
 use crate::error::{Error, Result};
 use crate::state::AppState;
 
@@ -72,17 +74,36 @@ pub(crate) async fn current_user_id(state: &Arc<AppState>) -> Result<String> {
         .ok_or_else(|| Error::Other(anyhow::anyhow!("no active user for DS request signing")))
 }
 
-/// Sign and POST `body` (JSON) to `{pollis_delivery_url}{path}`, attaching the
-/// four `X-Pollis-*` auth headers. `path` is the request path only, with leading
-/// slash and no query (e.g. `/v1/group-info`) — it must match what the DS sees,
-/// since it is bound into the signed canonical message.
+/// Sign and POST a typed request body to the one endpoint that body addresses,
+/// attaching the four `X-Pollis-*` auth headers.
+///
+/// There is no `path` argument: the path is [`DsRequest::PATH`], a property of
+/// `B`, so the caller cannot post a body to an endpoint that does not expect it
+/// and cannot misspell the route. `B` is the SAME type `pollis-delivery` parses
+/// the request into (both come from `pollis-api`), so a field this client omits,
+/// renames or invents fails to compile instead of arriving as a silently-absent
+/// JSON key — the bug shape that shipped four broken actor fields and cost #918.
 ///
 /// Returns the raw [`reqwest::Response`] so callers map status codes themselves
 /// (e.g. 409 → `LostRace` on the commit path).
-pub async fn ds_post(
+pub async fn ds_post<B: DsRequest>(
+    state: &Arc<AppState>,
+    body: &B,
+) -> Result<reqwest::Response> {
+    // Serialize in the generic shim, sign and send in a NON-generic core: every
+    // endpoint would otherwise monomorphize the whole signing + overlay path,
+    // which the mobile builds pay for in binary size for no benefit.
+    let body_bytes = serde_json::to_vec(body)
+        .map_err(|e| Error::Other(anyhow::anyhow!("ds_post serialize: {e}")))?;
+    ds_post_bytes(state, B::PATH, body_bytes).await
+}
+
+/// The signing + sending half of [`ds_post`], with the body already serialized.
+/// Non-generic on purpose (see [`ds_post`]).
+async fn ds_post_bytes(
     state: &Arc<AppState>,
     path: &str,
-    body: &serde_json::Value,
+    body_bytes: Vec<u8>,
 ) -> Result<reqwest::Response> {
     let base = state
         .config
@@ -98,9 +119,8 @@ pub async fn ds_post(
         .clone()
         .ok_or_else(|| Error::Other(anyhow::anyhow!("device_id not set for DS request signing")))?;
 
-    // The exact bytes we hash MUST be the exact bytes we send — serialize once.
-    let body_bytes = serde_json::to_vec(body)
-        .map_err(|e| Error::Other(anyhow::anyhow!("ds_post serialize: {e}")))?;
+    // The exact bytes we hash MUST be the exact bytes we send — hence `Vec<u8>`
+    // in, serialized once by the caller and never re-encoded here.
     // Signed: the DS checks this against its own clock and the skew
     // arithmetic must not wrap when a client is ahead.
     let timestamp = crate::util::now_unix() as i64;
@@ -171,12 +191,12 @@ pub async fn ds_claim_key_package(
     target_device_id: Option<&str>,
     ciphersuite: Ciphersuite,
 ) -> Result<Option<Vec<u8>>> {
-    let body = serde_json::json!({
-        "target_user_id": target_user_id,
-        "target_device_id": target_device_id,
-        "ciphersuite": u16::from(ciphersuite),
-    });
-    let resp = ds_post(state, "/v1/key-packages/claim", &body).await?;
+    let body = pollis_api::devices::ClaimKeyPackageBody {
+        target_user_id: target_user_id.to_string(),
+        target_device_id: target_device_id.map(str::to_string),
+        ciphersuite: Some(i64::from(u16::from(ciphersuite))),
+    };
+    let resp = ds_post(state, &body).await?;
     let status = resp.status();
     if status == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
@@ -213,8 +233,13 @@ pub async fn ds_livekit_token(
     room: &str,
     kind: &str,
 ) -> Result<(String, String)> {
-    let body = serde_json::json!({ "room": room, "kind": kind });
-    let resp = ds_post(state, "/v1/livekit/token", &body).await?;
+    let body = pollis_api::broker::LivekitTokenBody {
+        room: room.to_string(),
+        kind: Some(kind.to_string()),
+        user_id: None,
+        device_id: None,
+    };
+    let resp = ds_post(state, &body).await?;
     let status = resp.status();
     if !status.is_success() {
         let txt = resp.text().await.unwrap_or_default();
@@ -304,8 +329,12 @@ pub async fn ds_livekit_send_data(
     room: &str,
     payload: serde_json::Value,
 ) -> Result<()> {
-    let body = serde_json::json!({ "room": room, "payload": payload });
-    let resp = ds_post(state, "/v1/livekit/send-data", &body).await?;
+    let body = pollis_api::broker::LivekitSendDataBody {
+        room: room.to_string(),
+        payload,
+        user_id: None,
+    };
+    let resp = ds_post(state, &body).await?;
     let status = resp.status();
     if !status.is_success() {
         let txt = resp.text().await.unwrap_or_default();
@@ -325,8 +354,11 @@ pub async fn ds_livekit_participants(
     state: &Arc<AppState>,
     room: &str,
 ) -> Result<Vec<(String, String)>> {
-    let body = serde_json::json!({ "room": room });
-    let resp = ds_post(state, "/v1/livekit/participants", &body).await?;
+    let body = pollis_api::broker::LivekitParticipantsBody {
+        room: room.to_string(),
+        user_id: None,
+    };
+    let resp = ds_post(state, &body).await?;
     let status = resp.status();
     if !status.is_success() {
         let txt = resp.text().await.unwrap_or_default();
@@ -359,7 +391,7 @@ pub async fn ds_livekit_participants(
 /// Turso Platform credentials) lets the caller fall back to the baked read-only
 /// token, so an unconfigured deploy still reads. See #393.
 pub async fn ds_turso_token(state: &Arc<AppState>) -> Result<(String, u64)> {
-    let resp = ds_post(state, "/v1/turso/token", &serde_json::json!({})).await?;
+    let resp = ds_post(state, &pollis_api::broker::TursoTokenBody {}).await?;
     let status = resp.status();
     if !status.is_success() {
         let txt = resp.text().await.unwrap_or_default();
@@ -382,10 +414,11 @@ pub async fn ds_turso_token(state: &Arc<AppState>) -> Result<(String, u64)> {
 /// replaces propagated its error (`conn.execute(...).await?`). For best-effort
 /// writes (the direct path logged and continued) call [`ds_post`] and log
 /// instead.
-pub async fn ds_post_ok(state: &Arc<AppState>, path: &str, body: &serde_json::Value) -> Result<()> {
-    let resp = ds_post(state, path, body).await?;
+pub async fn ds_post_ok<B: DsRequest>(state: &Arc<AppState>, body: &B) -> Result<()> {
+    let resp = ds_post(state, body).await?;
     if !resp.status().is_success() {
         let s = resp.status();
+        let path = B::PATH;
         let txt = resp.text().await.unwrap_or_default();
         return Err(Error::Other(anyhow::anyhow!("ds_post {path} {s}: {txt}")));
     }
@@ -399,33 +432,32 @@ pub async fn ds_post_ok(state: &Arc<AppState>, path: &str, body: &serde_json::Va
 /// where no signing key exists yet and the user's authorization is the email
 /// OTP they just verified. The DS accepts either credential on these endpoints
 /// (`gate_or_session`).
-pub async fn ds_post_signed_or_session(
+pub async fn ds_post_signed_or_session<B: DsRequest>(
     state: &Arc<AppState>,
-    path: &str,
-    body: &serde_json::Value,
+    body: &B,
 ) -> Result<reqwest::Response> {
     let can_sign = state.local_db.lock().await.is_some();
     if can_sign {
-        return ds_post(state, path, body).await;
+        return ds_post(state, body).await;
     }
     let token = state.bootstrap_session.lock().await.clone().ok_or_else(|| {
         Error::Other(anyhow::anyhow!(
             "not signed in and no verified-email session — verify your email again, then retry"
         ))
     })?;
-    ds_post_session(state, path, &token, body).await
+    ds_post_session(state, &token, body).await
 }
 
 /// [`ds_post_signed_or_session`] for writes that must NOT silently fail: any
 /// non-2xx becomes an `Err` carrying the status + body.
-pub async fn ds_post_signed_or_session_ok(
+pub async fn ds_post_signed_or_session_ok<B: DsRequest>(
     state: &Arc<AppState>,
-    path: &str,
-    body: &serde_json::Value,
+    body: &B,
 ) -> Result<()> {
-    let resp = ds_post_signed_or_session(state, path, body).await?;
+    let resp = ds_post_signed_or_session(state, body).await?;
     if !resp.status().is_success() {
         let s = resp.status();
+        let path = B::PATH;
         let txt = resp.text().await.unwrap_or_default();
         return Err(Error::Other(anyhow::anyhow!("ds_post {path} {s}: {txt}")));
     }
@@ -477,23 +509,19 @@ pub async fn ds_report_commit_since(
         Some(d) => d,
         None => return,
     };
-    let body = serde_json::json!({
-        "conversation_id": conversation_id,
-        "generation": generation,
-        "since": since,
+    let body = pollis_api::commit::CommitSinceReport {
+        conversation_id: conversation_id.to_string(),
+        generation,
+        since,
         // Consulted only on the DS's no-auth dev/test path; ignored (but still
         // signature-bound) when the DS enforces auth.
-        "user_id": user_id,
-        "device_id": device_id,
-    });
+        user_id: Some(user_id.to_string()),
+        device_id: Some(device_id),
+    };
     // Bound the whole signed round-trip. A timeout resolves to `Err(_)` and is
     // swallowed exactly like any other failure — the report is dropped and the
     // floor stays conservative.
-    let _ = tokio::time::timeout(
-        REPORT_TIMEOUT,
-        ds_post(state, "/v1/commits/since", &body),
-    )
-    .await;
+    let _ = tokio::time::timeout(REPORT_TIMEOUT, ds_post(state, &body)).await;
 }
 
 /// Upper bound on a single best-effort high-water report's round-trip. Short by
@@ -516,17 +544,27 @@ fn delivery_base(state: &Arc<AppState>) -> Result<String> {
 /// pre-identity OTP endpoints (`request-otp` / `verify-otp`), which the DS gates
 /// by the OTP itself, not a device signature or a session. Returns the raw
 /// [`reqwest::Response`] so the caller reads the body / maps the status.
-pub async fn ds_post_plain(
+pub async fn ds_post_plain<B: DsRequest>(
+    state: &Arc<AppState>,
+    body: &B,
+) -> Result<reqwest::Response> {
+    let body_bytes = serde_json::to_vec(body)
+        .map_err(|e| Error::Other(anyhow::anyhow!("ds_post_plain serialize: {e}")))?;
+    ds_post_plain_bytes(state, B::PATH, body_bytes).await
+}
+
+/// Non-generic half of [`ds_post_plain`] — see [`ds_post`] for why.
+async fn ds_post_plain_bytes(
     state: &Arc<AppState>,
     path: &str,
-    body: &serde_json::Value,
+    body_bytes: Vec<u8>,
 ) -> Result<reqwest::Response> {
     let url = format!("{}{}", delivery_base(state)?, path);
     let overlay = state.overlay_handle();
     crate::net::overlay::http_client(overlay.as_deref())
         .post(&url)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .json(body)
+        .body(body_bytes)
         .send()
         .await
         .map_err(|e| Error::Other(anyhow::anyhow!("ds_post_plain {path}: {e}")))
@@ -537,15 +575,24 @@ pub async fn ds_post_plain(
 /// the device has no MLS signing key yet, so these carry the OTP-session bearer
 /// token in `X-Pollis-Session` instead of the four `X-Pollis-*` signature headers.
 /// Returns the raw [`reqwest::Response`] so the caller maps the status.
-pub async fn ds_post_session(
+pub async fn ds_post_session<B: DsRequest>(
+    state: &Arc<AppState>,
+    session_token: &str,
+    body: &B,
+) -> Result<reqwest::Response> {
+    let body_bytes = serde_json::to_vec(body)
+        .map_err(|e| Error::Other(anyhow::anyhow!("ds_post_session serialize: {e}")))?;
+    ds_post_session_bytes(state, B::PATH, session_token, body_bytes).await
+}
+
+/// Non-generic half of [`ds_post_session`] — see [`ds_post`] for why.
+async fn ds_post_session_bytes(
     state: &Arc<AppState>,
     path: &str,
     session_token: &str,
-    body: &serde_json::Value,
+    body_bytes: Vec<u8>,
 ) -> Result<reqwest::Response> {
     let url = format!("{}{}", delivery_base(state)?, path);
-    let body_bytes = serde_json::to_vec(body)
-        .map_err(|e| Error::Other(anyhow::anyhow!("ds_post_session serialize: {e}")))?;
     let overlay = state.overlay_handle();
     crate::net::overlay::http_client(overlay.as_deref())
         .post(&url)
@@ -559,15 +606,15 @@ pub async fn ds_post_session(
 
 /// [`ds_post_session`] for bootstrap writes that must NOT silently fail: any
 /// non-2xx becomes an `Err` carrying the status + body.
-pub async fn ds_post_session_ok(
+pub async fn ds_post_session_ok<B: DsRequest>(
     state: &Arc<AppState>,
-    path: &str,
     session_token: &str,
-    body: &serde_json::Value,
+    body: &B,
 ) -> Result<()> {
-    let resp = ds_post_session(state, path, session_token, body).await?;
+    let resp = ds_post_session(state, session_token, body).await?;
     if !resp.status().is_success() {
         let s = resp.status();
+        let path = B::PATH;
         let txt = resp.text().await.unwrap_or_default();
         return Err(Error::Other(anyhow::anyhow!(
             "ds_post_session {path} {s}: {txt}"

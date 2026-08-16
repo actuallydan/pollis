@@ -39,13 +39,13 @@ pub async fn register_push_token(
 
     // DS seam: route the owner-scoped upsert through the Delivery Service (the
     // write API).
-    let body = serde_json::json!({
-        "token": token,
-        "platform": platform,
-        "updated_at": now,
-        "user_id": user_id,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/push-tokens", &body).await?;
+    let body = pollis_api::devices::PushTokenBody {
+        token,
+        platform,
+        updated_at: now,
+        user_id: Some(user_id),
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
     Ok(())
 }
 

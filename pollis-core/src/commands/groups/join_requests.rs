@@ -54,12 +54,12 @@ pub async fn request_group_access(
     // who reviewed the previous request is available for future UI use. DS seam:
     // route the upsert (authorized as the requester server-side) through the
     // Delivery Service.
-    let body = serde_json::json!({
-        "id": id,
-        "group_id": group_id,
-        "requester_id": requester_id,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/join-requests/create", &body).await?;
+    let body = pollis_api::groups::CreateJoinRequestBody {
+        id,
+        group_id: group_id.clone(),
+        requester_id: Some(requester_id),
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // Notify the group's existing admins so the pending-request list (menu
     // badge + bottom bar) refreshes live instead of waiting for a manual
@@ -172,12 +172,12 @@ pub async fn approve_join_request(
 
     // DS seam: route the member-add + request-approve through the Delivery
     // Service (one transactional, admin-gated write).
-    let body = serde_json::json!({
-        "request_id": request_id,
-        "approver_id": approver_id,
-        "reviewed_at": now,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/join-requests/approve", &body).await?;
+    let body = pollis_api::groups::ApproveJoinRequestBody {
+        request_id,
+        approver_id: Some(approver_id.clone()),
+        reviewed_at: now,
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // Reconcile adds the requester's devices to the MLS tree.
     if let Err(e) = crate::commands::mls::reconcile_group_mls_impl(
@@ -232,12 +232,12 @@ pub async fn reject_join_request(
     let now = chrono::Utc::now().to_rfc3339();
     // DS seam: route the status update through the Delivery Service (admin
     // re-derived server-side).
-    let body = serde_json::json!({
-        "request_id": request_id,
-        "approver_id": approver_id,
-        "reviewed_at": now,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/join-requests/reject", &body).await?;
+    let body = pollis_api::groups::RejectJoinRequestBody {
+        request_id,
+        approver_id: Some(approver_id),
+        reviewed_at: now,
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     Ok(())
 }

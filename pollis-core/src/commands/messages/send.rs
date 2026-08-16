@@ -202,16 +202,16 @@ pub async fn send_message(
 
     // Post to Turso for offline delivery. DS seam: route the envelope write
     // through the Delivery Service (the write API).
-    let body = serde_json::json!({
-        "id": id,
-        "conversation_id": conversation_id,
-        "sender_id": SEALED_SENDER_SENTINEL,
-        "sealed": 1,
-        "ciphertext": ciphertext_remote,
-        "reply_to_id": reply_to_id,
-        "sent_at": now,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/messages/send", &body).await?;
+    let body = pollis_api::messages::SendMessageBody {
+        id: id.clone(),
+        conversation_id: conversation_id.clone(),
+        sender_id: Some(SEALED_SENDER_SENTINEL.to_string()),
+        ciphertext: ciphertext_remote,
+        reply_to_id: reply_to_id.clone(),
+        sent_at: now.clone(),
+        sealed: 1,
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // Register a server-side reference for each attachment this message carries
     // (#690), keyed by the message id. The DS reference-counts the shared,

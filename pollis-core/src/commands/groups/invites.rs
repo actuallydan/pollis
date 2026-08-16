@@ -63,13 +63,13 @@ pub async fn send_group_invite(
     let id = Ulid::new().to_string();
     // DS seam: route the invite insert through the Delivery Service (inviter's
     // admin role re-derived server-side).
-    let body = serde_json::json!({
-        "id": id,
-        "group_id": group_id,
-        "inviter_id": inviter_id,
-        "invitee_id": invitee_id,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/invites/create", &body).await?;
+    let body = pollis_api::groups::CreateInviteBody {
+        id,
+        group_id: group_id.clone(),
+        inviter_id: Some(inviter_id.clone()),
+        invitee_id: invitee_id.clone(),
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // Ingest-before-advance (issue #440, committer strand): catch this device up
     // to head with the INTERLEAVED ingesting catch-up — decrypting every bound
@@ -200,11 +200,11 @@ pub async fn accept_group_invite(
 
     // DS seam: route the member-add + invite-delete through the Delivery Service
     // (one transactional write, authorized as the invitee server-side).
-    let body = serde_json::json!({
-        "invite_id": invite_id,
-        "user_id": user_id,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/invites/accept", &body).await?;
+    let body = pollis_api::groups::AcceptInviteBody {
+        invite_id,
+        user_id: Some(user_id),
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     // Notify existing group members so they see the new member.
     // The accepting user isn't connected to the group room yet, so use
@@ -240,11 +240,11 @@ pub async fn decline_group_invite(
     // Delete the invite row — declined invites don't need to be retained. DS
     // seam: route the delete (scoped to the invitee server-side) through the
     // Delivery Service.
-    let body = serde_json::json!({
-        "invite_id": invite_id,
-        "user_id": user_id,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/invites/decline", &body).await?;
+    let body = pollis_api::groups::DeclineInviteBody {
+        invite_id,
+        user_id: Some(user_id),
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     Ok(())
 }
@@ -293,16 +293,16 @@ pub async fn create_group_invite_link(
 
     // DS seam: only the SELECTOR and the HASH cross the wire. The secret half
     // never leaves this function.
-    let body = serde_json::json!({
-        "id": id,
-        "group_id": group_id,
-        "created_by": creator_id,
-        "selector": minted.selector,
-        "secret_hash": minted.secret_hash,
-        "expires_at": expires_at,
-        "max_uses": max_uses,
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/invite-links/create", &body).await?;
+    let body = pollis_api::groups::CreateInviteLinkBody {
+        id: id.clone(),
+        group_id,
+        created_by: Some(creator_id),
+        selector: minted.selector,
+        secret_hash: minted.secret_hash,
+        expires_at: expires_at.clone(),
+        max_uses,
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
 
     Ok(CreatedInviteLink {
         id,
@@ -372,12 +372,12 @@ pub async fn revoke_group_invite_link(
     user_id: String,
     state: &Arc<AppState>,
 ) -> Result<()> {
-    let body = serde_json::json!({
-        "link_id": link_id,
-        "actor_id": user_id,
-        "revoked_at": chrono::Utc::now().to_rfc3339(),
-    });
-    crate::commands::mls::ds_post_ok(state, "/v1/invite-links/revoke", &body).await?;
+    let body = pollis_api::groups::RevokeInviteLinkBody {
+        link_id,
+        actor_id: Some(user_id),
+        revoked_at: chrono::Utc::now().to_rfc3339(),
+    };
+    crate::commands::mls::ds_post_ok(state, &body).await?;
     Ok(())
 }
 
@@ -423,14 +423,14 @@ pub async fn redeem_group_invite_link(
         .map(|(selector, secret)| format!("{selector}.{secret}"))
         .unwrap_or_else(|| token.trim().to_string());
 
-    let body = serde_json::json!({
-        "token": presented,
-        "user_id": user_id,
-        "attempt_id": Ulid::new().to_string(),
-        "now": chrono::Utc::now().to_rfc3339(),
-    });
+    let body = pollis_api::groups::RedeemInviteLinkBody {
+        token: presented,
+        user_id: Some(user_id.clone()),
+        attempt_id: Ulid::new().to_string(),
+        now: chrono::Utc::now().to_rfc3339(),
+    };
 
-    let resp = crate::commands::mls::ds_post(state, "/v1/invite-links/redeem", &body).await?;
+    let resp = crate::commands::mls::ds_post(state, &body).await?;
     let status = resp.status();
     if !status.is_success() {
         // 429 is the one distinguishable failure, and only because it describes
