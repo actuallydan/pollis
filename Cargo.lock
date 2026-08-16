@@ -6583,6 +6583,7 @@ dependencies = [
  "openmls",
  "openmls_basic_credential",
  "openmls_traits",
+ "pollis-api",
  "pollis-capture-proto",
  "pollis-core",
  "pollis-delivery",

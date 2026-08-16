@@ -710,8 +710,7 @@ async fn ds_logout_only_removes_own_device() {
 #[serial]
 async fn message_delete_works_when_ds_auth_is_disabled() {
     use pollis_core::commands::messages::delete_message_body;
-    use pollis_delivery::messages::DeleteMessageBody;
-    use pollis_delivery::writes::WriteOutcome;
+        use pollis_delivery::writes::WriteOutcome;
 
     wipe().await;
     let remote = writable_remote().await;
@@ -762,10 +761,12 @@ async fn message_delete_works_when_ds_auth_is_disabled() {
         rows.next().await.expect("row").is_some()
     }
 
-    // The exact body the shipped client sends for a self-delete.
-    let body = delete_message_body("env-mine", "conv-mine", "mallory", "mallory");
-    let parsed: DeleteMessageBody =
-        serde_json::from_value(body.clone()).expect("the client body must parse as the DS body");
+    // The exact body the shipped client sends for a self-delete. Since #875 the
+    // client BUILDS this type rather than a `json!` that merely resembles it, so
+    // "does the client body parse as the DS body" is no longer a question a test
+    // can meaningfully ask — it is the same struct. What remains testable, and is
+    // what actually broke, is the DS's behaviour on that body.
+    let parsed = delete_message_body("env-mine", "conv-mine", "mallory", "mallory");
 
     // With auth OFF there is no signed identity, so `actor_id` is the ONLY thing
     // that can name the actor. Before #875 this returned Forbidden.
@@ -774,8 +775,7 @@ async fn message_delete_works_when_ds_auth_is_disabled() {
         .expect("delete must not error");
     assert!(
         matches!(outcome, WriteOutcome::Ok),
-        "the client's delete body must be accepted on a no-auth deployment, got {outcome:?} \
-         for body {body}"
+        "the client's delete body must be accepted on a no-auth deployment, got {outcome:?}"
     );
     assert!(
         !envelope_exists(&conn, "env-mine").await,
@@ -786,8 +786,7 @@ async fn message_delete_works_when_ds_auth_is_disabled() {
     // `conversation_id` and must delete against the SAME one, so membership of
     // 'conv-mine' cannot reach an envelope in 'conv-theirs' — even though the
     // client now always names an actor.
-    let cross = delete_message_body("env-theirs", "conv-mine", "mallory", "mallory");
-    let parsed: DeleteMessageBody = serde_json::from_value(cross).expect("body parses");
+    let parsed = delete_message_body("env-theirs", "conv-mine", "mallory", "mallory");
     let outcome = pollis_delivery::messages::apply_delete_message(&conn, Some("mallory"), &parsed)
         .await
         .expect("delete must not error");
@@ -799,8 +798,7 @@ async fn message_delete_works_when_ds_auth_is_disabled() {
 
     // ...and `actor_id` is never a permission grant on the signed path: naming
     // someone else is refused outright rather than honoured.
-    let impersonation = delete_message_body("env-theirs", "conv-theirs", "alice", "alice");
-    let parsed: DeleteMessageBody = serde_json::from_value(impersonation).expect("body parses");
+    let parsed = delete_message_body("env-theirs", "conv-theirs", "alice", "alice");
     let outcome = pollis_delivery::messages::apply_delete_message(&conn, Some("mallory"), &parsed)
         .await
         .expect("delete must not error");
