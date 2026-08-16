@@ -394,7 +394,11 @@ pub async fn submit_commit(conn: &Connection, body: &SubmitBody) -> Result<Submi
     // future joiner / newly-added device can come online. All part of the same
     // transaction as the commit above, so a failure here rolls the commit back
     // too — the recipient never sees a commit with no matching Welcome.
-    if let Some(gi) = &group_info {
+    // Moved, not borrowed (#875): the GroupInfo carries the whole ratchet tree —
+    // KBs for a small roster, hundreds of KBs for a large one — and neither it
+    // nor the Welcomes are read after this block, so the `.clone()` into
+    // `params!` was a full copy of every blob for nothing.
+    if let Some(gi) = group_info {
         // Lexicographic (generation, epoch)-monotone guard (matches the standalone
         // /v1/group-info upsert in `writes::upsert_group_info`): older GroupInfo
         // can never clobber newer, so both writers of `mls_group_info` obey one
@@ -418,13 +422,13 @@ pub async fn submit_commit(conn: &Connection, body: &SubmitBody) -> Result<Submi
                 body.conversation_id.clone(),
                 body.generation,
                 body.based_on_epoch + 1,
-                gi.clone(),
+                gi,
                 body.sender_id.clone(),
             ],
         )
         .await?;
     }
-    for (w, welcome) in &welcomes {
+    for (w, welcome) in welcomes {
         // Idempotent on the UNIQUE (conversation_id, recipient_id,
         // recipient_device_id) tuple (migration 000002 (commit-log DB)): a re-sent Welcome for
         // the same recipient/device refreshes the blob and re-arms delivery
@@ -450,7 +454,7 @@ pub async fn submit_commit(conn: &Connection, body: &SubmitBody) -> Result<Submi
                 body.conversation_id.clone(),
                 body.generation,
                 w.recipient_id.clone(),
-                welcome.clone(),
+                welcome,
                 w.recipient_device_id.clone(),
             ],
         )

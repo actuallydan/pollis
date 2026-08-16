@@ -561,7 +561,7 @@ pub async fn room_send_data(
         .map_err(|e| format!("sign admin token: {e}"))?;
     let endpoint = format!("{}/twirp/livekit.RoomService/SendData", twirp_base(url));
 
-    let sent = reqwest::Client::new()
+    let sent = crate::util::http_client()
         .post(&endpoint)
         .bearer_auth(&token)
         .json(&serde_json::json!({ "room": wire_room, "data": data_b64, "kind": "RELIABLE" }))
@@ -641,7 +641,7 @@ pub async fn livekit_participants(
     let token = sign_livekit_admin_token(api_key, api_secret, &wire_room, crate::util::now_unix())?;
     let endpoint = format!("{}/twirp/livekit.RoomService/ListParticipants", twirp_base(url));
 
-    let listed = reqwest::Client::new()
+    let listed = crate::util::http_client()
         .post(&endpoint)
         .bearer_auth(&token)
         .json(&serde_json::json!({ "room": wire_room }))
@@ -734,7 +734,7 @@ pub async fn turso_token(
         "https://api.turso.tech/v1/organizations/{org}/databases/{db}/auth/tokens\
 ?expiration={TURSO_TOKEN_EXPIRATION}&authorization=read-only"
     );
-    let minted = reqwest::Client::new()
+    let minted = crate::util::http_client()
         .post(&endpoint)
         .bearer_auth(platform_token)
         .send()

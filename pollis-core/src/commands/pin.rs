@@ -423,7 +423,20 @@ pub async fn set_pin(
     // + best-effort: keeps the baked read-only token if the DS can't mint one.
     crate::commands::turso_token::spawn_turso_token_refresh(state);
 
-    if let Some(device_id) = state.device_id.lock().await.clone() {
+    // Read the device id into a `let` FIRST, then release. In edition 2021 the
+    // guard produced by `state.device_id.lock().await` inside an `if let`
+    // scrutinee lives until the END of the `if let` body, so the `.clone()` only
+    // LOOKS like it releases the lock — the old shape held `device_id`, one of
+    // the hottest mutexes in the crate, across `ensure_device_cert`'s Turso
+    // read, OS-keystore signature and DS POST. That stalled every concurrent
+    // task needing the device id, and it was one refactor away from a hard
+    // self-deadlock: `tokio::sync::Mutex` is not reentrant, and the signed
+    // `ds_post` helper takes this very lock (`mls::ds_client`). Today
+    // `ensure_device_cert` only uses the sign-free bootstrap posts, so nothing
+    // deadlocks — which is exactly why the shape had to go before someone
+    // routed it through `ds_post`.
+    let device_id = state.device_id.lock().await.clone();
+    if let Some(device_id) = device_id {
         if let Err(e) =
             crate::commands::mls::ensure_device_cert(state, &user_id, &device_id).await
         {
@@ -535,7 +548,20 @@ pub async fn unlock(
     // + best-effort: keeps the baked read-only token if the DS can't mint one.
     crate::commands::turso_token::spawn_turso_token_refresh(state);
 
-    if let Some(device_id) = state.device_id.lock().await.clone() {
+    // Read the device id into a `let` FIRST, then release. In edition 2021 the
+    // guard produced by `state.device_id.lock().await` inside an `if let`
+    // scrutinee lives until the END of the `if let` body, so the `.clone()` only
+    // LOOKS like it releases the lock — the old shape held `device_id`, one of
+    // the hottest mutexes in the crate, across `ensure_device_cert`'s Turso
+    // read, OS-keystore signature and DS POST. That stalled every concurrent
+    // task needing the device id, and it was one refactor away from a hard
+    // self-deadlock: `tokio::sync::Mutex` is not reentrant, and the signed
+    // `ds_post` helper takes this very lock (`mls::ds_client`). Today
+    // `ensure_device_cert` only uses the sign-free bootstrap posts, so nothing
+    // deadlocks — which is exactly why the shape had to go before someone
+    // routed it through `ds_post`.
+    let device_id = state.device_id.lock().await.clone();
+    if let Some(device_id) = device_id {
         if let Err(e) =
             crate::commands::mls::ensure_device_cert(state, &user_id, &device_id).await
         {

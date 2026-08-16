@@ -752,11 +752,24 @@ fn directory_to_peer_endpoints(
 }
 
 /// Seconds to sleep before the next scheduled refresh, derived from the current
-/// directory's `expires_at` minus the skew, clamped to a sane window.
+/// directory's `expires_at` minus the skew, clamped to a sane window — then
+/// JITTERED (#875).
+///
+/// The clamped value is a function of `expires_at`, which is a property of the
+/// signed artifact and therefore IDENTICAL for every client in the fleet. Slept
+/// verbatim it put the whole fleet on one wake-up instant, permanently: not an
+/// outage-recovery herd but a structural one, re-synchronised by every refresh.
+/// `park.rs` and `revocation_sync.rs` both jitter for exactly this reason and
+/// say so; this loop was the odd one out. Jitter is applied AFTER the clamp so
+/// the floor still prevents a tight loop (±12.5% of 30s cannot reach zero).
 fn until_refresh(expires_at: i64) -> Duration {
     let now = crate::util::now_unix() as i64;
     let secs = (expires_at - now).saturating_sub(DIRECTORY_REFRESH_SKEW.as_secs() as i64);
-    Duration::from_secs(secs.max(0) as u64).clamp(DIRECTORY_MIN_REFRESH, DIRECTORY_MAX_REFRESH)
+    let clamped =
+        Duration::from_secs(secs.max(0) as u64).clamp(DIRECTORY_MIN_REFRESH, DIRECTORY_MAX_REFRESH);
+    // Downward only, then re-floored: shortening can never overshoot the
+    // directory's own expiry, which is the thing the skew was reserved for.
+    pollis_relay::backoff::jittered_down(clamped).max(DIRECTORY_MIN_REFRESH)
 }
 
 /// Owns the directory refresh task and aborts it when the factory drops (overlay
@@ -919,7 +932,10 @@ async fn directory_refresh_loop(
             },
             Err(e) => {
                 eprintln!("[overlay] directory refresh failed, keeping current pool: {e}");
-                next_sleep = DIRECTORY_RETRY_BACKOFF;
+                // Jittered: a directory outage fails every client at once, so a
+                // flat retry marches the whole fleet back onto the host in
+                // lockstep the moment it returns (#875).
+                next_sleep = pollis_relay::backoff::jittered(DIRECTORY_RETRY_BACKOFF);
             }
         }
     }

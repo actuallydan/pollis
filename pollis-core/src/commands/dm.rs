@@ -136,14 +136,17 @@ pub async fn create_dm_channel(
         Err(e) => eprintln!("[mls] create_dm_channel: mls group init failed (non-fatal): {e}"),
     }
 
-    // TOFU-pin each peer's account_id_pub locally so a later Turso-side
-    // key swap is detectable. Advisory — never blocks DM creation.
-    for member in members.iter().filter(|m| m.user_id != creator_id) {
-        if let Err(e) =
-            crate::commands::safety::check_and_pin_account_key(state, &member.user_id).await
-        {
-            eprintln!("[safety] create_dm_channel: pin {} failed: {e}", member.user_id);
-        }
+    // TOFU-pin every peer's account_id_pub locally so a later Turso-side key
+    // swap is detectable. Advisory — never blocks DM creation. Batched (#875):
+    // one Turso query for the whole roster, not one per member.
+    let peer_ids: Vec<String> = members
+        .iter()
+        .filter(|m| m.user_id != creator_id)
+        .map(|m| m.user_id.clone())
+        .collect();
+    if let Err(e) = crate::commands::safety::batch_check_and_pin_account_keys(state, &peer_ids).await
+    {
+        eprintln!("[safety] create_dm_channel: batch pin failed: {e}");
     }
 
     // Notify non-creator members via their personal inbox rooms so they see

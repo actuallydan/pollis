@@ -156,7 +156,11 @@ pub async fn notify_new_message(
     // §14.4). Longer term the DS should proxy push registration server-side so the
     // client stops talking to Expo directly at all.
     // Expo accepts up to 100 messages per request; chunk to stay under it.
-    let client = reqwest::Client::new();
+    // Shared, so a device that pushes repeatedly reuses the pooled connection
+    // to `exp.host` instead of re-handshaking; `None` = direct, per the note
+    // above. Chunking already reused one client ACROSS chunks — this extends
+    // that to across calls.
+    let client = crate::net::overlay::http_client(None);
     for chunk in messages.chunks(100) {
         let resp = client.post(EXPO_PUSH_URL).json(chunk).send().await;
         match resp {

@@ -228,12 +228,17 @@ pub async fn fetch_directory(url: &str) -> Result<Vec<u8>, DirectoryError> {
 /// Ed25519-signed, so their integrity does not depend on the transport, and both
 /// must bootstrap without the pool they describe.
 pub async fn fetch_signed(url: &str) -> Result<Vec<u8>, DirectoryError> {
-    let client = reqwest::Client::builder()
-        .timeout(FETCH_TIMEOUT)
-        .build()
-        .map_err(|e| DirectoryError::Fetch(e.to_string()))?;
-    let resp = client
+    // The SHARED direct client (`pollis_relay::http`), not a fresh build. A
+    // freshly-built client starts with an empty connection pool, so building one
+    // per fetch paid a full DNS + TCP + TLS handshake every time — and this path
+    // fetches two artifacts (the directory and the `revocations.json` its anchor
+    // names) from the same host, back to back, on a schedule. `None` = direct: an
+    // artifact that describes the relay pool cannot bootstrap through it.
+    // The timeout moves onto the request so it stays identical while the pool is
+    // shared (a client-wide timeout would leak onto every other direct caller).
+    let resp = pollis_relay::http::http_client(None)
         .get(url)
+        .timeout(FETCH_TIMEOUT)
         .send()
         .await
         .map_err(|e| DirectoryError::Fetch(e.to_string()))?

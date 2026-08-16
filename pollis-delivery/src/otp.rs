@@ -287,7 +287,7 @@ pub async fn process_request_otp(otp: &OtpStore, cfg: &OtpConfig, email: &str) {
 }
 
 async fn send_otp_email(api_key: &str, email: &str, code: &str) -> anyhow::Result<()> {
-    let client = reqwest::Client::new();
+    let client = crate::util::http_client();
     let body = serde_json::json!({
         "from": "Pollis <noreply@mail.pollis.com>",
         "to": [email],

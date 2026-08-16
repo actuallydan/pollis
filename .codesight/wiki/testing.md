@@ -165,6 +165,36 @@ binary gets its own process and never loads rusqlite. See
 `pollis-core/tests/revoked_device_reconcile.rs`. This is why pollis-core had no
 `user_device` query coverage before #679.
 
+## Performance guards (#875)
+
+Four tests pin the SHAPE of hot paths rather than their wall clock, because a
+statement count is identical on every machine and a timing is not. All four are
+**guards, not proofs**: they cannot tell a fast path from a slow one, only that
+the structure that made it slow has not come back.
+
+| Guard | Where | What it forbids |
+|---|---|---|
+| `a_run_of_envelopes_loads_the_group_once` | `mls/tests.rs` | Reloading the whole MLS group per decrypted envelope (was 12 `mls_kv` SELECTs + 1 UPDATE per message; now 12 for the run). Also asserts the per-message secret-tree UPDATE is still there — that write IS forward secrecy. |
+| `no_crate_builds_its_own_reqwest_client_outside_the_seam` | `pollis-relay/src/http.rs` | Any crate calling `reqwest::Client::new()`/`::builder()` outside the three sanctioned factories. A fresh client has an empty connection pool, so each call re-handshakes. |
+| `no_lock_guard_in_a_scrutinee_spans_an_await` | `pollis-core/src/state.rs` | The edition-2021 footgun where a guard taken in an `if let`/`match` scrutinee stays alive for the whole body, so `.clone()` only *looks* like it released the lock. |
+| `envelope_fetch_sql_tests` | `messages/ingest.rs` | The batched envelope fetch degenerating back to one query per conversation, and the per-conversation watermark correlation being lost. |
+
+`MlsStore` counts its own statements under `test-harness`
+(`signal::mls_storage::counters`). The counters are **thread-local**, not
+process-global: `cargo test` runs tests concurrently in one process, so a global
+counter would have every test's storage traffic bleeding into every other test's
+measurement. That means a measured section must not contain an `.await` that can
+hop threads — every MLS storage call site is a synchronous block, which is what
+makes the numbers reproducible.
+
+`measure_decrypt_statement_count` prints (rather than asserts) the before/after
+figures behind the wiki's MLS numbers:
+
+```bash
+cargo test -p pollis-core --no-default-features --features test-harness \
+  --lib measure_decrypt -- --nocapture
+```
+
 ## Extending the harness
 
 - **Add a helper to `TestClient`** when a command is used from more than one scenario, so assertions stay readable.
