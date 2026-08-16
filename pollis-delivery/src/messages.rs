@@ -3309,6 +3309,176 @@ CREATE TABLE conversation_watermark (\
         assert_tombstone_reaches_carol(&ahead).await;
     }
 
+    /// The other direction of the same ordering question, and the one the
+    /// tombstone tests above do not reach: after a DS tombstone lands, does a
+    /// message the CLIENT stamps next still get fetched?
+    ///
+    /// It is the case a "whole-second stamps sort below fractional ones" reading
+    /// predicts will break. `chrono::Utc::now().to_rfc3339()` (AutoSi) emits NO
+    /// fraction when the instant's nanoseconds are exactly zero, so a client that
+    /// sends on a second boundary writes `…T08:00:01+00:00` while the DS tombstone
+    /// one nanosecond earlier is `…T08:00:00.999999999+00:00`. If those sorted the
+    /// wrong way round the message would land UNDER the recipient's watermark
+    /// (advanced to the tombstone) and `sent_at > last_fetched_at` would skip it
+    /// permanently — a silently dropped message, which is not one of the three
+    /// losses `CLAUDE.md` permits.
+    ///
+    /// They sort the right way round, and for a reason worth stating: AutoSi never
+    /// TRUNCATES, it only omits a fraction that is genuinely zero. A stamp with no
+    /// fraction therefore denotes `.000000000` — the EARLIEST instant of its
+    /// second — so sorting below every fractional stamp in that same second is
+    /// correct, and `'+' < '.'` is what produces it. (The #692 bug was a
+    /// hand-rolled formatter that truncated a real fraction away; that is a
+    /// different thing, and `now_rfc3339` is what fixed it.)
+    ///
+    /// What this test pins is the DS half: `sent_at_after`'s floor, and the
+    /// mixed-format comparison between a Nanos tombstone and a fraction-less
+    /// client stamp. The client half — that pollis-core never starts truncating —
+    /// is pinned in `pollis_core::commands::messages::sent_at_format_tests`,
+    /// which this crate cannot reach.
+    #[tokio::test]
+    async fn a_zero_nanosecond_client_message_still_outsorts_the_preceding_tombstone() {
+        let (_dir, db) = shared_db().await;
+        let w = db.connect().expect("write conn");
+        let carol = db.connect().expect("carol read conn");
+
+        let base = 1_800_000_000;
+        let conv = "chan-general";
+
+        // An existing message at `…:00.999999999` — the highest fraction there
+        // is, so `sent_at_after` must roll the tombstone into the NEXT second.
+        apply_send_message(
+            &w,
+            None,
+            &SendMessageBody {
+                id: "msg-bobs-post".to_string(),
+                conversation_id: conv.to_string(),
+                sender_id: Some("sealed".to_string()),
+                ciphertext: "mls:00".to_string(),
+                reply_to_id: None,
+                sent_at: client_stamp(base, 999_999_999),
+                sealed: 1,
+            },
+        )
+        .await
+        .expect("send");
+
+        // Carol catches up and reports her watermark, then alice admin-deletes.
+        // Both stamps are in 2027, i.e. ahead of any real DS clock, so the delete
+        // takes `sent_at_after`'s floor branch and the tombstone is stamped
+        // exactly one nanosecond past the highest thing in the conversation.
+        assert_eq!(ingest_fetch(&carol, conv, "carol", "carol-dev").await.len(), 1);
+        apply_advance_watermark(
+            &w,
+            None,
+            &WatermarkBody {
+                conversation_id: conv.to_string(),
+                user_id: Some("carol".to_string()),
+                device_id: "carol-dev".to_string(),
+                last_fetched_at: client_stamp(base, 999_999_999),
+            },
+        )
+        .await
+        .expect("carol watermark");
+        apply_delete_message(
+            &w,
+            None,
+            &DeleteMessageBody {
+                message_id: "msg-bobs-post".to_string(),
+                conversation_id: conv.to_string(),
+                msg_sender_id: Some("bob".to_string()),
+                actor_id: Some("alice".to_string()),
+            },
+        )
+        .await
+        .expect("admin delete");
+
+        // Carol fetches the tombstone and advances onto it — the cursor is now a
+        // DS-shaped, nanosecond-precision stamp.
+        let fetched = ingest_fetch(&carol, conv, "carol", "carol-dev").await;
+        let tombstone = fetched
+            .iter()
+            .find(|(_, ty, _)| ty == "delete")
+            .expect("carol must fetch the tombstone");
+        let cursor: String = {
+            let mut rows = w
+                .query(
+                    "SELECT sent_at FROM message_envelope WHERE id = ?1",
+                    libsql::params![tombstone.0.clone()],
+                )
+                .await
+                .expect("tombstone sent_at");
+            rows.next().await.expect("row").expect("row").get(0).expect("sent_at")
+        };
+        assert!(
+            cursor.starts_with("2027-01-15T08:00:01"),
+            "the floor guard must roll the tombstone into the next second, got {cursor}"
+        );
+        apply_advance_watermark(
+            &w,
+            None,
+            &WatermarkBody {
+                conversation_id: conv.to_string(),
+                user_id: Some("carol".to_string()),
+                device_id: "carol-dev".to_string(),
+                last_fetched_at: cursor.clone(),
+            },
+        )
+        .await
+        .expect("carol watermark 2");
+
+        // Now the client sends on the second boundary: AutoSi gives it NO
+        // fraction, and it must still sort above the tombstone's `.000000000`…
+        let boundary = client_stamp(base + 2, 0);
+        assert!(
+            !boundary.contains('.'),
+            "the premise of this test is a fraction-less stamp; got {boundary}"
+        );
+        apply_send_message(
+            &w,
+            None,
+            &SendMessageBody {
+                id: "msg-after-tombstone".to_string(),
+                conversation_id: conv.to_string(),
+                sender_id: Some("sealed".to_string()),
+                ciphertext: "mls:01".to_string(),
+                reply_to_id: None,
+                sent_at: boundary.clone(),
+                sealed: 1,
+            },
+        )
+        .await
+        .expect("send after tombstone");
+        assert!(
+            boundary > cursor,
+            "a fraction-less client stamp ({boundary}) must sort above the DS \
+             tombstone that precedes it ({cursor}) — otherwise it lands under \
+             every recipient's watermark and is lost"
+        );
+
+        // The negative control, so this test is about the ORDERING RULE and not
+        // about two strings happening to differ: what a TRUNCATING client
+        // formatter (`SecondsFormat::Secs`) would have written for an instant
+        // inside the tombstone's own second. It sorts UNDER the cursor, which is
+        // the burial this whole scheme exists to prevent — and the reason
+        // `pollis_core::commands::messages::envelope_sent_at` is a chokepoint
+        // with `sent_at_never_truncates_a_real_fraction` guarding it.
+        let truncated = "2027-01-15T08:00:01+00:00";
+        assert!(
+            truncated < cursor.as_str(),
+            "premise of the guard: a truncated stamp ({truncated}) sorts below the \
+             tombstone ({cursor}) and would be lost"
+        );
+
+        // …which is what makes carol actually receive it.
+        let after = ingest_fetch(&carol, conv, "carol", "carol-dev").await;
+        assert!(
+            after.iter().any(|(id, _, _)| id == "msg-after-tombstone"),
+            "a message sent after an admin delete must reach a caught-up recipient; \
+             fetched: {after:?} against watermark {cursor}"
+        );
+    }
+
     /// The candidate-1 primitive in isolation: a row written on one connection of
     /// a shared libsql `Database` is IMMEDIATELY visible on another connection of
     /// the same handle — the read-your-writes guarantee the flows harness leans on

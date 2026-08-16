@@ -172,6 +172,10 @@ pub async fn delete_message(
         let body = delete_message_body(&message_id, &conversation_id, &msg_sender_id, &user_id);
         crate::commands::mls::ds_post_ok(state, "/v1/messages/delete", &body).await?;
 
+        // Local `message.deleted_at` only — a display/presence field, never
+        // compared lexically against a cursor, so it deliberately does NOT go
+        // through `envelope_sent_at` (which exists for the watermark-ordered
+        // `message_envelope.sent_at` column).
         let now = chrono::Utc::now().to_rfc3339();
 
         // Soft-delete locally and collect orphaned attachments. The admin
@@ -271,6 +275,10 @@ pub async fn delete_message(
             )
             .optional()?;
 
+        // Local `message.deleted_at` only — a display/presence field, never
+        // compared lexically against a cursor, so it deliberately does NOT go
+        // through `envelope_sent_at` (which exists for the watermark-ordered
+        // `message_envelope.sent_at` column).
         let now = chrono::Utc::now().to_rfc3339();
         let rows_affected = db.conn().execute(
             "UPDATE message SET content = NULL, deleted_at = ?1
@@ -377,7 +385,7 @@ pub async fn edit_message_as(
     new_content: &str,
 ) -> Result<()> {
     let envelope_id = Ulid::new().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = super::envelope_sent_at();
     let (mls_group_id, _is_channel) = resolve_mls_group(state, conversation_id).await?;
 
     // Catch up (welcomes + interleaved) so the edit is sealed at the current
@@ -456,7 +464,7 @@ async fn send_redaction_message(
     user_id: &str,
 ) -> Result<()> {
     let envelope_id = Ulid::new().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = super::envelope_sent_at();
     let (mls_group_id, _is_channel) = resolve_mls_group(state, conversation_id).await?;
 
     // Catch up MLS before encrypting so the redaction is sealed at the current
@@ -749,7 +757,7 @@ pub async fn edit_message(
     state: &Arc<AppState>,
 ) -> Result<()> {
     let envelope_id = Ulid::new().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = super::envelope_sent_at();
 
     // Resolve the MLS group for this conversation (channel → group_id, DM → conversation_id).
     let mls_group_id = {
