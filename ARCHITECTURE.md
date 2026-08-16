@@ -231,6 +231,7 @@ TUI, and mobile-via-uniffi share one copy of the command/state/db/MLS code.
 | `verifiable-log`, `verifiable-log-builder`, `verifiable-log-serve` | The transparency log: tree/statement types, the CI-side builder, and the read path |
 | `pollis-relay` | Overlay relay node (see `docs/relay-overlay-design.md`) |
 | `pollis-device-cert` | Device cross-signing certificate types |
+| `pollis-schema` | The remote schema as data: `migrations/` (main DB) + `migrations-log/` (commit-log DB) and the constants that embed them. Dependency-free, so `pollis-delivery` — which must not depend on `pollis-core` — builds its test databases from the same definitions (#875) |
 
 Outside the Rust workspace: `frontend/` (React renderer — the renderer reaches the host only
 through `frontend/src/bridge`, never `@tauri-apps/*` directly) and `website/` (static
