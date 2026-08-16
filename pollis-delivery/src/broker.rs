@@ -52,7 +52,6 @@
 //! removed (that client cutover is the follow-up to #393). See
 //! `docs/secrets-broker.md`.
 
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
     body::Bytes,
@@ -176,13 +175,6 @@ fn resolve_user(authed: &Authed, body_user_id: Option<&str>) -> Result<String, R
     }
 }
 
-fn now_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 fn not_configured(what: &str) -> Response {
     (
         StatusCode::SERVICE_UNAVAILABLE,
@@ -216,9 +208,10 @@ pub struct LivekitTokenBody {
     pub device_id: Option<String>,
 }
 
-/// LiveKit JWT claims — byte-identical to pollis-core's `livekit_jwt::make_token`
-/// so a token minted here is indistinguishable from the (soon-removed) on-device
-/// one to the LiveKit SFU.
+/// LiveKit JWT claims. This is the only minter left: the on-device
+/// `livekit_jwt::make_token` it was written to match was removed once #393
+/// landed, and clients now ask `ds_livekit_*` for a token. The shape is still
+/// frozen by the LiveKit SFU, which is what it has to satisfy.
 #[derive(Serialize)]
 struct LiveKitClaims {
     iss: String,
@@ -344,7 +337,7 @@ pub async fn livekit_token(
         &identity,
         &display_name,
         can_publish_data,
-        now_unix(),
+        crate::util::now_unix(),
     )?;
 
     Ok(ok_json(serde_json::json!({ "token": token, "url": url })))
@@ -564,7 +557,7 @@ pub async fn room_send_data(
     // room and none of them can forget. The pseudonym is the only form that ever
     // reaches LiveKit.
     let wire_room = crate::room_id::room_pseudonym(api_secret, room);
-    let token = sign_livekit_admin_token(api_key, api_secret, &wire_room, now_unix())
+    let token = sign_livekit_admin_token(api_key, api_secret, &wire_room, crate::util::now_unix())
         .map_err(|e| format!("sign admin token: {e}"))?;
     let endpoint = format!("{}/twirp/livekit.RoomService/SendData", twirp_base(url));
 
@@ -645,7 +638,7 @@ pub async fn livekit_participants(
 
     // #828: authorize the logical room, address LiveKit by its pseudonym.
     let wire_room = crate::room_id::room_pseudonym(api_secret, &parsed.room);
-    let token = sign_livekit_admin_token(api_key, api_secret, &wire_room, now_unix())?;
+    let token = sign_livekit_admin_token(api_key, api_secret, &wire_room, crate::util::now_unix())?;
     let endpoint = format!("{}/twirp/livekit.RoomService/ListParticipants", twirp_base(url));
 
     let listed = reqwest::Client::new()
@@ -1080,7 +1073,7 @@ pub fn presign_r2_url_bounded(
     );
 
     let signing_key = derive_signing_key(secret_key, date, region, "s3");
-    let signature = hex_lower(&hmac_sha256(&signing_key, string_to_sign.as_bytes()));
+    let signature = hex::encode(hmac_sha256(&signing_key, string_to_sign.as_bytes()));
 
     format!(
         "{}{canonical_uri}?{canonical_query}&X-Amz-Signature={signature}",
@@ -1128,7 +1121,7 @@ fn uri_encode(s: &str, encode_slash: bool) -> String {
 
 fn sha256_hex(data: &[u8]) -> String {
     use sha2::{Digest, Sha256};
-    hex_lower(&Sha256::digest(data))
+    hex::encode(Sha256::digest(data))
 }
 
 fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
@@ -1145,16 +1138,4 @@ fn derive_signing_key(secret: &str, date: &str, region: &str, service: &str) -> 
     let k_region = hmac_sha256(&k_date, region.as_bytes());
     let k_service = hmac_sha256(&k_region, service.as_bytes());
     hmac_sha256(&k_service, b"aws4_request")
-}
-
-/// Lowercase hex, no separators. (pollis-delivery deliberately avoids the `hex`
-/// crate — `auth.rs` has the same helper.)
-fn hex_lower(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        out.push(HEX[(b >> 4) as usize] as char);
-        out.push(HEX[(b & 0x0f) as usize] as char);
-    }
-    out
 }

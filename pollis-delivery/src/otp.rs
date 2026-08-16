@@ -14,7 +14,6 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
     extract::State,
@@ -229,13 +228,6 @@ impl OtpStore {
     }
 }
 
-fn now_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 // ── POST /v1/auth/request-otp ────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -271,7 +263,7 @@ pub async fn process_request_otp(otp: &OtpStore, cfg: &OtpConfig, email: &str) {
         None => format!("{:06}", OsRng.gen_range(0..1_000_000u32)),
     };
 
-    let outcome = otp.prepare(email, &code, cfg.ttl_secs, cfg.resend_throttle_secs, now_unix());
+    let outcome = otp.prepare(email, &code, cfg.ttl_secs, cfg.resend_throttle_secs, crate::util::now_unix());
 
     match outcome {
         PrepareOutcome::Throttled => {}
@@ -401,7 +393,7 @@ pub async fn apply_verify_otp(
     // clean 5xx and the *same* code still works on retry, instead of being burned
     // and disguised as "invalid code" (#518). Wrong/expired/locked codes are
     // rejected here and their attempt accounting stands.
-    match otp.check(email, code, cfg.max_attempts, now_unix()) {
+    match otp.check(email, code, cfg.max_attempts, crate::util::now_unix()) {
         VerifyOutcome::Ok => {}
         VerifyOutcome::LockedOut => return Ok(VerifyOtpResult::LockedOut),
         VerifyOutcome::Invalid | VerifyOutcome::Expired | VerifyOutcome::NotFound => {
@@ -458,7 +450,7 @@ pub async fn apply_verify_otp(
         }
     };
 
-    let now = now_unix();
+    let now = crate::util::now_unix();
     let session_token = sessions.mint(&user_id, email, device_id, cfg.session_ttl_secs, now);
 
     // Single-use: consume ONLY now that the account exists and the session is
@@ -627,7 +619,7 @@ mod tests {
         cfg: &OtpConfig,
         email: &str,
     ) -> VerifyOtpResult {
-        otp.prepare(email, "123456", cfg.ttl_secs, 0, now_unix());
+        otp.prepare(email, "123456", cfg.ttl_secs, 0, crate::util::now_unix());
         apply_verify_otp(conn, otp, sessions, cfg, email, "123456", "dev-1")
             .await
             .expect("verify-otp must succeed")
@@ -727,7 +719,7 @@ mod tests {
         let otp = OtpStore::default();
         let sessions = SessionStore::default();
         let cfg = OtpConfig::default();
-        otp.prepare("a@x.com", "123456", cfg.ttl_secs, 0, now_unix());
+        otp.prepare("a@x.com", "123456", cfg.ttl_secs, 0, crate::util::now_unix());
 
         let first =
             apply_verify_otp(&conn, &otp, &sessions, &cfg, "a@x.com", "123456", "dev-1").await;
@@ -753,7 +745,7 @@ mod tests {
         let otp = OtpStore::default();
         let sessions = SessionStore::default();
         let cfg = OtpConfig::default();
-        otp.prepare("a@x.com", "123456", cfg.ttl_secs, 0, now_unix());
+        otp.prepare("a@x.com", "123456", cfg.ttl_secs, 0, crate::util::now_unix());
 
         let first =
             apply_verify_otp(&conn, &otp, &sessions, &cfg, "a@x.com", "123456", "dev-1").await;
@@ -772,7 +764,7 @@ mod tests {
         let otp = OtpStore::default();
         let sessions = SessionStore::default();
         let cfg = OtpConfig::default();
-        otp.prepare("a@x.com", "123456", cfg.ttl_secs, 0, now_unix());
+        otp.prepare("a@x.com", "123456", cfg.ttl_secs, 0, crate::util::now_unix());
 
         for _ in 0..cfg.max_attempts {
             let r =

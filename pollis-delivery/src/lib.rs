@@ -40,6 +40,7 @@ pub mod ratelimit;
 pub mod redact;
 pub mod room_id;
 pub mod session;
+pub mod util;
 pub mod writes;
 
 use std::sync::Arc;
@@ -553,7 +554,7 @@ async fn submit(
             method.as_str(),
             uri.path(),
             &body,
-            auth::now_unix(),
+            util::now_unix() as i64,
         )
         .await
         {
@@ -714,7 +715,7 @@ async fn report_commit_since(
             method.as_str(),
             uri.path(),
             &body,
-            auth::now_unix(),
+            util::now_unix() as i64,
         )
         .await
         {

@@ -55,6 +55,7 @@ pollis-core/src/
   realtime.rs        # LiveKit room manager + event dispatch
   sink.rs            # EventSink trait (frontend-channel abstraction)
   signal/            # MLS storage backend
+  util.rs            # Crate-wide primitives with no better home (now_unix)
   lib.rs             # uniffi exports for mobile bindings
 
 src-tauri/src/       # Tauri desktop host — the shipping shell
@@ -91,6 +92,17 @@ artifact. It uses `expo prebuild` + Gradle directly (no `eas build`, no EAS
 account) and signs with the throwaway debug keystore; distribution signing is
 blocked (Play console / Apple account #723). See `docs/deployments.md` and
 `mobile/CLAUDE.md`.
+
+**Shared Rust primitives.** `pollis-core/src/util.rs` and
+`pollis-delivery/src/util.rs` hold the crate-wide odds and ends — currently just
+`now_unix()` (whole seconds since the epoch, `u64`; callers whose downstream
+arithmetic is signed cast at the boundary). Put a helper there rather than
+re-deriving it in a module: before #875 the DS carried six copies of that clock
+in two return types and pollis-core three under two names. Lowercase hex is
+`hex::encode` — every crate that needs it already depends on `hex`, and the four
+hand-rolled `hex_lower` loops are gone. The two `util` modules are separate
+because `pollis-core` and `pollis-delivery` deliberately do not depend on each
+other; a genuinely shared home needs a crate below both, which does not exist yet.
 
 ## Storage Model
 

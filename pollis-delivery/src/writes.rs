@@ -70,7 +70,7 @@ pub(crate) async fn gate(
         method.as_str(),
         uri.path(),
         body,
-        auth::now_unix(),
+        crate::util::now_unix() as i64,
     )
     .await
     {

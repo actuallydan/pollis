@@ -41,25 +41,14 @@ use super::provider::PollisProvider;
 fn canonical_message(method: &str, path: &str, timestamp: i64, body: &[u8]) -> Vec<u8> {
     let mut hasher = Sha256::new();
     hasher.update(body);
-    let digest = hasher.finalize();
-
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut hex = String::with_capacity(digest.len() * 2);
-    for b in digest {
-        hex.push(HEX[(b >> 4) as usize] as char);
-        hex.push(HEX[(b & 0x0f) as usize] as char);
-    }
+    // `hex::encode` is lowercase, unseparated — byte-identical to the loop this
+    // and three DS helpers each used to hand-roll, and the crate already depends
+    // on `hex` so there was never a dependency to avoid.
+    let hex = hex::encode(hasher.finalize());
 
     format!("{method}\n{path}\n{timestamp}\n{hex}").into_bytes()
 }
 
-/// Current unix time in seconds.
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
 
 /// The signing user's id for THIS `AppState`.
 ///
@@ -112,7 +101,9 @@ pub async fn ds_post(
     // The exact bytes we hash MUST be the exact bytes we send — serialize once.
     let body_bytes = serde_json::to_vec(body)
         .map_err(|e| Error::Other(anyhow::anyhow!("ds_post serialize: {e}")))?;
-    let timestamp = now_unix();
+    // Signed: the DS checks this against its own clock and the skew
+    // arithmetic must not wrap when a client is ahead.
+    let timestamp = crate::util::now_unix() as i64;
     let message = canonical_message("POST", path, timestamp, &body_bytes);
 
     // Sign with the device's stable MLS signing key. The provider wraps a !Send

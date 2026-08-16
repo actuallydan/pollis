@@ -235,13 +235,6 @@ fn derive_kek(
     Ok(out)
 }
 
-fn now_unix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 // ── Helpers for the commands ─────────────────────────────────────────
 
 fn validate_pin(pin: &str) -> Result<()> {
@@ -377,7 +370,7 @@ pub async fn set_pin(
         verifier_nonce,
         verifier_ct,
         failed_attempts: 0,
-        last_attempt_unix: now_unix(),
+        last_attempt_unix: crate::util::now_unix(),
     };
 
     // All three writes land together. If the process dies after two of
@@ -619,7 +612,7 @@ async fn unlock_inner(
 
     if !verifier_ok {
         meta.failed_attempts += 1;
-        meta.last_attempt_unix = now_unix();
+        meta.last_attempt_unix = crate::util::now_unix();
         store_pin_meta(keystore, user_id, &meta).await?;
         let attempts_remaining =
             MAX_FAILED_ATTEMPTS.saturating_sub(meta.failed_attempts);
@@ -646,7 +639,7 @@ async fn unlock_inner(
     // Reset counter on success.
     if meta.failed_attempts != 0 {
         meta.failed_attempts = 0;
-        meta.last_attempt_unix = now_unix();
+        meta.last_attempt_unix = crate::util::now_unix();
         store_pin_meta(keystore, user_id, &meta).await?;
     }
 

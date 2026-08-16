@@ -18,7 +18,6 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
     body::Bytes,
@@ -83,13 +82,6 @@ impl EmailChangeStore {
             .expect("email-change requesters mutex poisoned")
             .remove(&normalize_email(new_email));
     }
-}
-
-fn now_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }
 
 fn ok_status() -> Response {
@@ -240,7 +232,7 @@ pub async fn apply_verify_email_change(
     // the `users.email` write below succeeds, so a transient/config DB failure
     // returns a clean 5xx and the same code still works on retry instead of being
     // burned and disguised as "invalid code" (#518). Wrong-guess accounting stands.
-    match store.otp.check(trimmed, code, cfg.max_attempts, now_unix()) {
+    match store.otp.check(trimmed, code, cfg.max_attempts, crate::util::now_unix()) {
         VerifyOutcome::Ok => {}
         VerifyOutcome::LockedOut => {
             // check() already deleted the code on lockout; drop the binding too so a

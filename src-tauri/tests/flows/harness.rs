@@ -283,7 +283,7 @@ async fn ds_auth(
         method.as_str(),
         uri.path(),
         body,
-        pollis_delivery::auth::now_unix(),
+        pollis_delivery::util::now_unix() as i64,
     )
     .await
     .map_err(|rej| rej.into_response())
@@ -326,7 +326,7 @@ fn b64d(s: &str) -> Option<Vec<u8>> {
 }
 
 /// Unix seconds as `u64` — the OTP/session stores' clock type (distinct from
-/// `pollis_delivery::auth::now_unix`'s `i64` signature-timestamp clock).
+/// `pollis_delivery::util::now_unix`, cast to the `i64` signature-timestamp clock).
 fn now_u64() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -529,7 +529,7 @@ async fn delivery_report_commit_since(
             method.as_str(),
             uri.path(),
             &body,
-            pollis_delivery::auth::now_unix(),
+            pollis_delivery::util::now_unix() as i64,
         )
         .await
         {
@@ -2693,7 +2693,7 @@ pub(crate) async fn signed_post_status(client: &TestClient, path: &str, body: &[
         .await
         .clone()
         .expect("client device_id set");
-    let timestamp = pollis_delivery::auth::now_unix();
+    let timestamp = pollis_delivery::util::now_unix() as i64;
     let message = pollis_delivery::auth::canonical_message("POST", path, timestamp, body);
 
     let signature_b64 = {

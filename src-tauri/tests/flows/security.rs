@@ -28,7 +28,7 @@ async fn ds_rejects_unsigned_or_invalid_writes() {
     let profile = alice.sign_up("alice@test.local").await;
     let base = delivery_url().await;
 
-    let now = pollis_delivery::auth::now_unix().to_string();
+    let now = (pollis_delivery::util::now_unix() as i64).to_string();
     let empty_body = serde_json::to_vec(&serde_json::json!({})).expect("serialize body");
 
     // 1. W8 purge with NO auth headers → 401. Without a signature the DS cannot

@@ -33,13 +33,6 @@ fn b64_decode(s: &str) -> anyhow::Result<Vec<u8>> {
     Ok(base64::engine::general_purpose::STANDARD.decode(s)?)
 }
 
-fn now_unix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 fn ok_status() -> Response {
     (StatusCode::OK, Json(serde_json::json!({ "status": "ok" }))).into_response()
 }
@@ -84,7 +77,7 @@ pub async fn establish_identity(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let claims = match verify_session(&headers, &state.sessions, now_unix()) {
+    let claims = match verify_session(&headers, &state.sessions, crate::util::now_unix()) {
         Ok(c) => c,
         Err(rej) => return rej.into_response(),
     };
@@ -191,7 +184,7 @@ pub async fn register_device(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let claims = match verify_session(&headers, &state.sessions, now_unix()) {
+    let claims = match verify_session(&headers, &state.sessions, crate::util::now_unix()) {
         Ok(c) => c,
         Err(rej) => return rej.into_response(),
     };
@@ -326,7 +319,7 @@ pub async fn publish_device_cert(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let now = now_unix();
+    let now = crate::util::now_unix();
 
     let parsed: PublishCertBody = match serde_json::from_slice(&body) {
         Ok(b) => b,
@@ -529,7 +522,7 @@ pub async fn enrollment_request(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let claims = match verify_session(&headers, &state.sessions, now_unix()) {
+    let claims = match verify_session(&headers, &state.sessions, crate::util::now_unix()) {
         Ok(c) => c,
         Err(rej) => return rej.into_response(),
     };
