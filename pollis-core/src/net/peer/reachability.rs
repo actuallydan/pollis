@@ -132,7 +132,7 @@ async fn maintain(config: ReachabilityConfig) {
             Ok(sleep_for) => sleep_for,
             Err(e) => {
                 eprintln!("[peer-relay] reachability refresh failed: {e}");
-                RETRY_BACKOFF
+                pollis_relay::backoff::jittered(RETRY_BACKOFF)
             }
         };
         tokio::time::sleep(sleep_for).await;
@@ -241,9 +241,14 @@ fn parked_relays(dir: &directory::Directory) -> Vec<ParkedRelay> {
 fn until_refresh(expires_at: i64) -> Duration {
     let now = pollis_relay::proto::now_unix();
     let secs = (expires_at - now).saturating_sub(DIRECTORY_REFRESH_SKEW.as_secs() as i64);
-    Duration::from_secs(secs.max(0) as u64)
+    let clamped = Duration::from_secs(secs.max(0) as u64)
         .min(REVOCATION_REFRESH)
-        .max(MIN_REFRESH)
+        .max(MIN_REFRESH);
+    // Jittered (#875) for the same reason `park.rs` jitters its re-dial: this
+    // sleep is derived from a signed artifact's expiry, which every device in
+    // the fleet reads the same value of, so slept verbatim it wakes them all
+    // together. Applied after the floor, which ±12.5% cannot breach.
+    pollis_relay::backoff::jittered(clamped)
 }
 
 #[cfg(test)]
