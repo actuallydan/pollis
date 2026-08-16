@@ -34,14 +34,14 @@ pub struct ResetBody {
     /// `None` → reset all of the recipient's Welcomes (W7).
     #[serde(default)]
     pub device_id: Option<String>,
-    /// Recipient, used ONLY on the no-auth path (see [`resolve_recipient`]).
+    /// Recipient, used ONLY on the no-auth path (see `pollis_delivery::writes::resolve_recipient`).
     #[serde(default)]
     pub user_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct PurgeBody {
-    /// Recipient, used ONLY on the no-auth path (see [`resolve_recipient`]).
+    /// Recipient, used ONLY on the no-auth path (see `pollis_delivery::writes::resolve_recipient`).
     #[serde(default)]
     pub user_id: Option<String>,
 }

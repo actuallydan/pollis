@@ -72,7 +72,7 @@ pub struct R2PresignBody {
     /// media/avatar presign is byte-identical to before.
     #[serde(default)]
     pub content_length: Option<u64>,
-    /// No-auth path only — see [`resolve_user`]. Unused beyond the auth gate
+    /// No-auth path only — see `pollis_delivery::broker::resolve_user`. Unused beyond the auth gate
     /// (presign has no per-object authz), kept for shape-symmetry with the other
     /// broker endpoint.
     #[serde(default)]

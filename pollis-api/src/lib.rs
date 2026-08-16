@@ -56,7 +56,7 @@
 //!
 //! # Adding an endpoint
 //!
-//! Add the struct to the matching module, add one line to the [`endpoints!`]
+//! Add the struct to the matching module, add one line to the `endpoints!`
 //! table below, and route it in `pollis-delivery` as `.route(<Body>::PATH, …)`.
 //! The route-coverage tests (in `pollis-delivery` and in the `flows` harness)
 //! walk [`ENDPOINTS`] and fail if either router does not serve it, so a new
@@ -77,7 +77,7 @@ pub mod writes;
 
 /// A request body that knows the one path it is addressed at.
 ///
-/// Implemented exactly once per endpoint by the [`endpoints!`] table, which is
+/// Implemented exactly once per endpoint by the `endpoints!` table, which is
 /// also what populates [`ENDPOINTS`]. Binding the path to the TYPE (rather than
 /// passing it alongside the body) is what removes the second hand-maintained
 /// list: `ds_post` takes no path argument, so a client physically cannot send a

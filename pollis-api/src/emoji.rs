@@ -15,7 +15,7 @@ pub struct CreateEmojiBody {
     /// `image/webp` or `image/gif`. Allowlisted, not sniffed and not trusted as
     /// "whatever the file said it was".
     pub content_type: String,
-    /// Size of the stored object. Bounded by [`EMOJI_MAX_BYTES`] and bound into
+    /// Size of the stored object. Bounded by `pollis_delivery::emoji::EMOJI_MAX_BYTES` and bound into
     /// the presign signature, so a lie here cannot become a large R2 object.
     pub size_bytes: u64,
     #[serde(default)]
