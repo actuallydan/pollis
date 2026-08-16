@@ -45,7 +45,7 @@ pub use ingest::{
 // ── Edit / delete ────────────────────────────────────────────────────────────
 pub use edit_delete::{delete_message, edit_message};
 #[cfg(feature = "test-harness")]
-pub use edit_delete::{edit_message_as, send_redaction_as};
+pub use edit_delete::{delete_message_body, edit_message_as, send_redaction_as};
 
 // ── Receipts (delivery / read, DMs only — #857) ──────────────────────────────
 pub use receipts::{get_conversation_receipts, mark_messages_read, MessageReceipts};

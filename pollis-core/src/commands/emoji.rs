@@ -715,6 +715,11 @@ pub async fn upload_group_emoji(
         .await?;
     }
 
+    // `created_by` is the DS's no-auth fallback for the acting user
+    // (`resolve_actor`): with request signing off, a body without it resolves to
+    // no actor and the endpoint 403s outright. On the signed path it is bound to
+    // — and must equal — the authenticated user, so naming it grants nothing.
+    let actor_id = crate::commands::mls::current_user_id(state).await?;
     crate::commands::mls::ds_post_ok(
         state,
         "/v1/emoji/create",
@@ -725,6 +730,7 @@ pub async fn upload_group_emoji(
             "content_type": encoded.content_type,
             "size_bytes": encoded.bytes.len(),
             "animated": encoded.animated,
+            "created_by": actor_id,
         }),
     )
     .await?;
@@ -754,10 +760,16 @@ pub async fn remove_group_emoji(
     shortcode: String,
     state: &Arc<AppState>,
 ) -> Result<()> {
+    // `actor_id`: same no-auth fallback contract as `/v1/emoji/create` above.
+    let actor_id = crate::commands::mls::current_user_id(state).await?;
     crate::commands::mls::ds_post_ok(
         state,
         "/v1/emoji/remove",
-        &serde_json::json!({ "group_id": group_id, "shortcode": shortcode }),
+        &serde_json::json!({
+            "group_id": group_id,
+            "shortcode": shortcode,
+            "actor_id": actor_id,
+        }),
     )
     .await?;
     collect_orphaned_emoji(state).await
