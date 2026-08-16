@@ -94,9 +94,16 @@ async fn channel_group_id(conn: &Connection, channel_id: &str) -> anyhow::Result
 }
 
 /// Add `user_id` to `group_id` as a plain member and seed their per-(channel,
-/// device) watermarks. Mirrors `pollis_core`'s `add_member_to_group` byte-for-
-/// byte (idempotent `INSERT OR IGNORE` + best-effort watermark seed) so accepting
-/// an invite / approving a join request through the DS lands the exact same rows.
+/// device) watermarks.
+///
+/// This is the **only** implementation. It used to be documented as mirroring a
+/// `pollis_core::add_member_to_group` byte-for-byte; that function no longer
+/// exists (group membership is a DS-owned write — the client never INSERTs into
+/// `group_member`), and the only `add_member_to_group` left in pollis-core is an
+/// unrelated MLS test helper. Shape: idempotent `INSERT OR IGNORE` plus a
+/// best-effort watermark seed, so accepting an invite and approving a join
+/// request land identical rows.
+///
 /// Takes a bare [`Connection`] so it composes inside a caller's transaction
 /// (`&Transaction` derefs to `&Connection`).
 async fn add_member_rows(conn: &Connection, group_id: &str, user_id: &str) -> anyhow::Result<()> {
