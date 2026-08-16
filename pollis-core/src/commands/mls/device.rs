@@ -611,7 +611,13 @@ pub(super) async fn verify_added_devices(
     // are byte-identical. The only difference is that devices after the first
     // failure are now fetched-but-not-examined instead of never fetched — no
     // decision depends on that.
-    #[derive(Default)]
+    //
+    // The map is READ, never drained: `added_device_ids` is a CSV column the DS
+    // writes, so a repeated id in it is a shape this function has to survive.
+    // Taking rows out would make the second mention of a device look absent,
+    // turn a legitimate commit into a permanent `AbsentRetry`, and wedge the
+    // replay — where the per-device query it replaces would simply have
+    // returned the same row twice.
     struct DeviceRow {
         cert: Option<Vec<u8>>,
         issued_at_str: Option<String>,
@@ -661,7 +667,7 @@ pub(super) async fn verify_added_devices(
     }
 
     for did in device_ids {
-        let row = match by_device.remove(did.as_str()) {
+        let row = match by_device.get(did.as_str()) {
             Some(r) => r,
             None => {
                 // Row absent. Could be (a) revoked + hard-deleted by an
@@ -683,6 +689,14 @@ pub(super) async fn verify_added_devices(
             revoked_at,
             mls_sig_pub_pq,
         } = row;
+        let (cert, issued_at_str, cert_identity_version, mls_sig_pub, revoked_at, mls_sig_pub_pq) = (
+            cert.clone(),
+            issued_at_str.clone(),
+            *cert_identity_version,
+            mls_sig_pub.clone(),
+            revoked_at.clone(),
+            mls_sig_pub_pq.clone(),
+        );
 
         // Tombstone wins — a revoked device is unambiguously not allowed
         // to add itself, regardless of cert column state.
