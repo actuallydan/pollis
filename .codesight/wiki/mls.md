@@ -465,6 +465,42 @@ Decryption is interleaved with commit replay because `max_past_epochs = 0`: a
 message must be decrypted while the local group is still AT its epoch (see
 `envelope_epoch`, which parses an envelope's epoch without touching group state).
 
+### One group load per epoch, not per message (#875)
+
+The decrypt path is `MlsDecryptor` (`mls/group_state.rs`): a group loaded ONCE
+for the run of envelopes sealed at the epoch it sits at. `try_mls_decrypt` is
+that type used for a run of length one, and until #875 it was the whole path —
+every single envelope re-read the join config, group context, ratchet tree,
+transcript hash, confirmation tag, leaf index, group state, message secrets,
+resumption PSKs and proposal queue out of `mls_kv`, re-parsed the lot, decrypted
+one message and threw it away. **Measured: 12 `mls_kv` SELECTs + 1 UPDATE per
+message, now 12 SELECTs for the whole run + 1 UPDATE per message** — a
+200-message catch-up went from 2400 statements to ~212.
+
+Holding the group across a run is not a shortcut. Decrypting an application
+message mutates exactly one thing — the secret tree inside
+`message_secrets_store`, which ratchets forward so a consumed key cannot be
+reused — and openmls persists that itself, inside `process_message`, before it
+returns (`will_modify_secret_tree` → `write_message_secrets`), precisely so
+forward secrecy survives a crash mid-batch. Nothing else about the group changes
+during application-message processing. So the reload this replaced was reading
+back the bytes the previous decrypt had just written, and a crash half-way
+through a run leaves exactly the state a crash half-way through the old loop
+left. That per-message write is forward secrecy and must never be optimised
+away; `a_run_of_envelopes_loads_the_group_once` asserts it is still there.
+
+**A decryptor must never outlive its epoch.** A commit changes the group out from
+under a held copy. `ingest_group_envelopes_interleaved` opens one per `on_epoch`
+firing and drops it before the replay applies the next commit — the only correct
+lifetime. Anything longer decrypts against a superseded key schedule.
+
+`MlsStore` (`signal/mls_storage.rs`) counts its own statements under
+`test-harness` (`mls_storage::counters`, thread-local so concurrent tests do not
+contaminate each other), which is what makes the figures above assertable rather
+than anecdotal. Its three statements also go through `prepare_cached` now — there
+are exactly three and they run a dozen-plus times per message, so the SQL was
+being re-parsed for query plans that never change.
+
 ## Message deletion — "delete for everyone" (E2EE redaction)
 
 Deleting your own message is **delete for everyone**: it is redacted on the

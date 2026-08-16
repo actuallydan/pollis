@@ -2974,33 +2974,46 @@ fn single_shot_decrypt_still_works_and_costs_a_full_load() {
     assert!(reads >= 8, "a cold decrypt loads the whole group; got {reads} reads");
 }
 
+/// Prints the before/after figures behind #875 rather than asserting them, so
+/// the numbers in `.codesight/wiki/mls.md` can be re-derived on any machine:
+/// `cargo test -p pollis-core --no-default-features --features test-harness
+/// --lib measure_decrypt -- --nocapture`.
+///
+/// The statement counts are exact and machine-independent; the timings are a
+/// DEBUG build against in-memory SQLite, so they understate the real gain — a
+/// production build reads through SQLCipher on disk, where a `mls_kv` SELECT
+/// costs far more relative to the crypto.
 #[test]
 fn measure_decrypt_statement_count() {
     let conv_id = "01JTEST0000000000000000MEA";
     let (alice_db, bob_db) = alice_and_bob(conv_id);
 
-    const N: usize = 10;
+    const N: usize = 50;
     let cts: Vec<Vec<u8>> = (0..N)
         .map(|i| try_mls_encrypt(&alice_db, conv_id, format!("m{i}").as_bytes()).unwrap())
         .collect();
 
     let before = crate::signal::mls_storage::counters::snapshot();
+    let t0 = std::time::Instant::now();
     {
         let mut d = MlsDecryptor::open(&bob_db, conv_id).unwrap();
         for ct in &cts {
             d.decrypt(ct).expect("decrypt");
         }
     }
+    let batched_ms = t0.elapsed().as_secs_f64() * 1000.0;
     let (reads, writes) = crate::signal::mls_storage::counters::since(before);
-    println!("BATCHED  : reads={reads} writes={writes} => per-message reads={:.1}", reads as f64 / N as f64);
+    println!("BATCHED  : reads={reads} writes={writes} => per-message reads={:.1} time={batched_ms:.2}ms", reads as f64 / N as f64);
 
     let cts2: Vec<Vec<u8>> = (0..N)
         .map(|i| try_mls_encrypt(&alice_db, conv_id, format!("n{i}").as_bytes()).unwrap())
         .collect();
     let before = crate::signal::mls_storage::counters::snapshot();
+    let t1 = std::time::Instant::now();
     for ct in &cts2 {
         try_mls_decrypt(&bob_db, conv_id, ct).expect("decrypt");
     }
+    let percall_ms = t1.elapsed().as_secs_f64() * 1000.0;
     let (reads2, writes2) = crate::signal::mls_storage::counters::since(before);
-    println!("PER-CALL : reads={reads2} writes={writes2} => per-message reads={:.1}", reads2 as f64 / N as f64);
+    println!("PER-CALL : reads={reads2} writes={writes2} => per-message reads={:.1} time={percall_ms:.2}ms", reads2 as f64 / N as f64);
 }
