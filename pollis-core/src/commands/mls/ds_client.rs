@@ -233,11 +233,16 @@ pub async fn ds_livekit_token(
     room: &str,
     kind: &str,
 ) -> Result<(String, String)> {
+    let device_id = state.device_id.lock().await.clone();
+    // `user_id`/`device_id` are the DS's no-auth fallback (`broker::resolve_user`):
+    // auth on → taken from the verified signature and these are ignored; auth off
+    // → these ARE the identity, and a body without them is a 400. Naming them
+    // grants nothing — `ds_post` signs as this very user.
     let body = pollis_api::broker::LivekitTokenBody {
         room: room.to_string(),
         kind: Some(kind.to_string()),
-        user_id: None,
-        device_id: None,
+        user_id: Some(current_user_id(state).await?),
+        device_id,
     };
     let resp = ds_post(state, &body).await?;
     let status = resp.status();
@@ -329,10 +334,11 @@ pub async fn ds_livekit_send_data(
     room: &str,
     payload: serde_json::Value,
 ) -> Result<()> {
+    // No-auth fallback for the acting user — see `ds_livekit_token`.
     let body = pollis_api::broker::LivekitSendDataBody {
         room: room.to_string(),
         payload,
-        user_id: None,
+        user_id: Some(current_user_id(state).await?),
     };
     let resp = ds_post(state, &body).await?;
     let status = resp.status();
@@ -354,9 +360,10 @@ pub async fn ds_livekit_participants(
     state: &Arc<AppState>,
     room: &str,
 ) -> Result<Vec<(String, String)>> {
+    // No-auth fallback for the acting user — see `ds_livekit_token`.
     let body = pollis_api::broker::LivekitParticipantsBody {
         room: room.to_string(),
-        user_id: None,
+        user_id: Some(current_user_id(state).await?),
     };
     let resp = ds_post(state, &body).await?;
     let status = resp.status();

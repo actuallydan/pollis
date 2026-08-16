@@ -794,9 +794,11 @@ pub(crate) async fn presign_r2_with_length(
         // The DS signs only `host`; the client sets Content-Type at upload time.
         content_type: None,
         content_length,
-        // No-auth path only: the signer's identity is authoritative when auth is
-        // on, and presign has no per-object authz to fall back to.
-        user_id: None,
+        // No-auth fallback for the acting user (`broker::resolve_user`): auth on
+        // → taken from the verified signature and ignored here; auth off → this
+        // IS the identity and a body without it is a 400. Presign has no
+        // per-object authz, so this only ever satisfies the gate.
+        user_id: Some(crate::commands::mls::current_user_id(state).await?),
     };
     let resp = crate::commands::mls::ds_post(state, &body).await?;
     let status = resp.status();
