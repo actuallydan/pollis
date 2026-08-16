@@ -247,8 +247,14 @@ fn until_refresh(expires_at: i64) -> Duration {
     // Jittered (#875) for the same reason `park.rs` jitters its re-dial: this
     // sleep is derived from a signed artifact's expiry, which every device in
     // the fleet reads the same value of, so slept verbatim it wakes them all
-    // together. Applied after the floor, which ±12.5% cannot breach.
-    pollis_relay::backoff::jittered(clamped)
+    // together, forever.
+    //
+    // DOWNWARD only, and re-floored. Both bounds here are load-bearing, not
+    // sanity clamps: `REVOCATION_REFRESH` is the margin that keeps a forwarding
+    // device from running on stale revocation evidence, and `MIN_REFRESH` stops
+    // a pathological `expires_at` tight-looping the host. Shortening spreads the
+    // fleet without spending either.
+    pollis_relay::backoff::jittered_down(clamped).max(MIN_REFRESH)
 }
 
 #[cfg(test)]
@@ -290,12 +296,38 @@ mod tests {
     /// The sleep is derived from the artifact's own expiry, bounded on both
     /// sides — never zero (which would tight-loop) and never longer than the
     /// revocation list stays fresh (which would forward on stale evidence).
+    ///
+    /// #875 added downward jitter, so these are no longer single values; the
+    /// bounds are what matter and they are now checked over many draws rather
+    /// than once. The CEILING in particular is a safety margin, not a sanity
+    /// clamp, which is why the jitter only ever shortens.
     #[test]
     fn the_refresh_interval_is_bounded_on_both_sides() {
         let now = pollis_relay::proto::now_unix();
-        assert_eq!(until_refresh(now - 10_000), MIN_REFRESH);
-        assert_eq!(until_refresh(now + 10_000), REVOCATION_REFRESH);
-        // Just past the skew: still floored, never a tight loop.
-        assert!(until_refresh(now + DIRECTORY_REFRESH_SKEW.as_secs() as i64 + 1) >= MIN_REFRESH);
+        for _ in 0..200 {
+            // Expired artifact: floored, never a tight loop.
+            assert_eq!(until_refresh(now - 10_000), MIN_REFRESH);
+            // Long-lived artifact: capped by the revocation TTL, never above it.
+            let far = until_refresh(now + 10_000);
+            assert!(far <= REVOCATION_REFRESH, "{far:?} exceeded the revocation ceiling");
+            assert!(far >= MIN_REFRESH, "{far:?} fell through the floor");
+            // Just past the skew: still floored.
+            assert!(
+                until_refresh(now + DIRECTORY_REFRESH_SKEW.as_secs() as i64 + 1) >= MIN_REFRESH
+            );
+        }
+    }
+
+    /// The jitter has to actually spread the fleet, or it is only overhead:
+    /// every device reads the SAME `expires_at` off the same signed artifact, so
+    /// an un-jittered sleep wakes them all on one instant, permanently.
+    #[test]
+    fn the_refresh_interval_is_not_the_same_value_every_time() {
+        let now = pollis_relay::proto::now_unix();
+        let first = until_refresh(now + 10_000);
+        assert!(
+            (0..500).any(|_| until_refresh(now + 10_000) != first),
+            "the refresh interval is constant — the fleet would refresh in lockstep"
+        );
     }
 }

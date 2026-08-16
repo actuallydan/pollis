@@ -40,6 +40,29 @@ pub fn jittered(base: Duration) -> Duration {
     Duration::from_millis(millis)
 }
 
+/// Jitter that only ever shortens: uniformly in `[0.875 * base, base]`.
+///
+/// For a schedule whose CEILING is load-bearing rather than a sanity clamp —
+/// `net::peer::reachability` must refresh before the revocation list it forwards
+/// on goes stale, and fails closed if it oversleeps — symmetric jitter is not
+/// available: a draw above the ceiling eats into a safety margin that was
+/// calculated, not guessed. Shortening always is free in that direction, and
+/// spreads the fleet just as well.
+///
+/// Callers still clamp afterwards if they have a floor: at a pathological
+/// `base` near the floor there is no room to shorten, and a floor exists to stop
+/// a tight loop.
+pub fn jittered_down(base: Duration) -> Duration {
+    let mut byte = [0u8; 1];
+    if getrandom::getrandom(&mut byte).is_err() {
+        return base;
+    }
+    let millis = base.as_millis() as u64;
+    // byte/255 maps to [0, 1]; scale the eighth we are allowed to remove.
+    let cut = (millis / 8).saturating_mul(u64::from(byte[0])) / 255;
+    Duration::from_millis(millis.saturating_sub(cut).max(1))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,5 +102,29 @@ mod tests {
     fn a_tiny_base_never_becomes_zero() {
         assert!(jittered(Duration::from_millis(1)) >= Duration::from_millis(1));
         assert!(jittered(Duration::ZERO) >= Duration::from_millis(1));
+        assert!(jittered_down(Duration::from_millis(1)) >= Duration::from_millis(1));
+        assert!(jittered_down(Duration::ZERO) >= Duration::from_millis(1));
+    }
+
+    /// The property `jittered_down` exists for: it NEVER exceeds the base, so a
+    /// caller whose ceiling is a safety margin (refresh before the evidence you
+    /// forward on goes stale) can jitter without eating into it.
+    #[test]
+    fn downward_jitter_never_exceeds_the_base() {
+        let base = Duration::from_secs(60);
+        for _ in 0..500 {
+            let d = jittered_down(base);
+            assert!(d <= base, "{d:?} exceeded the ceiling {base:?}");
+            assert!(d >= Duration::from_millis(52_500), "{d:?} cut more than an eighth");
+        }
+    }
+
+    /// It must still actually spread — a constant would leave the fleet in
+    /// lockstep, which is the whole reason either of these exists.
+    #[test]
+    fn downward_jitter_still_varies() {
+        let base = Duration::from_secs(60);
+        let first = jittered_down(base);
+        assert!((0..500).any(|_| jittered_down(base) != first));
     }
 }

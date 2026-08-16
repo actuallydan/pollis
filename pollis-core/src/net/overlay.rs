@@ -767,7 +767,9 @@ fn until_refresh(expires_at: i64) -> Duration {
     let secs = (expires_at - now).saturating_sub(DIRECTORY_REFRESH_SKEW.as_secs() as i64);
     let clamped =
         Duration::from_secs(secs.max(0) as u64).clamp(DIRECTORY_MIN_REFRESH, DIRECTORY_MAX_REFRESH);
-    pollis_relay::backoff::jittered(clamped)
+    // Downward only, then re-floored: shortening can never overshoot the
+    // directory's own expiry, which is the thing the skew was reserved for.
+    pollis_relay::backoff::jittered_down(clamped).max(DIRECTORY_MIN_REFRESH)
 }
 
 /// Owns the directory refresh task and aborts it when the factory drops (overlay
