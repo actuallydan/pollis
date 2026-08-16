@@ -2,9 +2,35 @@
 
 Two databases. Remote schema starts from `000000_baseline.sql` (a full canonical dump) plus additive migrations (`000NNN_*.sql`). Local schema is in `local_schema.sql`.
 
+## Where the remote schema lives (#875)
+
+`pollis-schema/` — its own dependency-free crate, holding `migrations/` (main DB)
+and `migrations-log/` (commit-log DB) plus the Rust constants that embed them:
+`BASELINE_SQL`, `LOG_DB_SCHEMA`, `POST_BASELINE_MIGRATIONS`,
+`POST_BASELINE_LOG_MIGRATIONS`, and the ordered `main_scripts()` /
+`log_scripts()` / `single_db_scripts()`. `pollis-core::db` re-exports the four
+constants, so existing import paths are unchanged.
+
+It is a separate crate because `pollis-delivery` must not depend on
+`pollis-core` (see `.codesight/wiki/mls.md` — the DS is the sole writer to the
+MLS control plane and does not take the client core into its build). Before the
+split, that independence was paid for with ~22 hand-rolled `const SCHEMA` blocks
+across the DS's tests, which had drifted into eleven different `user_device`
+definitions and several `group_member` tables with no primary key — so those
+tests could create duplicate membership rows production rejects. DS tests now
+call `pollis_schema::apply::{main_db, log_db, single_db}` (the `libsql` feature,
+a dev-dependency) and run against exactly what ships. `pollis-device-cert` is
+the same pattern for the device-cert wire format.
+
+Adding a migration: drop the numbered file in `pollis-schema/migrations/` (or
+`migrations-log/`) **and** add it to the matching list in
+`pollis-schema/src/lib.rs`. `every_migration_file_is_listed` fails the build if
+you add the file and forget the list — which would otherwise mean prod applies
+the migration and no test harness does.
+
 ## How schema changes ship
 
-1. Write a new migration file: `pollis-core/src/db/migrations/000NNN_description.sql`. Version number must be the next integer.
+1. Write a new migration file: `pollis-schema/migrations/000NNN_description.sql`. Version number must be the next integer.
 2. Run it by hand against your dev Turso DB to test.
 3. Merge to main. When a release tag is pushed, `.github/workflows/desktop-release.yml` runs `scripts/db-apply.sh` against **production** after all builds succeed and before the release job uploads artifacts. A migration failure aborts the release.
 
@@ -35,14 +61,14 @@ If you genuinely need to remove something, the pattern is: (1) ship an app versi
 > **A note on migration numbers.** Numbers below the baseline (`000000_baseline.sql`)
 > refer to a **pre-baseline** series that no longer exists as files — the baseline
 > collapsed them. Where this doc says e.g. "migration 13" or "migration 18" it means
-> that historical series, not `pollis-core/src/db/migrations/`. Post-baseline
+> that historical series, not `pollis-schema/migrations/`. Post-baseline
 > migrations are cited with their full six-digit name. The commit-log DB has its own
 > independent series under `migrations-log/`, starting again at `000001`; do not
 > confuse the two. Main-DB `000007` is a permanent hole — never reuse it.
 
 ## Remote Database (Turso)
 
-Source: `pollis-core/src/db/migrations/000000_baseline.sql` + numbered migrations `000001`+.
+Source: `pollis-schema/migrations/000000_baseline.sql` + numbered migrations `000001`+.
 
 ### How the DS connects to it (#777)
 
@@ -485,7 +511,7 @@ branches:
 `mls_welcome`, `mls_commit_log`, and `mls_group_info` live on the **separate
 commit-log Turso DB** (`LOG_DB_URL`) post-#420, where the Delivery Service holds
 the only read-write token and clients hold a read-only token. Their migrations are
-numbered independently in `pollis-core/src/db/migrations-log/` and applied by the
+numbered independently in `pollis-schema/migrations-log/` and applied by the
 desktop-release workflow's second `db-apply` step (`MIGRATIONS_DIR=…/migrations-log`).
 
 ### mls_group_info _(migration 13)_

@@ -111,6 +111,10 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # them. Kept in its own tiny crate to avoid a cycle (pollis-relay must not depend
 # on pollis-core) — see the crate's module docs and §11.1.
 pollis-device-cert = { path = "../pollis-device-cert" }
+# The remote schema (migrations/ + migrations-log/) as data. Its own crate so
+# pollis-delivery — which must not depend on pollis-core — builds its test
+# databases from the same definitions rather than hand-rolled partial ones.
+pollis-schema = { path = "../pollis-schema" }
 # The libsql connector that routes Turso's Hrana/TLS through the overlay shim.
 # hyper 0.14 + hyper-rustls 0.25 are ALREADY in this crate's graph via libsql's
 # default (tls) features; naming them directly lets `net::overlay::overlay_connector`

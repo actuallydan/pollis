@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::error::Result;
 
 #[cfg(test)]
-const BASELINE: &str = include_str!("migrations/000000_baseline.sql");
+const BASELINE: &str = pollis_schema::BASELINE_SQL;
 
 #[derive(Clone)]
 enum Backend {

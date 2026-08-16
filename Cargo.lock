@@ -6696,6 +6696,7 @@ dependencies = [
  "pollis-capture-proto",
  "pollis-device-cert",
  "pollis-relay",
+ "pollis-schema",
  "quinn",
  "rand 0.8.6",
  "rand_core 0.6.4",
@@ -6737,6 +6738,7 @@ dependencies = [
  "libsql-hrana",
  "ml-dsa",
  "pollis-device-cert",
+ "pollis-schema",
  "rand 0.8.6",
  "rand_core 0.6.4",
  "reqwest 0.12.28",
@@ -6787,6 +6789,13 @@ dependencies = [
  "toml 0.8.2",
  "tracing",
  "verifiable-log",
+]
+
+[[package]]
+name = "pollis-schema"
+version = "1.1.0"
+dependencies = [
+ "libsql",
 ]
 
 [[package]]
