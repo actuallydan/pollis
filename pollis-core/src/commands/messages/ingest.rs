@@ -395,11 +395,25 @@ async fn ingest_group_envelopes_interleaved(
             let key = (generation, epoch);
             max_fired_epoch = Some(max_fired_epoch.map_or(key, |m| m.max(key)));
             if let Some(indices) = by_epoch.get(&key) {
+                // One group load for the whole epoch's run (#875). Every
+                // envelope in `indices` is sealed at the epoch the replay has
+                // just reached, so they all decrypt against the same key
+                // schedule — the reason a single `MlsDecryptor` is valid here
+                // and only here. It is dropped at the end of this hook, before
+                // the replay applies the commit that moves the group on.
+                let Some(mut decryptor) =
+                    crate::commands::mls::MlsDecryptor::open(conn, mls_group_id)
+                else {
+                    // No local group: nothing at this epoch is decryptable.
+                    // The envelopes stay put for a later pass, exactly as a
+                    // per-envelope decrypt failure would leave them.
+                    return;
+                };
                 for &(ci, ei) in indices {
                     if let Some(delivered_id) = decrypt_and_persist_one(
                         conn,
+                        &mut decryptor,
                         &per_conv[ci].0,
-                        mls_group_id,
                         &per_conv[ci].1[ei],
                         user_id,
                         is_dm,
@@ -554,8 +568,10 @@ async fn ingest_group_envelopes_interleaved(
 /// so a receipt can never trigger a receipt).
 fn decrypt_and_persist_one(
     conn: &rusqlite::Connection,
+    // The epoch's already-loaded group (#875). Taken rather than re-derived so
+    // a run of envelopes at one epoch costs one group load, not one per message.
+    decryptor: &mut crate::commands::mls::MlsDecryptor<'_>,
     conversation_id: &str,
-    mls_group_id: &str,
     env: &EnvelopeRow,
     user_id: &str,
     is_dm: bool,
@@ -589,9 +605,7 @@ fn decrypt_and_persist_one(
             // ciphertext, NOT the server-writable `message_envelope.sender_id`
             // tuple field (which may be a blinded sentinel under sealed sender).
             // See `docs/metadata-minimization-design.md` §2.
-            let Some((plain, cred_sender)) =
-                crate::commands::mls::try_mls_decrypt(conn, mls_group_id, &bytes)
-            else {
+            let Some((plain, cred_sender)) = decryptor.decrypt(&bytes) else {
                 // Decrypt failed — leave the envelope in message_envelope for a
                 // future retry; the watermark is computed to not skip past it.
                 return None;
@@ -700,7 +714,7 @@ fn decrypt_and_persist_one(
                 let Some((plain, cred_sender)) = ciphertext
                     .strip_prefix("mls:")
                     .and_then(|h| hex::decode(h).ok())
-                    .and_then(|b| crate::commands::mls::try_mls_decrypt(conn, mls_group_id, &b))
+                    .and_then(|b| decryptor.decrypt(&b))
                 else {
                     return None;
                 };
