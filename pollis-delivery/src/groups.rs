@@ -43,7 +43,6 @@ use axum::{
     response::{IntoResponse as _, Response},
 };
 use libsql::Connection;
-use serde::Deserialize;
 
 use crate::error::AppError;
 use crate::writes::{
@@ -51,6 +50,13 @@ use crate::writes::{
     WriteOutcome,
 };
 use crate::AppState;
+
+// The request bodies for this module's endpoints live in `pollis-api`, the
+// crate pollis-core builds its requests from — one declaration, both ends, so
+// a client field that does not exist here is a compile error rather than a
+// silently-absent JSON key. Re-exported so `pollis_delivery::groups::*Body`
+// keeps resolving for handlers, tests and the flows harness.
+pub use pollis_api::groups::*;
 
 // ── Shared authz helpers ─────────────────────────────────────────────────────
 
@@ -147,24 +153,6 @@ async fn add_member_rows(conn: &Connection, group_id: &str, user_id: &str) -> an
 
 // ── POST /v1/groups/create ───────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct CreateGroupBody {
-    pub id: String,
-    pub name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    /// The creator; bound to the authenticated user when signed.
-    #[serde(default)]
-    pub owner_id: Option<String>,
-    /// When present, also create a default `#General` text channel with this id.
-    #[serde(default)]
-    pub default_text_channel_id: Option<String>,
-    /// When present, also create a default `Voice Chat` voice channel with this id.
-    #[serde(default)]
-    pub default_voice_channel_id: Option<String>,
-    pub created_at: String,
-}
-
 pub async fn create_group(
     State(state): State<AppState>,
     method: Method,
@@ -241,19 +229,6 @@ pub async fn apply_create_group(
 
 // ── POST /v1/groups/update ───────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct UpdateGroupBody {
-    pub group_id: String,
-    #[serde(default)]
-    pub requester_id: Option<String>,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub icon_url: Option<String>,
-}
-
 pub async fn update_group(
     State(state): State<AppState>,
     method: Method,
@@ -312,13 +287,6 @@ pub async fn apply_update_group(
 
 // ── POST /v1/groups/delete ───────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct DeleteGroupBody {
-    pub group_id: String,
-    #[serde(default)]
-    pub requester_id: Option<String>,
-}
-
 pub async fn delete_group(
     State(state): State<AppState>,
     method: Method,
@@ -367,14 +335,6 @@ pub async fn apply_delete_group(
 }
 
 // ── POST /v1/groups/leave ────────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct LeaveGroupBody {
-    pub group_id: String,
-    /// The leaver; bound to the authenticated user when signed.
-    #[serde(default)]
-    pub user_id: Option<String>,
-}
 
 pub async fn leave_group(
     State(state): State<AppState>,
@@ -440,19 +400,6 @@ pub async fn apply_leave_group(
 
 // ── POST /v1/channels/create ─────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct CreateChannelBody {
-    pub id: String,
-    pub group_id: String,
-    pub name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    pub channel_type: String,
-    /// The creator; bound to the authenticated user when signed.
-    #[serde(default)]
-    pub creator_id: Option<String>,
-}
-
 pub async fn create_channel(
     State(state): State<AppState>,
     method: Method,
@@ -506,17 +453,6 @@ pub async fn apply_create_channel(
 }
 
 // ── POST /v1/channels/update ─────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct UpdateChannelBody {
-    pub channel_id: String,
-    #[serde(default)]
-    pub requester_id: Option<String>,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
-}
 
 pub async fn update_channel(
     State(state): State<AppState>,
@@ -572,13 +508,6 @@ pub async fn apply_update_channel(
 }
 
 // ── POST /v1/channels/delete ─────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct DeleteChannelBody {
-    pub channel_id: String,
-    #[serde(default)]
-    pub requester_id: Option<String>,
-}
 
 pub async fn delete_channel(
     State(state): State<AppState>,
@@ -639,16 +568,6 @@ pub async fn apply_delete_channel(
 
 // ── POST /v1/members/remove ──────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct RemoveMemberBody {
-    pub group_id: String,
-    /// The member being removed.
-    pub user_id: String,
-    /// The actor; bound to the authenticated user when signed.
-    #[serde(default)]
-    pub requester_id: Option<String>,
-}
-
 pub async fn remove_member(
     State(state): State<AppState>,
     method: Method,
@@ -694,17 +613,6 @@ pub async fn apply_remove_member(
 }
 
 // ── POST /v1/members/role ────────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct SetMemberRoleBody {
-    pub group_id: String,
-    /// The member whose role is being changed.
-    pub user_id: String,
-    pub role: String,
-    /// The actor; bound to the authenticated user when signed.
-    #[serde(default)]
-    pub requester_id: Option<String>,
-}
 
 pub async fn set_member_role(
     State(state): State<AppState>,
@@ -759,16 +667,6 @@ pub async fn apply_set_member_role(
 
 // ── POST /v1/invites/create ──────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct CreateInviteBody {
-    pub id: String,
-    pub group_id: String,
-    /// The inviter; bound to the authenticated user when signed.
-    #[serde(default)]
-    pub inviter_id: Option<String>,
-    pub invitee_id: String,
-}
-
 pub async fn create_invite(
     State(state): State<AppState>,
     method: Method,
@@ -816,14 +714,6 @@ pub async fn apply_create_invite(
 }
 
 // ── POST /v1/invites/accept ──────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct AcceptInviteBody {
-    pub invite_id: String,
-    /// The invitee; bound to the authenticated user when signed.
-    #[serde(default)]
-    pub user_id: Option<String>,
-}
 
 pub async fn accept_invite(
     State(state): State<AppState>,
@@ -884,14 +774,6 @@ pub async fn apply_accept_invite(
 
 // ── POST /v1/invites/decline ─────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct DeclineInviteBody {
-    pub invite_id: String,
-    /// The invitee; bound to the authenticated user when signed.
-    #[serde(default)]
-    pub user_id: Option<String>,
-}
-
 pub async fn decline_invite(
     State(state): State<AppState>,
     method: Method,
@@ -931,15 +813,6 @@ pub async fn apply_decline_invite(
 }
 
 // ── POST /v1/join-requests/create ────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct CreateJoinRequestBody {
-    pub id: String,
-    pub group_id: String,
-    /// The requester; bound to the authenticated user when signed.
-    #[serde(default)]
-    pub requester_id: Option<String>,
-}
 
 pub async fn create_join_request(
     State(state): State<AppState>,
@@ -986,15 +859,6 @@ pub async fn apply_create_join_request(
 }
 
 // ── POST /v1/join-requests/approve ───────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct ApproveJoinRequestBody {
-    pub request_id: String,
-    /// The approver; bound to the authenticated user when signed.
-    #[serde(default)]
-    pub approver_id: Option<String>,
-    pub reviewed_at: String,
-}
 
 pub async fn approve_join_request(
     State(state): State<AppState>,
@@ -1054,15 +918,6 @@ pub async fn apply_approve_join_request(
 }
 
 // ── POST /v1/join-requests/reject ────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct RejectJoinRequestBody {
-    pub request_id: String,
-    /// The approver; bound to the authenticated user when signed.
-    #[serde(default)]
-    pub approver_id: Option<String>,
-    pub reviewed_at: String,
-}
 
 pub async fn reject_join_request(
     State(state): State<AppState>,
@@ -1171,26 +1026,6 @@ const REDEEM_FAILURE_MAX: i64 = 10;
 
 // ── POST /v1/invite-links/create ─────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct CreateInviteLinkBody {
-    pub id: String,
-    pub group_id: String,
-    /// The creator; bound to the authenticated user when signed.
-    #[serde(default)]
-    pub created_by: Option<String>,
-    /// Public lookup handle. Generated client-side.
-    pub selector: String,
-    /// `sha256(secret)`, hex. The DS never receives the secret at create time —
-    /// the client mints the token and hashes it locally.
-    pub secret_hash: String,
-    /// RFC3339. `None` = never expires.
-    #[serde(default)]
-    pub expires_at: Option<String>,
-    /// `None` = unlimited.
-    #[serde(default)]
-    pub max_uses: Option<i64>,
-}
-
 pub async fn create_invite_link(
     State(state): State<AppState>,
     method: Method,
@@ -1258,15 +1093,6 @@ pub async fn apply_create_invite_link(
 
 // ── POST /v1/invite-links/revoke ─────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct RevokeInviteLinkBody {
-    pub link_id: String,
-    /// The revoker; bound to the authenticated user when signed.
-    #[serde(default)]
-    pub actor_id: Option<String>,
-    pub revoked_at: String,
-}
-
 pub async fn revoke_invite_link(
     State(state): State<AppState>,
     method: Method,
@@ -1329,19 +1155,6 @@ pub async fn apply_revoke_invite_link(
 }
 
 // ── POST /v1/invite-links/redeem ─────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct RedeemInviteLinkBody {
-    /// The full `<selector>.<secret>` token as presented by the user.
-    pub token: String,
-    /// The redeemer; bound to the authenticated user when signed.
-    #[serde(default)]
-    pub user_id: Option<String>,
-    /// Client-generated id for the audit row.
-    pub attempt_id: String,
-    /// RFC3339 "now", used for the expiry comparison and the audit stamp.
-    pub now: String,
-}
 
 /// The result of a redemption attempt.
 ///

@@ -26,12 +26,18 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use serde::Deserialize;
 
 use crate::error::{AppError, AuthRejection};
 use crate::otp::{normalize_email, process_request_otp, OtpConfig, OtpStore, VerifyOutcome};
 use crate::writes::{bad_request, gate};
 use crate::AppState;
+
+// The request bodies for this module's endpoints live in `pollis-api`, the
+// crate pollis-core builds its requests from — one declaration, both ends, so
+// a client field that does not exist here is a compile error rather than a
+// silently-absent JSON key. Re-exported so `pollis_delivery::email_change::*Body`
+// keeps resolving for handlers, tests and the flows harness.
+pub use pollis_api::email_change::*;
 
 /// The email-change machinery: a dedicated OTP store plus the requester binding.
 ///
@@ -99,11 +105,6 @@ fn internal(e: anyhow::Error) -> Response {
 
 // ── POST /v1/auth/request-email-change-otp ───────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct RequestEmailChangeBody {
-    pub new_email: String,
-}
-
 /// POST /v1/auth/request-email-change-otp — DEVICE-SIGNED. Record the
 /// authenticated requester for `new_email`, generate + store + email an OTP keyed
 /// by `new_email`. **Always 200** (anti-enumeration; mirrors `request-otp`) — the
@@ -143,12 +144,6 @@ pub async fn request_email_change_otp(
 }
 
 // ── POST /v1/auth/verify-email-change ────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct VerifyEmailChangeBody {
-    pub new_email: String,
-    pub code: String,
-}
 
 /// The outcome of [`apply_verify_email_change`] — the handler maps it to the wire
 /// response (the in-process harness maps it the same way).

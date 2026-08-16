@@ -23,7 +23,6 @@ use axum::{
 };
 use rand::rngs::OsRng;
 use rand::{Rng, RngCore};
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use ulid::Ulid;
 
@@ -31,6 +30,13 @@ use crate::redact::mask_email;
 use crate::session::SessionStore;
 use crate::writes::bad_request;
 use crate::AppState;
+
+// The request bodies for this module's endpoints live in `pollis-api`, the
+// crate pollis-core builds its requests from — one declaration, both ends, so
+// a client field that does not exist here is a compile error rather than a
+// silently-absent JSON key. Re-exported so `pollis_delivery::otp::*Body`
+// keeps resolving for handlers, tests and the flows harness.
+pub use pollis_api::otp::*;
 
 /// Tunables for the OTP + session machinery, read from DS env in
 /// [`OtpConfig::from_env`].
@@ -230,11 +236,6 @@ impl OtpStore {
 
 // ── POST /v1/auth/request-otp ────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct RequestOtpBody {
-    pub email: String,
-}
-
 /// POST /v1/auth/request-otp — generate + store a 6-digit OTP and email it via
 /// Resend. **Always 200** regardless of whether the email maps to an account
 /// (anti-enumeration). Honors `DEV_OTP` (skip send, force the code) so the
@@ -308,18 +309,6 @@ async fn send_otp_email(api_key: &str, email: &str, code: &str) -> anyhow::Resul
 }
 
 // ── POST /v1/auth/verify-otp ─────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct VerifyOtpBody {
-    pub email: String,
-    pub code: String,
-    pub device_id: String,
-    /// Informational only — verify-otp NEVER writes `account_id_pub` (identity is
-    /// established by the separate, CAS-guarded `establish-identity`). Accepted
-    /// for forward-compat with the client and deliberately ignored here.
-    #[serde(default)]
-    pub account_id_pub: Option<String>,
-}
 
 /// POST /v1/auth/verify-otp — constant-time, attempt-limited code check; then
 /// create-or-load the account and mint an OTP-session token. On success returns

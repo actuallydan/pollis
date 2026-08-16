@@ -68,6 +68,13 @@ use crate::error::{AppError, AuthRejection};
 use crate::writes::{bad_request, gate, is_member, ok_json, Authed};
 use crate::AppState;
 
+// The request bodies for this module's endpoints live in `pollis-api`, the
+// crate pollis-core builds its requests from — one declaration, both ends, so
+// a client field that does not exist here is a compile error rather than a
+// silently-absent JSON key. Re-exported so `pollis_delivery::broker::*Body`
+// keeps resolving for handlers, tests and the flows harness.
+pub use pollis_api::broker::*;
+
 // ── Config ───────────────────────────────────────────────────────────────────
 
 /// Secrets the broker needs, read from DS env in [`BrokerConfig::from_env`]. All
@@ -184,29 +191,6 @@ fn not_configured(what: &str) -> Response {
 }
 
 // ── 1. POST /v1/livekit/token ──────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct LivekitTokenBody {
-    /// The LiveKit room to mint a token for.
-    pub room: String,
-    /// Identity scheme (default `realtime`). The user + device halves are ALWAYS
-    /// taken from the verified signer — `kind` only picks the prefix/suffix so a
-    /// single endpoint serves every on-device scheme:
-    ///   - `realtime` → `{user}:{device}`        (data-only realtime/inbox)
-    ///   - `voice`    → `voice-{user}:{device}`   (voice participant)
-    ///   - `view`     → `{user}:{device}:view`    (screenshare receive; no data)
-    #[serde(default)]
-    pub kind: Option<String>,
-    /// No-auth path only: the user to mint for. IGNORED when auth is enforced
-    /// (the user comes from the verified signer there).
-    #[serde(default)]
-    pub user_id: Option<String>,
-    /// No-auth path only: the device id half of the identity. IGNORED when auth
-    /// is enforced (the device comes from the signature-verified `X-Pollis-Device`
-    /// header there — a client cannot claim another device's identity).
-    #[serde(default)]
-    pub device_id: Option<String>,
-}
 
 /// LiveKit JWT claims. This is the only minter left: the on-device
 /// `livekit_jwt::make_token` it was written to match was removed once #393
@@ -474,18 +458,6 @@ fn bad_gateway(what: impl std::fmt::Display) -> Response {
 // secret — requiring a signed device is strictly stronger. Per-room authz
 // (membership / inbox-target) is possible future hardening.
 
-#[derive(Deserialize)]
-pub struct LivekitSendDataBody {
-    /// The room to publish into (`inbox-<user>`, a group id, `call-<ulid>`, …).
-    pub room: String,
-    /// The JSON control payload — serialized + base64'd server-side into the
-    /// Twirp `data` field. The client never touches the admin token or wire form.
-    pub payload: serde_json::Value,
-    /// No-auth path only; ignored when auth is enforced.
-    #[serde(default)]
-    pub user_id: Option<String>,
-}
-
 /// POST /v1/livekit/send-data — fan out a control payload to a LiveKit room via
 /// server-side `RoomService/SendData`. A 404 (room currently has no
 /// participants) is success, mirroring the client's fire-and-forget semantics.
@@ -580,15 +552,6 @@ pub async fn room_send_data(
 }
 
 // ── POST /v1/livekit/participants ─────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct LivekitParticipantsBody {
-    /// The room whose voice roster to list (a group id).
-    pub room: String,
-    /// No-auth path only; ignored when auth is enforced.
-    #[serde(default)]
-    pub user_id: Option<String>,
-}
 
 /// POST /v1/livekit/participants — return the voice roster for `room` via
 /// server-side `RoomService/ListParticipants`. Same room authz as the token
@@ -765,35 +728,6 @@ pub async fn turso_token(
 }
 
 // ── 2. POST /v1/r2/presign ───────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct R2PresignBody {
-    /// `"get"` → presign a GET (download); `"put"` → presign a PUT (upload);
-    /// `"delete"` → presign a DELETE (attachment cleanup).
-    pub operation: String,
-    /// The R2 object key (within the bucket), e.g. `media/<hash>/<file>.enc`.
-    pub key: String,
-    /// Optional content type — accepted for forward-compat; the presigned URL
-    /// signs only `host`, so the client sets Content-Type at upload time.
-    #[serde(default)]
-    pub content_type: Option<String>,
-    /// The EXACT byte count the client will PUT. When present, `content-length`
-    /// is added to the signed headers, so R2 rejects a body of any other size —
-    /// the presign stops being "here is permission to write, of any size".
-    ///
-    /// REQUIRED for `put` on an `emoji/…` key (#848): those objects are
-    /// unencrypted, publicly fetchable, and bounded by
-    /// [`crate::emoji::EMOJI_MAX_BYTES`], and a size the server merely *believes*
-    /// is not a bound at all. Optional everywhere else, so every existing
-    /// media/avatar presign is byte-identical to before.
-    #[serde(default)]
-    pub content_length: Option<u64>,
-    /// No-auth path only — see [`resolve_user`]. Unused beyond the auth gate
-    /// (presign has no per-object authz), kept for shape-symmetry with the other
-    /// broker endpoint.
-    #[serde(default)]
-    pub user_id: Option<String>,
-}
 
 /// Default presigned-URL lifetime, in seconds.
 const PRESIGN_EXPIRES_SECS: u64 = 900;

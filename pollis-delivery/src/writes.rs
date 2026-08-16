@@ -23,11 +23,17 @@ use axum::{
     Json,
 };
 use libsql::Connection;
-use serde::Deserialize;
 
 use crate::auth;
 use crate::error::{AppError, AuthRejection};
 use crate::AppState;
+
+// The request bodies for this module's endpoints live in `pollis-api`, the
+// crate pollis-core builds its requests from — one declaration, both ends, so
+// a client field that does not exist here is a compile error rather than a
+// silently-absent JSON key. Re-exported so `pollis_delivery::writes::*Body`
+// keeps resolving for handlers, tests and the flows harness.
+pub use pollis_api::writes::*;
 
 // ── Shared auth gate ─────────────────────────────────────────────────────────
 
@@ -269,19 +275,6 @@ pub async fn is_member(
 
 // ── W4 — POST /v1/group-info ─────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct GroupInfoBody {
-    pub conversation_id: String,
-    /// The suite generation this GroupInfo belongs to (#454 P4). Absent (a
-    /// pre-hybrid client) → 0, the lineage such a client is in.
-    #[serde(default)]
-    pub generation: i64,
-    pub epoch: i64,
-    /// TLS-serialized MLS GroupInfo, base64 (STANDARD).
-    pub group_info: String,
-    pub updated_by_device_id: String,
-}
-
 /// POST /v1/group-info — republish GroupInfo for a conversation, epoch-monotone
 /// (an older epoch can never clobber a newer one). When auth is enforced, the
 /// authenticated user must be a current member of `conversation_id`.
@@ -391,15 +384,6 @@ pub async fn upsert_group_info(
 
 // ── W5 — POST /v1/welcomes/ack ───────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct AckBody {
-    pub welcome_ids: Vec<String>,
-    /// Recipient, used ONLY on the no-auth path; when auth is on it must equal
-    /// the authenticated user (or be absent).
-    #[serde(default)]
-    pub user_id: Option<String>,
-}
-
 /// POST /v1/welcomes/ack — mark the given Welcomes delivered, scoped to the
 /// authenticated recipient so a user can only ack their own Welcomes.
 pub async fn welcomes_ack(
@@ -462,17 +446,6 @@ pub async fn ack_welcomes(
 
 // ── W6/W7 — POST /v1/welcomes/reset ──────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct ResetBody {
-    /// `Some` → reset only this device's (and device-agnostic) Welcomes (W6);
-    /// `None` → reset all of the recipient's Welcomes (W7).
-    #[serde(default)]
-    pub device_id: Option<String>,
-    /// Recipient, used ONLY on the no-auth path (see [`resolve_recipient`]).
-    #[serde(default)]
-    pub user_id: Option<String>,
-}
-
 /// POST /v1/welcomes/reset — re-arm Welcomes for redelivery (set `delivered=0`),
 /// scoped to the authenticated recipient.
 pub async fn welcomes_reset(
@@ -523,13 +496,6 @@ pub async fn reset_welcomes(
 
 // ── W8 — POST /v1/welcomes/purge ─────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct PurgeBody {
-    /// Recipient, used ONLY on the no-auth path (see [`resolve_recipient`]).
-    #[serde(default)]
-    pub user_id: Option<String>,
-}
-
 /// POST /v1/welcomes/purge — delete all of the authenticated user's Welcomes
 /// (identity-reset cleanup). Recipient is derived from auth; the body carries an
 /// explicit `user_id` only on the no-auth path.
@@ -578,19 +544,6 @@ pub async fn purge_welcomes(log_conn: &Connection, recipient: &str) -> anyhow::R
 }
 
 // ── POST /v1/welcomes/resubmit (issue #430 P2) ───────────────────────────────
-
-#[derive(Deserialize)]
-pub struct ResubmitBody {
-    pub conversation_id: String,
-    /// The suite generation of the group this Welcome admits the recipient to
-    /// (#454 P4). Absent → 0, the lineage every pre-hybrid group is in.
-    #[serde(default)]
-    pub generation: i64,
-    pub recipient_id: String,
-    pub recipient_device_id: String,
-    /// TLS-serialized MLS Welcome, base64 (STANDARD).
-    pub welcome: String,
-}
 
 /// POST /v1/welcomes/resubmit — idempotently (re)insert a single Welcome for
 /// `(conversation_id, recipient_id, recipient_device_id)`, so a recipient whose

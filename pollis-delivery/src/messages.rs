@@ -72,7 +72,6 @@ use axum::{
     response::Response,
 };
 use libsql::Connection;
-use serde::Deserialize;
 use ulid::Ulid;
 
 use crate::error::AppError;
@@ -80,6 +79,13 @@ use crate::writes::{
     bad_request, gate, is_member, outcome_response, resolve_actor, WriteOutcome,
 };
 use crate::AppState;
+
+// The request bodies for this module's endpoints live in `pollis-api`, the
+// crate pollis-core builds its requests from — one declaration, both ends, so
+// a client field that does not exist here is a compile error rather than a
+// silently-absent JSON key. Re-exported so `pollis_delivery::messages::*Body`
+// keeps resolving for handlers, tests and the flows harness.
+pub use pollis_api::messages::*;
 
 // ── Envelope GC SQL ──────────────────────────────────────────────────────────
 //
@@ -494,29 +500,6 @@ fn sent_at_after(now: String, floor: Option<String>) -> String {
 
 // ── POST /v1/messages/send ───────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct SendMessageBody {
-    pub id: String,
-    pub conversation_id: String,
-    /// Unsealed: bound to the authenticated user when signed (the no-auth
-    /// fallback only). Sealed (issue #331): a non-identifying sentinel the client
-    /// chose (e.g. the string `"sealed"`) — persisted as-is, NOT bound to the
-    /// auth user (see `apply_send_message`).
-    #[serde(default)]
-    pub sender_id: Option<String>,
-    /// The `"mls:<hex>"` ciphertext string the client persists — plain text, not
-    /// binary, so no base64.
-    pub ciphertext: String,
-    #[serde(default)]
-    pub reply_to_id: Option<String>,
-    pub sent_at: String,
-    /// Sealed sender flag (issue #331, `docs/metadata-minimization-design.md`
-    /// §2). `1` → `sender_id` is a blinded sentinel; the true sender lives in the
-    /// MLS credential. Absent (old clients / unsealed sends) → `0`.
-    #[serde(default)]
-    pub sealed: i64,
-}
-
 pub async fn send_message(
     State(state): State<AppState>,
     method: Method,
@@ -600,17 +583,6 @@ pub async fn apply_send_message(
 
 // ── POST /v1/messages/edit ───────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct EditMessageBody {
-    pub envelope_id: String,
-    pub conversation_id: String,
-    pub target_message_id: String,
-    #[serde(default)]
-    pub sender_id: Option<String>,
-    pub ciphertext: String,
-    pub sent_at: String,
-}
-
 pub async fn edit_message(
     State(state): State<AppState>,
     method: Method,
@@ -680,23 +652,6 @@ pub async fn apply_edit_message(
 }
 
 // ── POST /v1/messages/delete ─────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct DeleteMessageBody {
-    pub message_id: String,
-    pub conversation_id: String,
-    /// The original author the client resolved (from its local cache). Selects
-    /// the self-vs-admin branch (Solution A, #607): the DS can no longer re-derive
-    /// authorship from the sealed envelope, so it trusts this hint for BRANCHING
-    /// only. It is never trusted for a permission grant — the admin branch
-    /// re-derives the admin role independently, and the self branch grants nothing
-    /// beyond envelope removal that membership doesn't already permit.
-    #[serde(default)]
-    pub msg_sender_id: Option<String>,
-    /// No-auth fallback for the acting user.
-    #[serde(default)]
-    pub actor_id: Option<String>,
-}
 
 pub async fn delete_message(
     State(state): State<AppState>,
@@ -828,15 +783,6 @@ pub async fn apply_delete_message(
 
 // ── POST /v1/reactions/add  &  /v1/reactions/remove ──────────────────────────
 
-#[derive(Deserialize)]
-pub struct ReactionBody {
-    pub message_id: String,
-    pub emoji: String,
-    /// No-auth fallback for the reacting user.
-    #[serde(default)]
-    pub user_id: Option<String>,
-}
-
 pub async fn add_reaction(
     State(state): State<AppState>,
     method: Method,
@@ -848,12 +794,12 @@ pub async fn add_reaction(
         Ok(a) => a,
         Err(resp) => return Ok(resp),
     };
-    let parsed: ReactionBody = match serde_json::from_slice(&body) {
+    let parsed: AddReaction = match serde_json::from_slice(&body) {
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
     let conn = state.db.conn()?;
-    outcome_response(apply_add_reaction(&conn, authed.as_deref(), &parsed).await?)
+    outcome_response(apply_add_reaction(&conn, authed.as_deref(), &parsed.0).await?)
 }
 
 pub async fn remove_reaction(
@@ -867,12 +813,12 @@ pub async fn remove_reaction(
         Ok(a) => a,
         Err(resp) => return Ok(resp),
     };
-    let parsed: ReactionBody = match serde_json::from_slice(&body) {
+    let parsed: RemoveReaction = match serde_json::from_slice(&body) {
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
     let conn = state.db.conn()?;
-    outcome_response(apply_remove_reaction(&conn, authed.as_deref(), &parsed).await?)
+    outcome_response(apply_remove_reaction(&conn, authed.as_deref(), &parsed.0).await?)
 }
 
 /// A reaction is membership-gated through the reacted-to message's envelope.
@@ -935,16 +881,6 @@ pub async fn apply_remove_reaction(
 
 // ── POST /v1/watermarks/advance ──────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct WatermarkBody {
-    pub conversation_id: String,
-    /// No-auth fallback; when signed it must equal the authenticated user.
-    #[serde(default)]
-    pub user_id: Option<String>,
-    pub device_id: String,
-    pub last_fetched_at: String,
-}
-
 pub async fn advance_watermark(
     State(state): State<AppState>,
     method: Method,
@@ -1006,16 +942,6 @@ pub async fn apply_advance_watermark(
 }
 
 // ── POST /v1/envelopes/gc ────────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct EnvelopeGcBody {
-    pub conversation_id: String,
-    /// `true` → DM cleanup query; `false` → group-channel cleanup query.
-    pub is_dm: bool,
-    /// No-auth fallback for the acting user.
-    #[serde(default)]
-    pub actor_id: Option<String>,
-}
 
 pub async fn envelope_gc(
     State(state): State<AppState>,
@@ -1287,31 +1213,6 @@ fn min_opt(a: Option<String>, b: Option<String>) -> Option<String> {
 }
 
 // ── POST /v1/attachments/register  &  /v1/attachments/delete ─────────────────
-
-#[derive(Deserialize)]
-pub struct AttachmentRegisterBody {
-    pub content_hash: String,
-    pub r2_key: String,
-    /// The id of the message that carries this attachment (#690). Present on the
-    /// send path — it registers a `(content_hash, message_id)` reference so the
-    /// shared, convergent `attachment_object` row is reference-counted. Absent on
-    /// the upload-time dedup registration (no message exists yet) and on
-    /// pre-#690 clients, which register the object row only.
-    #[serde(default)]
-    pub message_id: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct AttachmentDeleteBody {
-    pub content_hash: String,
-    /// The id of the message being deleted (#690). Present → release that
-    /// message's `(content_hash, message_id)` reference before the (now
-    /// conditional) object collection. Absent (pre-#690 client) → release
-    /// nothing; the object is still only collected when NO reference remains, so
-    /// an old client can no longer strand a hash a newer client references.
-    #[serde(default)]
-    pub message_id: Option<String>,
-}
 
 // ── The reference count is DERIVED, not maintained (#690) ─────────────────────
 //

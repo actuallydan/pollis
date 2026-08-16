@@ -27,6 +27,12 @@ ulid = "1"
 # publish-time re-verification checks the exact chain pollis-core mints — one
 # source of truth for the wire format, no drift, no crate cycle.
 pollis-device-cert = { path = "../pollis-device-cert" }
+# The write API as types, shared verbatim with pollis-core: every `*Body` this
+# crate parses is DECLARED there and CONSTRUCTED there, so the client cannot
+# omit, misspell or invent a field without failing to compile. Like
+# pollis-device-cert and pollis-schema it is a leaf crate (serde only), so
+# sharing it does not breach the DS-does-not-depend-on-pollis-core rule.
+pollis-api = { path = "../pollis-api" }
 # Request-signature auth (#668): verify the client's ML-DSA-44 signature over a
 # canonical message that binds sha256(body). The DS request credential is
 # `user_device.mls_signature_pub_pq`. Also the device-cert signature scheme.
@@ -72,3 +78,6 @@ libsql-hrana = "0.9"
 # the DS binary carries no schema, and the crate is dependency-free anyway, so
 # this does not breach the DS-does-not-depend-on-pollis-core rule.
 pollis-schema = { path = "../pollis-schema", features = ["libsql"] }
+# The endpoint table, so the route-coverage test walks the same list the client
+# posts to rather than a copy of it.
+pollis-api = { path = "../pollis-api" }

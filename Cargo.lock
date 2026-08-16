@@ -6610,6 +6610,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pollis-api"
+version = "1.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pollis-capture-linux"
 version = "1.1.0"
 dependencies = [
@@ -6693,6 +6701,7 @@ dependencies = [
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "openmls_traits",
+ "pollis-api",
  "pollis-capture-proto",
  "pollis-device-cert",
  "pollis-relay",
@@ -6737,6 +6746,7 @@ dependencies = [
  "libsql",
  "libsql-hrana",
  "ml-dsa",
+ "pollis-api",
  "pollis-device-cert",
  "pollis-schema",
  "rand 0.8.6",
