@@ -29,8 +29,9 @@ the **identity is derived from the verified signer, never from client input**:
 - **Auth on** (`require_auth = true`): the acting user is the verified signer.
   Any `user_id` in the request body is **ignored**. A client cannot mint a
   LiveKit token — or act — as another user.
-- **Auth off** (default, e.g. the integration harness): there is no signed
-  identity, so the body's `user_id` is used; missing/empty → `400`.
+- **Auth off** (explicit `POLLIS_DS_REQUIRE_AUTH` opt-out only, since #921 —
+  local development, never a deployment): there is no signed identity, so the
+  body's `user_id` is used; missing/empty → `400`.
 
 When a required secret is unset in the DS env, the endpoint still exists and
 answers, returning **`503`** (mirrors OTP with no Resend key) rather than

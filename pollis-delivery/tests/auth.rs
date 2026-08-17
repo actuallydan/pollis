@@ -443,12 +443,15 @@ async fn revoked_device_commit_since_report_is_rejected() {
     );
 }
 
-// ── Auth OFF (default) ────────────────────────────────────────────────────────
+// ── Auth OFF (explicit opt-out only, since #921) ──────────────────────────────
 
 #[tokio::test(flavor = "multi_thread")]
 async fn auth_off_accepts_unauthenticated_commit() {
     let db = fresh_db().await;
-    // require_auth = false: today's behavior. No headers, no device row.
+    // `require_auth = false` is now reachable ONLY by setting
+    // POLLIS_DS_REQUIRE_AUTH to an explicit off value (#921) — it is no longer
+    // what an unconfigured DS does. The mode still exists for local development,
+    // so it still gets a test. No headers, no device row.
     let router = build_router_with_state(AppState::new(Arc::clone(&db), false));
     let body = submit_body_json("conv1", 0, "alice");
     let req = Request::builder()
