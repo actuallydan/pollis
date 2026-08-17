@@ -266,7 +266,7 @@ pub async fn livekit_token(
         let inbox = format!("inbox-{user_id}");
         let is_call = parsed.room.starts_with("call-");
         if parsed.room != inbox && !is_call {
-            let conn = state.db.conn()?;
+            let conn = state.db.conn().await?;
             if !is_member(&conn, &parsed.room, &user_id).await? {
                 return Ok(AuthRejection::Forbidden.into_response());
             }
@@ -276,7 +276,7 @@ pub async fn livekit_token(
     // Display name = the user's username (LiveKit `name`), looked up server-side.
     // Falls back to the user_id when the row is absent (no-auth path / unknown).
     let display_name = {
-        let conn = state.db.conn()?;
+        let conn = state.db.conn().await?;
         lookup_username(&conn, &user_id).await?.unwrap_or_else(|| user_id.clone())
     };
 
@@ -592,7 +592,7 @@ pub async fn livekit_participants(
     if authed.is_some() {
         let inbox = format!("inbox-{user_id}");
         if parsed.room != inbox {
-            let conn = state.db.conn()?;
+            let conn = state.db.conn().await?;
             if !is_member(&conn, &parsed.room, &user_id).await? {
                 return Ok(AuthRejection::Forbidden.into_response());
             }
@@ -800,7 +800,7 @@ pub async fn r2_presign(
     // reference to consult and passes through.
     if http_method == "DELETE" {
         if let Some(content_hash) = content_hash_from_key(&parsed.key) {
-            let conn = state.db.conn()?;
+            let conn = state.db.conn().await?;
             if crate::messages::object_is_referenced(&conn, content_hash).await? {
                 return Ok(AuthRejection::Forbidden.into_response());
             }
@@ -824,7 +824,7 @@ pub async fn r2_presign(
     // re-hashes after decrypting so a substitution is caught however it got in.
     if http_method == "PUT" {
         if let Some(content_hash) = content_hash_from_key(&parsed.key) {
-            let conn = state.db.conn()?;
+            let conn = state.db.conn().await?;
             if crate::messages::object_is_referenced(&conn, content_hash).await? {
                 return Ok(AuthRejection::Forbidden.into_response());
             }
@@ -843,7 +843,7 @@ pub async fn r2_presign(
     // would replace an image every member of every referencing group renders.
     if let Some(content_hash) = crate::emoji::content_hash_from_emoji_key(&parsed.key) {
         if http_method == "PUT" || http_method == "DELETE" {
-            let conn = state.db.conn()?;
+            let conn = state.db.conn().await?;
             if crate::emoji::object_is_referenced(&conn, content_hash).await? {
                 return Ok(AuthRejection::Forbidden.into_response());
             }

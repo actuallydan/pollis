@@ -125,10 +125,63 @@ impl Drop for ConnGuard {
     }
 }
 
+/// Per-connection PRAGMAs a [`Db`] stamps on EVERY connection it builds (#919).
+///
+/// A PRAGMA is one of two things: a property of the *file* (`journal_mode`) or a
+/// property of the *connection* (`busy_timeout`, `foreign_keys`, `query_only`).
+/// Setting a per-connection one on a single primed connection is not "setting it
+/// on the database" — every other connection the pool ever builds gets libsql's
+/// default instead. That is precisely the bug this type exists to make
+/// unrepresentable: the set is chosen once, at construction, and [`Db::conn`]
+/// applies it to every connection it creates, so no checkout can differ from any
+/// other.
+///
+/// The defect it replaces: `connect_local` primed the FIRST connection and parked
+/// it. Any *nested* checkout (a handler holding a `log_db` connection while taking
+/// a `db` one — the pool is deliberately never a capacity limit) found the pool
+/// empty and built a fresh connection with libsql's defaults, so `foreign_keys`
+/// read `0` on connection A and `1` on connection B of the same `Db`. Fixtures
+/// then passed or failed on how deeply the call under test nested its checkouts.
+///
+/// Each entry is issued with `query`, not `execute`: several PRAGMAs return the
+/// resulting value as a row, which `execute` rejects. This mirrors
+/// `pollis_core::db::remote::RemoteDb::conn`, which has always re-stamped its
+/// per-connection PRAGMAs on every checkout.
+type PerConnPragmas = &'static [&'static str];
+
+/// Production (remote Turso). PRAGMAs are the server's business, and each entry
+/// here would cost a network round trip per new connection.
+const REMOTE_PRAGMAS: PerConnPragmas = &[];
+
+/// A local file opened by this crate — `pollis-delivery`'s own test DBs.
+///
+/// `busy_timeout` so concurrent submitters serialize without surfacing "database
+/// is locked" (the conditional INSERT still guarantees exactly one winner per
+/// epoch), and `foreign_keys=OFF` so a test fixture may insert rows in whatever
+/// order it likes. `journal_mode=WAL` is NOT here — it is a property of the file,
+/// set once in [`Db::connect_local`].
+const LOCAL_PRAGMAS: PerConnPragmas = &["PRAGMA busy_timeout=5000", "PRAGMA foreign_keys=OFF"];
+
+/// A local file whose handle we were *given* — the `flows` harness (see
+/// [`Db::from_shared`]).
+///
+/// `busy_timeout` matches the one `RemoteDb::conn` puts on the client-side
+/// connections to the same file, so neither side of that suite can fail with
+/// "database is locked" while the other holds the write lock.
+///
+/// `foreign_keys` is deliberately ABSENT, i.e. left at libsql's ON. `flows` is the
+/// suite that exists to mirror production, and production is remote Turso with
+/// referential integrity enforced server-side; loosening it here would make the
+/// integration suite accept rows the real deployment rejects. The unit-test
+/// fixtures above are the only place that wants it off.
+const SHARED_LOCAL_PRAGMAS: PerConnPragmas = &["PRAGMA busy_timeout=10000"];
+
 pub struct Db {
     db: Arc<Database>,
     pool: Arc<Pool>,
     max_idle: Duration,
+    /// Stamped on every connection this `Db` builds — see [`PerConnPragmas`].
+    pragmas: PerConnPragmas,
 }
 
 impl Db {
@@ -137,28 +190,18 @@ impl Db {
         let db = Builder::new_remote(url.to_string(), token.to_string())
             .build()
             .await?;
-        Ok(Self::new(db))
+        Ok(Self::wrap(Arc::new(db), REMOTE_PRAGMAS))
     }
 
     /// Connect to a local libsql file. Tests only — avoids the network and lets
     /// a test drive concurrent submitters against a single file.
     pub async fn connect_local(path: &str) -> Result<Self> {
         let db = Builder::new_local(path).build().await?;
-        let me = Self::new(db);
-        // WAL + a busy timeout so concurrent submitters serialize without
-        // surfacing "database is locked" — the conditional INSERT still
-        // guarantees exactly one winner per epoch. `journal_mode` is a property
-        // of the file; the other two are per-connection.
-        let conn = me.conn()?;
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=OFF;",
-        )
-        .await?;
+        let me = Self::wrap(Arc::new(db), LOCAL_PRAGMAS);
+        // `journal_mode` is a property of the FILE, so unlike [`LOCAL_PRAGMAS`]
+        // it is set once here rather than per connection.
+        me.conn().await?.execute_batch("PRAGMA journal_mode=WAL;").await?;
         Ok(me)
-    }
-
-    fn new(db: Database) -> Self {
-        Self::from_shared(Arc::new(db))
     }
 
     /// Wrap an ALREADY-OPEN libsql `Database` instead of opening one.
@@ -168,11 +211,20 @@ impl Db {
     /// `Database` handles on one local file do not share WAL writes promptly, so
     /// the DS must be given the client's handle rather than a second one. The
     /// pool below is per-`Db` and stays exclusive either way.
+    ///
+    /// Being handed the handle does NOT mean inheriting the giver's connection
+    /// state: this `Db` still builds its own connections out of it, so it needs
+    /// its own per-connection PRAGMAs — see [`SHARED_LOCAL_PRAGMAS`].
     pub fn from_shared(db: Arc<Database>) -> Self {
+        Self::wrap(db, SHARED_LOCAL_PRAGMAS)
+    }
+
+    fn wrap(db: Arc<Database>, pragmas: PerConnPragmas) -> Self {
         Self {
             db,
             pool: Arc::new(Pool::default()),
             max_idle: DEFAULT_MAX_IDLE,
+            pragmas,
         }
     }
 
@@ -186,10 +238,25 @@ impl Db {
 
     /// Check out a connection: a warm one from the pool, or a new one. The
     /// caller holds it exclusively until the guard drops.
-    pub fn conn(&self) -> Result<ConnGuard> {
+    ///
+    /// A *new* connection is stamped with this `Db`'s [`PerConnPragmas`] before
+    /// it is handed out; a parked one already carries them, because it can only
+    /// have come from here. So every checkout of a given `Db` sees the same
+    /// per-connection state no matter how deeply checkouts nest (#919).
+    ///
+    /// `async` for exactly that reason — issuing a PRAGMA is a query. It still
+    /// never blocks on the pool: an empty pool builds a connection rather than
+    /// waiting, which is what lets handlers nest checkouts.
+    pub async fn conn(&self) -> Result<ConnGuard> {
         let conn = match self.pool.take(self.max_idle) {
             Some(conn) => conn,
-            None => self.db.connect()?,
+            None => {
+                let conn = self.db.connect()?;
+                for pragma in self.pragmas {
+                    conn.query(pragma, ()).await?;
+                }
+                conn
+            }
         };
         Ok(ConnGuard {
             conn: Some(conn),

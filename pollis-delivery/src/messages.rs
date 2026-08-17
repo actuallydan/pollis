@@ -515,7 +515,7 @@ pub async fn send_message(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_send_message(&conn, authed.as_deref(), &parsed).await?)
 }
 
@@ -598,7 +598,7 @@ pub async fn edit_message(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_edit_message(&conn, authed.as_deref(), &parsed).await?)
 }
 
@@ -668,7 +668,7 @@ pub async fn delete_message(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_delete_message(&conn, authed.as_deref(), &parsed).await?)
 }
 
@@ -798,7 +798,7 @@ pub async fn add_reaction(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_add_reaction(&conn, authed.as_deref(), &parsed.0).await?)
 }
 
@@ -817,7 +817,7 @@ pub async fn remove_reaction(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_remove_reaction(&conn, authed.as_deref(), &parsed.0).await?)
 }
 
@@ -896,7 +896,7 @@ pub async fn advance_watermark(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_advance_watermark(&conn, authed.as_deref(), &parsed).await?)
 }
 
@@ -958,7 +958,7 @@ pub async fn envelope_gc(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     let stale = watermark_stale_modifier();
     outcome_response(apply_envelope_gc(&conn, authed.as_deref(), &parsed, &stale).await?)
 }
@@ -1294,7 +1294,7 @@ pub async fn register_attachment(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_register_attachment(&conn, authed.as_deref(), &parsed).await?)
 }
 
@@ -1313,7 +1313,7 @@ pub async fn delete_attachment(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_delete_attachment(&conn, authed.as_deref(), &parsed).await?)
 }
 

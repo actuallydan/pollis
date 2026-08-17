@@ -97,7 +97,7 @@ pub async fn update_profile(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_update_profile(&conn, authed.as_deref(), &parsed).await?)
 }
 
@@ -148,7 +148,7 @@ pub async fn save_preferences(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_save_preferences(&conn, authed.as_deref(), &parsed).await?)
 }
 
@@ -191,7 +191,7 @@ pub async fn block_user(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_block_user(&conn, authed.as_deref(), &parsed.0).await?)
 }
 
@@ -248,7 +248,7 @@ pub async fn unblock_user(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_unblock_user(&conn, authed.as_deref(), &parsed.0).await?)
 }
 
@@ -288,7 +288,7 @@ pub async fn create_dm(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_create_dm(&conn, authed.as_deref(), &parsed).await?)
 }
 
@@ -404,7 +404,7 @@ pub async fn accept_dm(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_accept_dm(&conn, authed.as_deref(), &parsed).await?)
 }
 
@@ -471,7 +471,7 @@ pub async fn add_dm_member(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_add_dm_member(&conn, authed.as_deref(), &parsed).await?)
 }
 
@@ -540,7 +540,7 @@ pub async fn remove_dm_member(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_remove_dm_member(&conn, authed.as_deref(), &parsed).await?)
 }
 
@@ -603,7 +603,7 @@ pub async fn leave_dm(
         Ok(b) => b,
         Err(_) => return Ok(bad_request("invalid body")),
     };
-    let conn = state.db.conn()?;
+    let conn = state.db.conn().await?;
     outcome_response(apply_leave_dm(&conn, authed.as_deref(), &parsed).await?)
 }
 

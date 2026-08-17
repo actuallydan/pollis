@@ -94,7 +94,7 @@ pub async fn establish_identity(
         return bad_request("account_id_pub must be an ML-DSA-44 verifying key");
     }
 
-    let conn = match state.db.conn() {
+    let conn = match state.db.conn().await {
         Ok(c) => c,
         Err(e) => return internal(e),
     };
@@ -189,7 +189,7 @@ pub async fn register_device(
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "device".to_string());
 
-    let conn = match state.db.conn() {
+    let conn = match state.db.conn().await {
         Ok(c) => c,
         Err(e) => return internal(e),
     };
@@ -336,7 +336,7 @@ pub async fn publish_device_cert(
         }
     };
 
-    let conn = match state.db.conn() {
+    let conn = match state.db.conn().await {
         Ok(c) => c,
         Err(e) => return internal(e),
     };
@@ -487,7 +487,7 @@ pub async fn enrollment_request(
         Err(_) => return bad_request("invalid new_device_ephemeral_pub"),
     };
 
-    let conn = match state.db.conn() {
+    let conn = match state.db.conn().await {
         Ok(c) => c,
         Err(e) => return internal(e),
     };

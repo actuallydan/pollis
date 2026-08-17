@@ -326,7 +326,7 @@ pub async fn verify_otp(State(state): State<AppState>, body: axum::body::Bytes) 
         return bad_request("email and device_id required");
     }
 
-    let conn = match state.db.conn() {
+    let conn = match state.db.conn().await {
         Ok(c) => c,
         Err(e) => return internal(e),
     };
@@ -522,7 +522,7 @@ mod tests {
         let path = dir.path().join("otp-test.db");
         std::mem::forget(dir);
         let db = Db::connect_local(path.to_str().unwrap()).await.expect("local db");
-        let conn = db.conn().unwrap();
+        let conn = db.conn().await.unwrap();
         if with_users {
             // Production is Turso, where foreign-key enforcement is off; libsql's LOCAL
         // backend turns it ON by default, so say so explicitly rather than

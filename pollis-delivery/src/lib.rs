@@ -547,7 +547,7 @@ async fn submit(
     // Verify the signature over the *raw* body before parsing. The path is
     // taken from the matched URI (no query on this route).
     let authed_user = if state.require_auth {
-        let conn = state.db.conn()?;
+        let conn = state.db.conn().await?;
         match auth::verify_request_cached(
             &state.device_keys,
             &conn,
@@ -588,7 +588,7 @@ async fn submit(
         // — the committer must already be in the group (a commit that adds a new
         // member is authored by an existing one). Mirrors `/v1/group-info`'s
         // membership gate; skipped on the no-auth path.
-        let conn = state.db.conn()?;
+        let conn = state.db.conn().await?;
         if !writes::is_member(&conn, &parsed.conversation_id, user_id).await? {
             return Ok(AuthRejection::Forbidden.into_response());
         }
@@ -596,7 +596,7 @@ async fn submit(
 
     // The MLS control-plane tables live on the commit-log DB (== main DB when no
     // separate log DB is configured).
-    let conn = state.log_db.conn()?;
+    let conn = state.log_db.conn().await?;
     let outcome = commit::submit_commit(&conn, &parsed).await?;
 
     // Retention floor (#539, I4): a landed commit advanced the head, so run an
@@ -604,7 +604,7 @@ async fn submit(
     // never fail an accepted commit. Membership is read on the MAIN DB, the log is
     // pruned on the LOG DB.
     if matches!(outcome, SubmitResponse::Accepted { .. }) {
-        if let Ok(main_conn) = state.db.conn() {
+        if let Ok(main_conn) = state.db.conn().await {
             if let Err(e) = commit::prune_commit_log(&main_conn, &conn, &parsed.conversation_id).await
             {
                 tracing::warn!(error = %e, conversation_id = %parsed.conversation_id, "commit-log prune (on submit) failed");
@@ -648,7 +648,7 @@ async fn commits(
     Path(conversation_id): Path<String>,
     Query(q): Query<Since>,
 ) -> Result<impl IntoResponse, AppError> {
-    let conn = state.log_db.conn()?;
+    let conn = state.log_db.conn().await?;
 
     // `head` is the head of the lineage the caller ASKED for — that is what it
     // must drain — while `head_generation` is how it learns a newer one exists.
@@ -691,7 +691,7 @@ async fn report_commit_since(
     // DB. `(user_id, device_id)` come from the verified signature — never from
     // the body — when auth is on.
     let authed = if state.require_auth {
-        let conn = state.db.conn()?;
+        let conn = state.db.conn().await?;
         match auth::verify_request_identity_cached(
             &state.device_keys,
             &conn,
@@ -743,7 +743,7 @@ async fn report_commit_since(
     // Record the high-water, then re-compute + apply the floor. Best-effort: a
     // failure here must not fail the request. Membership is read on MAIN, the
     // log + high-waters on LOG.
-    let conn = state.log_db.conn()?;
+    let conn = state.log_db.conn().await?;
     if let Err(e) = commit::record_commit_since(
         &conn,
         &parsed.conversation_id,
@@ -755,7 +755,7 @@ async fn report_commit_since(
     .await
     {
         tracing::warn!(error = %e, conversation_id = %parsed.conversation_id, "record commit-since failed");
-    } else if let Ok(main_conn) = state.db.conn() {
+    } else if let Ok(main_conn) = state.db.conn().await {
         if let Err(e) = commit::prune_commit_log(&main_conn, &conn, &parsed.conversation_id).await {
             tracing::warn!(error = %e, conversation_id = %parsed.conversation_id, "commit-log prune (on catch-up) failed");
         }
