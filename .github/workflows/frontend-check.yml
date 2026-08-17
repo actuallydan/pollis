@@ -28,9 +28,12 @@ jobs:
 
       # cache: "pnpm" caches the pnpm content-addressable store keyed on
       # pnpm-lock.yaml, so warm runs skip nearly all downloads.
+      # 22, not 20: the unit-test step below runs TypeScript directly on the
+      # built-in runner, and native type stripping is a 22.18+ feature. On 20
+      # `node --test` cannot parse a `.ts` file at all.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "pnpm"
 
       # --filter ./frontend... installs only the frontend package (+ workspace
