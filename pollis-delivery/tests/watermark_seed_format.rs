@@ -28,9 +28,21 @@ use libsql::Connection;
 use pollis_delivery::db::Db;
 
 /// A day is the resolution at which the defect bites: the space-vs-`T`
-/// comparison only decides anything once the `YYYY-MM-DD` prefix matches. An
-/// envelope from a previous day sorts below the seed either way.
-const AN_HOUR_AGO: chrono::Duration = chrono::Duration::hours(1);
+/// comparison only decides anything once the `YYYY-MM-DD` prefix matches, so an
+/// envelope from a *previous* day sorts below the seed either way and proves
+/// nothing.
+///
+/// Hence the **start of the current UTC day** rather than a relative offset like
+/// "an hour ago": an offset straddles midnight, and a test that silently stops
+/// exercising the defect for one hour in every twenty-four is worse than no test.
+/// This instant is always earlier than now and always shares now's `YYYY-MM-DD`.
+fn earlier_today() -> chrono::DateTime<chrono::Utc> {
+    chrono::Utc::now()
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .expect("midnight exists")
+        .and_utc()
+}
 
 fn rfc3339(at: chrono::DateTime<chrono::Utc>) -> String {
     at.to_rfc3339_opts(chrono::SecondsFormat::Nanos, false)
@@ -49,8 +61,8 @@ async fn fresh_db() -> Arc<Db> {
     Arc::new(db)
 }
 
-/// One user, one group, one channel, and one envelope sent `AN_HOUR_AGO` — i.e.
-/// earlier on the same UTC day the device is about to register.
+/// One user, one group, one channel, and one envelope sent at the start of the
+/// current UTC day — earlier than, and on the same day as, the registration below.
 async fn seed_channel_with_an_envelope_from_earlier_today(conn: &Connection) -> String {
     conn.execute(
         "INSERT INTO users (id, email, username) VALUES ('alice', 'a@example.com', 'alice')",
@@ -77,7 +89,7 @@ async fn seed_channel_with_an_envelope_from_earlier_today(conn: &Connection) -> 
     .await
     .expect("membership");
 
-    let sent_at = rfc3339(chrono::Utc::now() - AN_HOUR_AGO);
+    let sent_at = rfc3339(earlier_today());
     conn.execute(
         "INSERT INTO message_envelope (id, conversation_id, sender_id, ciphertext, sent_at) \
          VALUES ('m-old', 'c1', 'alice', 'ct', ?1)",

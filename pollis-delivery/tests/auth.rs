@@ -51,9 +51,12 @@ async fn fresh_db() -> Arc<Db> {
 }
 
 /// Make sure `user_id` exists. `user_device.user_id` and `group_member.user_id`
-/// are real foreign keys in the shipped schema, and libsql's local backend
-/// enforces them on any connection that has not been told otherwise — so a
-/// fixture that invents a user id is only valid because nothing was looking.
+/// are real foreign keys in the shipped schema but are inert on every deployment
+/// (remote Turso does not enable foreign-key enforcement, and `Db` matches that
+/// on every connection — see `db::LOCAL_PRAGMAS`), so nothing would reject a
+/// fixture that invents a user id. Seeding the row anyway keeps the fixture
+/// honest about what it is modelling rather than leaning on an unenforced
+/// constraint.
 async fn seed_user(db: &Db, user_id: &str) {
     let conn = db.conn().await.unwrap();
     conn.execute(

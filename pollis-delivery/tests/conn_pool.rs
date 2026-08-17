@@ -473,9 +473,13 @@ async fn a_nested_checkout_gets_the_same_pragmas_as_the_first() {
     }
 }
 
-/// …and it is not cosmetic: with FKs left ON, a fixture insert that names a
-/// parent row it has not created yet fails on the nested connection and succeeds
-/// on the primed one. Same statement, same `Db`, opposite outcomes.
+/// …and it is not cosmetic. `foreign_keys=OFF` is **production parity** — remote
+/// Turso does not enforce foreign keys, so the schema's `REFERENCES` clauses are
+/// inert on every deployment — and libsql's local backend turns them ON. With the
+/// pragma reaching only the primed connection, the same insert that production
+/// accepts succeeded on connection A and was rejected on connection B of one
+/// `Db`: a test could pass or fail on a constraint no deploy has, depending only
+/// on checkout nesting.
 #[tokio::test]
 async fn a_nested_checkout_enforces_the_same_constraints_as_the_first() {
     let (_dir, db) = local_db().await;
@@ -487,7 +491,8 @@ async fn a_nested_checkout_enforces_the_same_constraints_as_the_first() {
     let b = db.conn().await.expect("checkout b");
 
     // `device_enrollment_request.user_id` REFERENCES users(id), and no such user
-    // exists — the out-of-order fixture insert `foreign_keys=OFF` exists to allow.
+    // exists. Production accepts this row (Turso does not enforce the reference);
+    // a connection that missed the pragma does not.
     for (name, conn) in [("a", &a), ("b", &b)] {
         conn.execute(
             "INSERT INTO device_enrollment_request \

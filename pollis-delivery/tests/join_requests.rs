@@ -39,11 +39,12 @@ async fn fresh() -> Arc<Db> {
     let db = Db::connect_local(path.to_str().unwrap())
         .await
         .expect("local db");
+    // No `PRAGMA foreign_keys=OFF` here: since #919 `Db` stamps it on EVERY
+    // connection it builds, so this fixture cannot get a stricter connection than
+    // production has however deeply the code under test nests its checkouts. It
+    // used to be set by hand right here, on this one connection, which was only
+    // ever half a fix.
     let conn = db.conn().await.unwrap();
-    // Production is Turso, where foreign-key enforcement is off; libsql's LOCAL
-    // backend turns it ON by default. Match production explicitly — with FKs on,
-    // the unknown-group test would pass for the wrong reason.
-    conn.execute_batch("PRAGMA foreign_keys=OFF;").await.expect("pragma");
     pollis_schema::apply::single_db(&conn).await.expect("schema");
     conn.execute_batch(
         "INSERT INTO users (id, email, username) VALUES \

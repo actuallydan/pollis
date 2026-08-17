@@ -38,9 +38,10 @@ pub fn now_unix() -> u64 {
 ///
 /// The values are per-upstream because the calls are not alike: two of them sit
 /// in front of a user waiting on a response, one is a fire-and-forget nudge, and
-/// they talk to services with different latency profiles. All are generous
-/// multiples of the observed p99 — the deadline exists to bound a *hang*, not to
-/// second-guess a slow-but-working upstream.
+/// they talk to services with different latency profiles. Each is set well above
+/// anything the upstream should ever need, because the deadline exists to bound a
+/// *hang*, not to second-guess a slow-but-working upstream — if one of these ever
+/// fires against a healthy service, raise it rather than retrying into it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Upstream {
     /// LiveKit's Twirp `RoomService` (`SendData`, `ListParticipants`) — our own

@@ -157,23 +157,46 @@ const REMOTE_PRAGMAS: PerConnPragmas = &[];
 ///
 /// `busy_timeout` so concurrent submitters serialize without surfacing "database
 /// is locked" (the conditional INSERT still guarantees exactly one winner per
-/// epoch), and `foreign_keys=OFF` so a test fixture may insert rows in whatever
-/// order it likes. `journal_mode=WAL` is NOT here — it is a property of the file,
-/// set once in [`Db::connect_local`].
+/// epoch).
+///
+/// **`foreign_keys=OFF` is production parity, not a fixture convenience.** Remote
+/// Turso does not enable foreign-key enforcement, so the baseline schema's
+/// `REFERENCES` and `ON DELETE CASCADE` clauses are inert on every deployment —
+/// which is why, for example, `group_join_request.group_id REFERENCES groups(id)`
+/// cannot be relied on and the existence check is explicit
+/// (`tests/join_requests.rs`), and why migration `000016` keeps the conversation
+/// registry append-only rather than trusting a cascade. libsql's LOCAL backend
+/// turns FKs ON by default, so a local DB that says nothing is *stricter* than
+/// any real deploy and would let a test pass for a reason production does not
+/// have.
+///
+/// `journal_mode=WAL` is NOT here — it is a property of the file, set once in
+/// [`Db::connect_local`].
 const LOCAL_PRAGMAS: PerConnPragmas = &["PRAGMA busy_timeout=5000", "PRAGMA foreign_keys=OFF"];
 
 /// A local file whose handle we were *given* — the `flows` harness (see
 /// [`Db::from_shared`]).
 ///
-/// `busy_timeout` matches the one `RemoteDb::conn` puts on the client-side
-/// connections to the same file, so neither side of that suite can fail with
-/// "database is locked" while the other holds the write lock.
+/// `busy_timeout` matches what `RemoteDb::conn` puts on the *client* connections
+/// to this same file, so neither side of that suite fails with "database is
+/// locked" while the other holds the write lock. Previously `from_shared` set
+/// nothing at all, so the DS half of the harness ran at libsql's default of 0.
 ///
-/// `foreign_keys` is deliberately ABSENT, i.e. left at libsql's ON. `flows` is the
-/// suite that exists to mirror production, and production is remote Turso with
-/// referential integrity enforced server-side; loosening it here would make the
-/// integration suite accept rows the real deployment rejects. The unit-test
-/// fixtures above are the only place that wants it off.
+/// **`foreign_keys` is knowingly left ON here, and that diverges from
+/// production.** By the reasoning in [`LOCAL_PRAGMAS`] it ought to be OFF: `flows`
+/// is the suite that exists to mirror the real deployment. It is not, because
+/// turning it off does not merely relax a fixture — it makes the harness execute
+/// the deletion semantics production actually has, and the DS has call sites that
+/// depend on cascades which therefore never fire on any deploy
+/// (`account::apply_delete_account` leans on `DELETE FROM users` to clear
+/// `user_device`, `dm_channel_member`, `group_invite`, `account_recovery` and
+/// `security_event`; `groups::delete_group` leans on it for members/channels/
+/// invites). Flipping this constant is the right thing to do *together with*
+/// making those deletes explicit, and that is a data-retention change with its own
+/// blast radius — not part of #919, which is about a pragma reaching every
+/// connection rather than about which pragmas are correct. Left ON so this PR
+/// changes no `flows` behaviour; the divergence is recorded here rather than
+/// silently inherited.
 const SHARED_LOCAL_PRAGMAS: PerConnPragmas = &["PRAGMA busy_timeout=10000"];
 
 pub struct Db {

@@ -836,28 +836,25 @@ mod require_auth_gate_tests {
         }
     }
 
-    /// `require_auth_from_env` really is [`require_auth_from_value`] applied to the
-    /// variable, so the rules above are about the shipped gate and not about a
-    /// parser nothing calls. Serialised by construction: one test owns the var.
+    /// `require_auth_from_env` really is [`require_auth_from_value`] applied to
+    /// the variable, so the rules above are about the shipped gate and not about
+    /// a parser nothing calls.
+    ///
+    /// Reads the ambient environment rather than setting it: `set_var` mutates
+    /// process-global state that every other test in this binary is concurrently
+    /// reading (`watermark_stale_modifier`, `gc_sweep_secs`, `OtpConfig::from_env`
+    /// …), which is a data race — the reason Rust 2024 made `set_var` `unsafe`.
+    /// Nothing is lost by not setting it: CI and every dev machine run with the
+    /// variable unset, so this asserts delegation on exactly the `None` case the
+    /// #921 fix is about, and the table above covers the rest of the rule.
     #[test]
     fn from_env_delegates_to_the_tested_rule() {
-        for (set, expected) in [
-            (None, true),
-            (Some("false"), false),
-            (Some("true"), true),
-            (Some("ture"), true),
-        ] {
-            match set {
-                Some(v) => std::env::set_var("POLLIS_DS_REQUIRE_AUTH", v),
-                None => std::env::remove_var("POLLIS_DS_REQUIRE_AUTH"),
-            }
-            assert_eq!(
-                super::require_auth_from_env(),
-                expected,
-                "POLLIS_DS_REQUIRE_AUTH={set:?}"
-            );
-            assert_eq!(super::require_auth_from_env(), require_auth_from_value(set));
-        }
-        std::env::remove_var("POLLIS_DS_REQUIRE_AUTH");
+        let ambient = std::env::var("POLLIS_DS_REQUIRE_AUTH").ok();
+        assert_eq!(
+            super::require_auth_from_env(),
+            require_auth_from_value(ambient.as_deref()),
+            "the shipped gate must be the rule tested above, applied to \
+             POLLIS_DS_REQUIRE_AUTH={ambient:?}"
+        );
     }
 }
