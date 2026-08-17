@@ -447,6 +447,36 @@ fn bad_gateway(what: impl std::fmt::Display) -> Response {
         .into_response()
 }
 
+/// Map a failed outbound call to a response (#913).
+///
+/// A **timeout** is `504 Gateway Timeout`, distinct from the `502` every other
+/// upstream failure gets, because the two ask the client for different things: a
+/// 502 means the upstream answered and the answer was unusable (retrying is
+/// unlikely to help), while a 504 means it never answered in time and the
+/// request may well succeed on a retry. Both beat the pre-#913 behaviour, which
+/// was to answer nothing at all and hold the handler — and a pooled connection —
+/// for as long as the upstream kept the socket open.
+fn upstream_error(upstream: crate::util::Upstream, what: &str, e: &reqwest::Error) -> Response {
+    if e.is_timeout() {
+        tracing::warn!(
+            upstream = upstream.name(),
+            timeout_secs = upstream.timeout().as_secs(),
+            "{what}: upstream timed out"
+        );
+        return (
+            StatusCode::GATEWAY_TIMEOUT,
+            Json(serde_json::json!({
+                "error": format!("{what}: {} timed out", upstream.name()),
+                // The client's retry is worth attempting; say so explicitly
+                // rather than making it guess from the status alone.
+                "retryable": true,
+            })),
+        )
+            .into_response();
+    }
+    bad_gateway(format!("{what}: {e}"))
+}
+
 // ── POST /v1/livekit/send-data ────────────────────────────────────────────────
 //
 // Authz: an authenticated device is required (`gate`). Beyond that ANY room is
@@ -533,8 +563,7 @@ pub async fn room_send_data(
         .map_err(|e| format!("sign admin token: {e}"))?;
     let endpoint = format!("{}/twirp/livekit.RoomService/SendData", twirp_base(url));
 
-    let sent = crate::util::http_client()
-        .post(&endpoint)
+    let sent = crate::util::http_post(crate::util::Upstream::LiveKit, &endpoint)
         .bearer_auth(&token)
         .json(&serde_json::json!({ "room": wire_room, "data": data_b64, "kind": "RELIABLE" }))
         .send()
@@ -547,6 +576,14 @@ pub async fn room_send_data(
             let text = r.text().await.unwrap_or_default();
             Err(format!("SendData {status}: {text}"))
         }
+        // Callers of this one are fire-and-forget: they log the reason and move
+        // on, so a timeout needs no distinct status — what #913 changes here is
+        // that the nudge now GIVES UP instead of holding the caller's handler
+        // open indefinitely behind a LiveKit that stopped answering.
+        Err(e) if e.is_timeout() => Err(format!(
+            "SendData: livekit timed out after {}s",
+            crate::util::Upstream::LiveKit.timeout().as_secs()
+        )),
         Err(e) => Err(format!("SendData: {e}")),
     }
 }
@@ -604,8 +641,7 @@ pub async fn livekit_participants(
     let token = sign_livekit_admin_token(api_key, api_secret, &wire_room, crate::util::now_unix())?;
     let endpoint = format!("{}/twirp/livekit.RoomService/ListParticipants", twirp_base(url));
 
-    let listed = crate::util::http_client()
-        .post(&endpoint)
+    let listed = crate::util::http_post(crate::util::Upstream::LiveKit, &endpoint)
         .bearer_auth(&token)
         .json(&serde_json::json!({ "room": wire_room }))
         .send()
@@ -654,7 +690,11 @@ pub async fn livekit_participants(
             let text = r.text().await.unwrap_or_default();
             Ok(bad_gateway(format!("ListParticipants {status}: {text}")))
         }
-        Err(e) => Ok(bad_gateway(format!("ListParticipants: {e}"))),
+        Err(e) => Ok(upstream_error(
+            crate::util::Upstream::LiveKit,
+            "ListParticipants",
+            &e,
+        )),
     }
 }
 
@@ -697,8 +737,7 @@ pub async fn turso_token(
         "https://api.turso.tech/v1/organizations/{org}/databases/{db}/auth/tokens\
 ?expiration={TURSO_TOKEN_EXPIRATION}&authorization=read-only"
     );
-    let minted = crate::util::http_client()
-        .post(&endpoint)
+    let minted = crate::util::http_post(crate::util::Upstream::TursoPlatform, &endpoint)
         .bearer_auth(platform_token)
         .send()
         .await;
@@ -723,7 +762,11 @@ pub async fn turso_token(
             let text = r.text().await.unwrap_or_default();
             Ok(bad_gateway(format!("turso mint {status}: {text}")))
         }
-        Err(e) => Ok(bad_gateway(format!("turso mint: {e}"))),
+        Err(e) => Ok(upstream_error(
+            crate::util::Upstream::TursoPlatform,
+            "turso mint",
+            &e,
+        )),
     }
 }
 

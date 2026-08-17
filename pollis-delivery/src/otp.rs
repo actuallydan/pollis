@@ -287,16 +287,23 @@ pub async fn process_request_otp(otp: &OtpStore, cfg: &OtpConfig, email: &str) {
     }
 }
 
+/// Hand the code to Resend.
+///
+/// The caller (`process_request_otp`) AWAITS this before the `/v1/auth/request-otp`
+/// handler answers, so before #913 — when this call had no deadline — a Resend
+/// that accepted the connection and then went quiet held the sign-in request open
+/// indefinitely, and held one of the shared client's pooled connections with it.
+/// [`crate::util::Upstream::Resend`] bounds that. A timeout lands in the same
+/// `Err` arm as any other send failure: logged, and the endpoint still answers
+/// 200, because the response must not reveal whether an address exists.
 async fn send_otp_email(api_key: &str, email: &str, code: &str) -> anyhow::Result<()> {
-    let client = crate::util::http_client();
     let body = serde_json::json!({
         "from": "Pollis <noreply@mail.pollis.com>",
         "to": [email],
         "subject": "Your Pollis sign-in code",
         "text": format!("Your verification code is: {code}\n\nThis code expires in 10 minutes."),
     });
-    let resp = client
-        .post("https://api.resend.com/emails")
+    let resp = crate::util::http_post(crate::util::Upstream::Resend, "https://api.resend.com/emails")
         .header("Authorization", format!("Bearer {api_key}"))
         .json(&body)
         .send()
