@@ -236,21 +236,27 @@ pub async fn apply_register_device(
     // join: it pins for the #720 staleness window from here, then — if it never
     // opens the app again — stops pinning. Seeding it (not NULL) is what makes the
     // dormancy bound actually bite for a device that installs, joins and vanishes.
+    //
+    // The two timestamps are deliberately in different formats: the cursor is
+    // bound from `seeded_watermark_cursor` (RFC 3339, because it is compared
+    // against `message_envelope.sent_at`), `reported_at` stays `datetime('now')`
+    // (because it is compared against `datetime('now', ?)`). See #908.
+    let cursor = crate::messages::seeded_watermark_cursor();
     tx.execute(
         "INSERT OR IGNORE INTO conversation_watermark \
             (conversation_id, user_id, device_id, last_fetched_at, reported_at) \
-         SELECT c.id, ?1, ?2, datetime('now'), datetime('now') \
+         SELECT c.id, ?1, ?2, ?3, datetime('now') \
          FROM channels c \
          JOIN group_member gm ON gm.group_id = c.group_id AND gm.user_id = ?1",
-        libsql::params![user_id.to_string(), device_id.to_string()],
+        libsql::params![user_id.to_string(), device_id.to_string(), cursor.clone()],
     )
     .await?;
     tx.execute(
         "INSERT OR IGNORE INTO conversation_watermark \
             (conversation_id, user_id, device_id, last_fetched_at, reported_at) \
-         SELECT dcm.dm_channel_id, ?1, ?2, datetime('now'), datetime('now') \
+         SELECT dcm.dm_channel_id, ?1, ?2, ?3, datetime('now') \
          FROM dm_channel_member dcm WHERE dcm.user_id = ?1",
-        libsql::params![user_id.to_string(), device_id.to_string()],
+        libsql::params![user_id.to_string(), device_id.to_string(), cursor],
     )
     .await?;
 

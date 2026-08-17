@@ -402,8 +402,45 @@ async fn channel_group_role(
 /// nothing. Always emitting nanoseconds restores the ordering (a shorter
 /// fraction is a prefix of a longer one, so lexical order matches chronological
 /// order across both precisions).
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, false)
+}
+
+/// **The** value a server-side seed writes into
+/// `conversation_watermark.last_fetched_at` (#908). Every seed path — device
+/// registration ([`crate::bootstrap`]), DM creation and DM member-add
+/// ([`crate::profile`]), group join ([`crate::groups`]) — goes through here.
+///
+/// This is the DS's counterpart to `pollis_core::commands::messages::
+/// envelope_sent_at`, and it exists for the same reason: the format is the
+/// correctness property, so it belongs to one function rather than to five call
+/// sites that each look like an innocent "now".
+///
+/// **The bug it replaces.** Those five sites wrote SQLite's `datetime('now')`,
+/// which formats as `YYYY-MM-DD HH:MM:SS`. `last_fetched_at` is compared
+/// **lexically** against `message_envelope.sent_at`, which is RFC 3339 from every
+/// other writer — and a space (0x20) sorts below a `T` (0x54), so a seeded
+/// watermark compared as **older than every real timestamp that has ever
+/// existed**, in any year. The seed's stated purpose is "this device has already
+/// consumed everything up to now, so pre-join messages do not pin envelope
+/// retention"; what it actually said was "this device has consumed nothing".
+///
+/// It was fail-safe, which is why nothing broke: the GC gate takes
+/// `MIN(last_fetched_at)` over member devices, so an artificially-low seed
+/// over-pins and under-collects. Envelopes were retained longer than intended,
+/// never dropped. But a seed that means the opposite of its comment is one
+/// refactor away from being load-bearing, and the same string is the
+/// [`TOMBSTONE_FLOOR`] input, where "greatest cursor any recipient could hold"
+/// silently stopped counting seeded rows.
+///
+/// **Not to be used for `reported_at`**, which is the deliberate exception: that
+/// column is compared against `datetime('now', ?)` (see
+/// [`CLEANUP_CHANNEL_ENVELOPES`]),
+/// so it must stay in SQLite's own format. Two columns of one table in two
+/// formats looks like an oversight and is not — each matches what it is compared
+/// against, which is the only thing that decides a text timestamp's format.
+pub(crate) fn seeded_watermark_cursor() -> String {
+    now_rfc3339()
 }
 
 // ── The tombstone `sent_at` floor ────────────────────────────────────────────

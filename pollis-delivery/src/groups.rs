@@ -155,14 +155,20 @@ async fn add_member_rows(conn: &Connection, group_id: &str, user_id: &str) -> an
     // never rejoin, so they are not part of the GC roster.
     // `reported_at = datetime('now')` marks each seeded device LIVE as of the join
     // (#720): it pins for the staleness window, then stops if it never reports.
+    // The cursor is bound from `seeded_watermark_cursor` and the two columns are
+    // deliberately in different formats — see that function (#908).
     let _ = conn
         .execute(
             "INSERT OR IGNORE INTO conversation_watermark (conversation_id, user_id, device_id, last_fetched_at, reported_at)
-             SELECT c.id, ?1, ud.device_id, datetime('now'), datetime('now')
+             SELECT c.id, ?1, ud.device_id, ?3, datetime('now')
              FROM channels c
              JOIN user_device ud ON ud.user_id = ?1 AND ud.revoked_at IS NULL
              WHERE c.group_id = ?2",
-            libsql::params![user_id.to_string(), group_id.to_string()],
+            libsql::params![
+                user_id.to_string(),
+                group_id.to_string(),
+                crate::messages::seeded_watermark_cursor()
+            ],
         )
         .await;
     Ok(())

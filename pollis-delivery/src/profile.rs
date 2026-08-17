@@ -371,15 +371,18 @@ pub async fn apply_create_dm(
     // blocked by devices that didn't exist at channel creation. Revoked devices
     // are excluded (#685) — they never rejoin and so are not part of the roster
     // the envelope GC gate measures against.
+    let cursor = crate::messages::seeded_watermark_cursor();
     for member in std::iter::once(&creator).chain(others.iter()) {
         // `reported_at = datetime('now')` marks each seeded device LIVE as of DM
         // creation (#720): it pins for the staleness window, then stops if silent.
+        // The cursor is bound from `seeded_watermark_cursor` and the two columns
+        // are deliberately in different formats — see that function (#908).
         tx.execute(
             "INSERT OR IGNORE INTO conversation_watermark \
                  (conversation_id, user_id, device_id, last_fetched_at, reported_at) \
-             SELECT ?1, ?2, ud.device_id, datetime('now'), datetime('now') \
+             SELECT ?1, ?2, ud.device_id, ?3, datetime('now') \
              FROM user_device ud WHERE ud.user_id = ?2 AND ud.revoked_at IS NULL",
-            libsql::params![body.id.clone(), member.clone()],
+            libsql::params![body.id.clone(), member.clone(), cursor.clone()],
         )
         .await?;
     }
@@ -511,12 +514,18 @@ pub async fn apply_add_dm_member(
     // (#685) — they never rejoin, so they are not part of the GC roster.
     // `reported_at = datetime('now')` marks each seeded device LIVE as of the add
     // (#720): it pins for the staleness window, then stops if it never reports.
+    // The cursor is bound from `seeded_watermark_cursor` and the two columns are
+    // deliberately in different formats — see that function (#908).
     tx.execute(
         "INSERT OR IGNORE INTO conversation_watermark \
              (conversation_id, user_id, device_id, last_fetched_at, reported_at) \
-         SELECT ?1, ?2, ud.device_id, datetime('now'), datetime('now') \
+         SELECT ?1, ?2, ud.device_id, ?3, datetime('now') \
          FROM user_device ud WHERE ud.user_id = ?2 AND ud.revoked_at IS NULL",
-        libsql::params![body.dm_channel_id.clone(), body.user_id.clone()],
+        libsql::params![
+            body.dm_channel_id.clone(),
+            body.user_id.clone(),
+            crate::messages::seeded_watermark_cursor()
+        ],
     )
     .await?;
     tx.commit().await?;
