@@ -484,13 +484,20 @@ Current state:
     the moment it is, so set it **before** flipping enforcement.
   - **EAS project — DONE (#707):** `@pollis/mobile`, `projectId` in `app.json`.
     Registration therefore works now; before this it could not, on any device.
-  - **Still operational (accounts, not code):** the APNs `.p8` (iOS) and the
-    FCM v1 service account **plus a committed `google-services.json`**
-    (Android — `getExpoPushTokenAsync` throws on Android without it, since the
-    Expo token wraps an FCM device token). Both upload via
-    `eas credentials -p <platform>`; the Apple half needs an interactive
-    Developer Portal login with a 2FA code. On-device delivery to a locked
-    handset is the final gate (#707).
+  - **Platform credentials — DONE (#707), and EAS holds them, not this repo.**
+    iOS: an APNs `.p8` that `eas credentials -p ios` generated on the Apple
+    Developer Portal (key `DZB37YSPU7`) and kept; the material was never
+    downloaded, so re-running that command is the only way to see or replace it.
+    Android: an FCM v1 service-account key for Firebase project `pollis-38b6f`,
+    uploaded the same way. That JSON is a live credential and stays out of the
+    repo — but `google-services.json` **is** committed here (public identifiers
+    only) and wired as `expo.android.googleServicesFile`, because without it
+    `getExpoPushTokenAsync` throws on Android: the Expo token wraps an FCM
+    device token it could not otherwise obtain. If its `package_name` ever
+    drifts from `expo.android.package`, the Google Services Gradle plugin fails
+    the `android-build` job rather than shipping silent-dead push.
+  - **The one thing left:** delivery to a *locked physical device*, which needs
+    a store-signed build (PL-24).
 - **webrtc Expo config plugin** + an AndroidManifest mic/camera **removal** rule
   so the data-only realtime path adds no voice/video permission.
 - ~~**`device_revoked`** self-sign-out on the inbox connection~~ — **DONE.**
