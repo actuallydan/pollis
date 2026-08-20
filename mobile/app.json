@@ -84,6 +84,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.pollis.mobile",
+      "googleServicesFile": "./google-services.json",
       "versionCode": 1,
       "permissions": [
         "android.permission.CAMERA"
