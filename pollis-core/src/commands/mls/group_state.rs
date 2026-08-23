@@ -2253,7 +2253,6 @@ mod stored_group_info_parse_tests {
     // then reads the ciphersuite 0x0052 where a wire format belongs and reports
     // `UnknownValue(82)`. This encodes the discriminating prefix directly so the
     // regression is caught by shape, not by a whole-message fixture.
-    const MLS10: [u8; 2] = [0x00, 0x01];
     const CS_PQ_CODE_POINT: [u8; 2] = [0x00, 0x52];
 
     // A bare-GroupInfo payload must NOT be mistaken for an envelope, and the
