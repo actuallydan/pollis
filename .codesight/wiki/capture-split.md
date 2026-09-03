@@ -477,7 +477,10 @@ to the SFU on exactly the same terms as the microphone.
 Linux never shows the in-app picker, so it has nowhere to put a toggle.
 The choice lives in a stored preference (`screen_share_audio`, Voice
 settings) which the Linux start path reads directly and which seeds the
-picker's toggle on the other two platforms.
+picker's toggle on the other two platforms. The seed is asynchronous, and
+the picker only applies it to a switch the user has not touched — an
+explicit flip always wins over a default that lands later (#1040;
+`e2e/screenshare-picker.spec.ts` widens that window with `__tauriHold`).
 
 ## Follow-up TODOs
 
