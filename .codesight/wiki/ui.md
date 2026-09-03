@@ -539,7 +539,7 @@ wire text onto that attribute on every change; `e2e/lib/harness.js` grows
 > there or in a section above.
 
 <!-- BEGIN GENERATED: component inventory (scripts/ui-inventory.mjs) -->
-**156 `.tsx` files** under `frontend/src`, by directory. Regenerate with
+**157 `.tsx` files** under `frontend/src`, by directory. Regenerate with
 `node scripts/ui-inventory.mjs`; `--check` fails if this is stale.
 
 ### `(root)` (3)
@@ -651,7 +651,7 @@ wire text onto that attribute on every change; `e2e/lib/harness.js` grows
 - **BuildVerifyLine** — props: status, detail, testId — `frontend/src/components/Security/BuildVerifyLine.tsx`
 - **KeyChangeBanner** — props: peerUserId, peerLabel — `frontend/src/components/Security/KeyChangeBanner.tsx`
 
-### `components/ui` (27)
+### `components/ui` (28)
 
 - **AudioPlayer** — props: src, title, className, autoPlay, loop, preload — `frontend/src/components/ui/AudioPlayer.tsx`
 - **Avatar** — props: avatarKey, size, alt, testId, variant, presence — `frontend/src/components/ui/Avatar.tsx`
@@ -660,6 +660,7 @@ wire text onto that attribute on every change; `e2e/lib/harness.js` grows
 - **ChatInput** — props: onSend, placeholder, disabled, autoFocus, className, maxAttachments, onValueChange, draftKey, canNotifyAll, onHistoryUp — `frontend/src/components/ui/ChatInput.tsx`
 - **Checkbox** — props: label, checked, onChange, disabled, className — `frontend/src/components/ui/Checkbox.tsx`
 - **DotMatrix** — props: algorithm, dotSize, spacing, speed, className, style — `frontend/src/components/ui/DotMatrix.tsx`
+- **EditMessageBar** — props: heading, cancelLabel, hint, value, onChange, onSave, onCancel, isSaving, testId, inputTestId, cancelTestId — `frontend/src/components/ui/EditMessageBar.tsx`. The bar that replaces the composer while a message is being edited: heading row with a cancel `X`, a textarea that inverts to accent-on-focus like the composer (`is-focused`), and the Enter/Shift+Enter/Esc hint. The channel/DM log (`MainContent`) and the Vault both render it — they used to carry two divergent inline copies (the Vault's had a Save button and no focus inversion). Enter saves; Escape is the caller's, handled at page level in capture phase. Mounting focuses with the caret at the end, so callers `key` it by the edited message id.
 - **EmojiSuggestList** — props: entries, activeIndex, query, onSelect, onHover — `frontend/src/components/ui/EmojiSuggestList.tsx`
 - **EmptyState** — props: children, testId, messageTestId, tone, background, actions — `frontend/src/components/ui/EmptyState.tsx`. The centred "nothing here" line; hand-rolled a dozen times before it existed (#874). Not a loading state.
 - **InlineAudioPlayer** — props: src, title, className, autoPlay, onClick — `frontend/src/components/ui/InlineAudioPlayer.tsx`
