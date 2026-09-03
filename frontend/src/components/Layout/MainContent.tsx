@@ -23,6 +23,7 @@ import { messageNavStore } from "../../stores/messageNavStore";
 import { messageJumpStore } from "../../stores/messageJumpStore";
 import { TypingIndicator } from "../TypingIndicator";
 import { EmptyState } from "../ui/EmptyState";
+import { probeRender } from "../../utils/renderProbe";
 
 // Passed from DM page when the current user has not yet accepted the DM.
 // Replaces the chat input with an accept/block bar.
@@ -74,6 +75,7 @@ interface MainContentProps {
 }
 
 export const MainContent: React.FC<MainContentProps> = observer(({ pendingDmRequest = null }) => {
+  probeRender("MainContent");
   const { t } = useTranslation("nav");
   const {
     selectedChannelId,
