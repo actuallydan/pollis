@@ -441,6 +441,22 @@ still shares its screen.
 control — in `VoiceBar`. Audio cannot be toggled mid-share, because the
 capture cannot be renegotiated without restarting it.
 
+**Mid-share audio loss retires the track (#1040).** An `audio:` error
+after the track is already published — or, on Windows, the WASAPI thread
+hanging up while the share is still active — runs
+`audio::unpublish_shared_audio`: `retire_shared_audio` takes the
+track + source out of `ScreenShareState` and disarms the self-echo tap,
+then the track is unpublished before the source is dropped (the same
+order `stop` uses). Without that, every viewer kept a lit speaker
+indicator on a track carrying no samples until the share ended, and the
+voice mixer kept feeding a canceller nothing was reading. The renderer
+sees the same `LocalAudioUnavailable` it already handles, and a later
+`AudioFormat` (device came back) republishes from scratch. The state
+transition is pinned by `retiring_shared_audio_*` in `audio.rs`; the
+unpublish itself needs a live `Room`, so it is verified by hand — pull
+the output device under a Linux share and confirm the viewer's speaker
+icon goes out.
+
 ### Receiving side
 
 Shared audio arrives as an ordinary remote audio track and mixes to the
