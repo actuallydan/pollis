@@ -364,6 +364,17 @@ strictly local, and the default path never comes here.
 UI: Security page → "Your data" (account), `DMSettings` and the channel header
 (conversation) — all through `components/Security/ExportArchiveButton`, which also
 carries the opt-in fetch offer when the summary reports missing attachments.
+Playwright: `e2e/export-archive.spec.ts` (both skins; the picker is the mock's
+`plugin:dialog|save`, driven by the `exportSavePath` preload — `null` = cancel).
+
+**Mobile** (`bridge.rs` arms `export_archive`, `fetch_export_attachments`,
+`bundle_export`; `mobile/components/ExportArchive.tsx` on Security, `dm/info` and
+`conversation/info`). A sandboxed app has no "save as", so the archive is written
+under the app's cache dir (`pollis-export/`), optionally completed with the fetch,
+then `bundle_export(path)` → `bundle_archive` zips `archive.json` + `files/` into one
+`<archive>.zip` for the OS share sheet (`expo-sharing`). Desktop keeps the loose
+JSON-plus-folder layout because the user chose the destination there. Maestro:
+`mobile/.maestro/flows/export.yaml`.
 
 ## pinned_messages (`commands/pinned_messages.rs`)
 

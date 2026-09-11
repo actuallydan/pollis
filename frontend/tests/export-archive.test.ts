@@ -23,6 +23,10 @@ function sourceFiles(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
+    // The Playwright IPC mock answers these commands; it is not a caller.
+    if (entry === "__mocks__") {
+      continue;
+    }
     if (statSync(full).isDirectory()) {
       out.push(...sourceFiles(full));
     } else if (/\.tsx?$/.test(entry)) {
