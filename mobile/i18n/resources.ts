@@ -15,6 +15,7 @@ import ar_common from "../../frontend/src/i18n/locales/ar/common.json";
 import ar_dms from "../../frontend/src/i18n/locales/ar/dms.json";
 import ar_emoji from "../../frontend/src/i18n/locales/ar/emoji.json";
 import ar_errors from "../../frontend/src/i18n/locales/ar/errors.json";
+import ar_mobile from "../../frontend/src/i18n/locales/ar/mobile.json";
 import ar_nav from "../../frontend/src/i18n/locales/ar/nav.json";
 import ar_saved from "../../frontend/src/i18n/locales/ar/saved.json";
 import ar_search from "../../frontend/src/i18n/locales/ar/search.json";
@@ -44,6 +45,7 @@ import es_common from "../../frontend/src/i18n/locales/es/common.json";
 import es_dms from "../../frontend/src/i18n/locales/es/dms.json";
 import es_emoji from "../../frontend/src/i18n/locales/es/emoji.json";
 import es_errors from "../../frontend/src/i18n/locales/es/errors.json";
+import es_mobile from "../../frontend/src/i18n/locales/es/mobile.json";
 import es_nav from "../../frontend/src/i18n/locales/es/nav.json";
 import es_saved from "../../frontend/src/i18n/locales/es/saved.json";
 import es_search from "../../frontend/src/i18n/locales/es/search.json";
@@ -58,6 +60,7 @@ import fr_common from "../../frontend/src/i18n/locales/fr/common.json";
 import fr_dms from "../../frontend/src/i18n/locales/fr/dms.json";
 import fr_emoji from "../../frontend/src/i18n/locales/fr/emoji.json";
 import fr_errors from "../../frontend/src/i18n/locales/fr/errors.json";
+import fr_mobile from "../../frontend/src/i18n/locales/fr/mobile.json";
 import fr_nav from "../../frontend/src/i18n/locales/fr/nav.json";
 import fr_saved from "../../frontend/src/i18n/locales/fr/saved.json";
 import fr_search from "../../frontend/src/i18n/locales/fr/search.json";
@@ -72,6 +75,7 @@ import ru_common from "../../frontend/src/i18n/locales/ru/common.json";
 import ru_dms from "../../frontend/src/i18n/locales/ru/dms.json";
 import ru_emoji from "../../frontend/src/i18n/locales/ru/emoji.json";
 import ru_errors from "../../frontend/src/i18n/locales/ru/errors.json";
+import ru_mobile from "../../frontend/src/i18n/locales/ru/mobile.json";
 import ru_nav from "../../frontend/src/i18n/locales/ru/nav.json";
 import ru_saved from "../../frontend/src/i18n/locales/ru/saved.json";
 import ru_search from "../../frontend/src/i18n/locales/ru/search.json";
@@ -86,6 +90,7 @@ import uk_common from "../../frontend/src/i18n/locales/uk/common.json";
 import uk_dms from "../../frontend/src/i18n/locales/uk/dms.json";
 import uk_emoji from "../../frontend/src/i18n/locales/uk/emoji.json";
 import uk_errors from "../../frontend/src/i18n/locales/uk/errors.json";
+import uk_mobile from "../../frontend/src/i18n/locales/uk/mobile.json";
 import uk_nav from "../../frontend/src/i18n/locales/uk/nav.json";
 import uk_saved from "../../frontend/src/i18n/locales/uk/saved.json";
 import uk_search from "../../frontend/src/i18n/locales/uk/search.json";
@@ -100,6 +105,7 @@ import zh_common from "../../frontend/src/i18n/locales/zh/common.json";
 import zh_dms from "../../frontend/src/i18n/locales/zh/dms.json";
 import zh_emoji from "../../frontend/src/i18n/locales/zh/emoji.json";
 import zh_errors from "../../frontend/src/i18n/locales/zh/errors.json";
+import zh_mobile from "../../frontend/src/i18n/locales/zh/mobile.json";
 import zh_nav from "../../frontend/src/i18n/locales/zh/nav.json";
 import zh_saved from "../../frontend/src/i18n/locales/zh/saved.json";
 import zh_search from "../../frontend/src/i18n/locales/zh/search.json";
@@ -119,6 +125,7 @@ export const RESOURCES: Record<string, Record<string, Catalogue>> = {
     "dms": ar_dms,
     "emoji": ar_emoji,
     "errors": ar_errors,
+    "mobile": ar_mobile,
     "nav": ar_nav,
     "saved": ar_saved,
     "search": ar_search,
@@ -152,6 +159,7 @@ export const RESOURCES: Record<string, Record<string, Catalogue>> = {
     "dms": es_dms,
     "emoji": es_emoji,
     "errors": es_errors,
+    "mobile": es_mobile,
     "nav": es_nav,
     "saved": es_saved,
     "search": es_search,
@@ -168,6 +176,7 @@ export const RESOURCES: Record<string, Record<string, Catalogue>> = {
     "dms": fr_dms,
     "emoji": fr_emoji,
     "errors": fr_errors,
+    "mobile": fr_mobile,
     "nav": fr_nav,
     "saved": fr_saved,
     "search": fr_search,
@@ -184,6 +193,7 @@ export const RESOURCES: Record<string, Record<string, Catalogue>> = {
     "dms": ru_dms,
     "emoji": ru_emoji,
     "errors": ru_errors,
+    "mobile": ru_mobile,
     "nav": ru_nav,
     "saved": ru_saved,
     "search": ru_search,
@@ -200,6 +210,7 @@ export const RESOURCES: Record<string, Record<string, Catalogue>> = {
     "dms": uk_dms,
     "emoji": uk_emoji,
     "errors": uk_errors,
+    "mobile": uk_mobile,
     "nav": uk_nav,
     "saved": uk_saved,
     "search": uk_search,
@@ -216,6 +227,7 @@ export const RESOURCES: Record<string, Record<string, Catalogue>> = {
     "dms": zh_dms,
     "emoji": zh_emoji,
     "errors": zh_errors,
+    "mobile": zh_mobile,
     "nav": zh_nav,
     "saved": zh_saved,
     "search": zh_search,
