@@ -548,6 +548,56 @@ fn write_cached_attachment(cached: &CachedBytes<'_>, files_dir: &Path, att: &Arc
     std::fs::write(files_dir.join(&att.file), plaintext).is_ok()
 }
 
+// ── Bundling (mobile) ─────────────────────────────────────────────────────
+
+/// Zip `<archive>.json` and its `<archive>-files/` directory into a single
+/// `<archive>.zip` beside them, for platforms whose only exit is a share sheet
+/// that takes ONE file (mobile). Desktop keeps the loose layout — a folder next
+/// to the JSON is the more useful shape when the user chose the destination.
+///
+/// Pure local I/O. The zip holds `archive.json` at its root and the attachment
+/// files under `files/`, so a reader finds the same relative `file` paths the
+/// JSON records once it strips the `-files/` directory name.
+pub fn bundle_archive(archive_path: &Path) -> Result<PathBuf> {
+    use std::io::Read;
+    if !archive_path.is_absolute() {
+        return Err(Error::Other(anyhow::anyhow!("archive path must be absolute")));
+    }
+    let files_dir = files_dir_for(archive_path);
+    let zip_path = archive_path.with_extension("zip");
+    let result = (|| -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let out = std::fs::File::create(&zip_path)?;
+        let mut zip = zip::ZipWriter::new(std::io::BufWriter::new(out));
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        zip.start_file("archive.json", opts)?;
+        let mut json = std::fs::File::open(archive_path)?;
+        std::io::copy(&mut json, &mut zip)?;
+        if let Ok(entries) = std::fs::read_dir(&files_dir) {
+            let mut names: Vec<_> = entries
+                .flatten()
+                .filter(|e| e.path().is_file())
+                .filter_map(|e| e.file_name().to_str().map(str::to_string))
+                .collect();
+            names.sort();
+            for name in names {
+                zip.start_file(format!("files/{name}"), opts)?;
+                let mut f = std::fs::File::open(files_dir.join(&name))?;
+                let mut buf = Vec::new();
+                f.read_to_end(&mut buf)?;
+                zip.write_all(&buf)?;
+            }
+        }
+        zip.finish()?.flush()?;
+        Ok(())
+    })();
+    if let Err(e) = result {
+        let _ = std::fs::remove_file(&zip_path);
+        return Err(Error::Other(anyhow::anyhow!("could not bundle archive: {e}")));
+    }
+    Ok(zip_path)
+}
+
 // ── Command ───────────────────────────────────────────────────────────────
 
 /// Export this device's decrypted history to `path` as JSON. `conversation_id`
@@ -780,6 +830,28 @@ mod tests {
         let read_back: Archive =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(read_back, archive);
+    }
+
+    #[test]
+    fn a_bundle_holds_the_json_and_every_exported_file() {
+        let db = db();
+        seed_fixture(db.conn());
+        let archive = build_archive(db.conn(), "me", ArchiveScope::Account).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("archive.json");
+        write_archive(&path, &archive, None).unwrap();
+        std::fs::write(dir.path().join("archive-files").join("deadbeef-cat.png"), b"cat").unwrap();
+
+        let zip_path = bundle_archive(&path).unwrap();
+        assert_eq!(zip_path, dir.path().join("archive.zip"));
+        let mut zip = zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
+        let names: Vec<String> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().to_string()).collect();
+        assert_eq!(names, ["archive.json", "files/deadbeef-cat.png"]);
+        let mut json = String::new();
+        std::io::Read::read_to_string(&mut zip.by_name("archive.json").unwrap(), &mut json).unwrap();
+        let read_back: Archive = serde_json::from_str(&json).unwrap();
+        assert_eq!(read_back, archive);
+        assert!(bundle_archive(Path::new("relative.json")).is_err());
     }
 
     #[test]
