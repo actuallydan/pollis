@@ -19,6 +19,7 @@ import { initializeNativeBridge } from "../lib/native";
 import { usePushNotifications } from "../hooks/usePushNotifications";
 import { useInboxRealtime } from "../hooks/useInboxRealtime";
 import { AutoLockProvider } from "../lib/autolock";
+import { hydrateLanguage } from "../i18n";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -41,6 +42,13 @@ export default function RootLayout() {
   });
   const [bridgeReady, setBridgeReady] = useState(false);
   const [bridgeError, setBridgeError] = useState<Error | null>(null);
+  const [languageReady, setLanguageReady] = useState(false);
+
+  // The stored language is read asynchronously; holding the splash for it is
+  // what keeps a Spanish user from seeing one English frame on every launch.
+  useEffect(() => {
+    hydrateLanguage().finally(() => setLanguageReady(true));
+  }, []);
 
   useEffect(() => {
     initializeNativeBridge({
@@ -61,12 +69,12 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (loaded && bridgeReady) {
+    if (loaded && bridgeReady && languageReady) {
       SplashScreen.hideAsync();
     }
-  }, [loaded, bridgeReady]);
+  }, [loaded, bridgeReady, languageReady]);
 
-  if (!loaded || !bridgeReady) {
+  if (!loaded || !bridgeReady || !languageReady) {
     return null;
   }
 
