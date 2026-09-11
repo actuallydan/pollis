@@ -29,6 +29,8 @@ import {
 } from "../../lib/emojiPrefs";
 import { useUsableEmoji, type CustomEmoji } from "../../hooks/queries/useEmoji";
 import { CustomEmojiImage } from "./CustomEmojiImage";
+import { emojiDisplayName, type EmojiAnnotationStack } from "./emojiAnnotations";
+import { useEmojiAnnotations } from "./useEmojiAnnotations";
 
 const COLUMNS = 8;
 
@@ -80,10 +82,12 @@ function chunkRows(
 function Cell({
   item,
   toneIndex,
+  annotations,
   onPick,
 }: {
   item: PickerEmoji;
   toneIndex: number;
+  annotations: EmojiAnnotationStack;
   onPick: (item: PickerEmoji) => void;
 }) {
   return (
@@ -92,7 +96,7 @@ function Cell({
       accessibilityRole="button"
       accessibilityLabel={
         item.kind === "standard"
-          ? item.emoji.name
+          ? emojiDisplayName(item.emoji, annotations)
           : `:${item.emoji.shortcode}:`
       }
       style={{
@@ -129,7 +133,8 @@ export function EmojiPickerSheet({
   onSelect: (text: string) => void;
   onClose: () => void;
 }) {
-  const { t } = useTranslation("emoji");
+  const { t, i18n } = useTranslation("emoji");
+  const annotations = useEmojiAnnotations(i18n.language);
   const [query, setQuery] = useState("");
   const [toneIndex, setToneIndex] = useState(readSkinTone);
   const [recentIds, setRecentIds] = useState<string[]>(readRecentEmojiIds);
@@ -152,7 +157,7 @@ export function EmojiPickerSheet({
   const items = useMemo<PickerListItem[]>(() => {
     const needle = query.trim();
     if (needle) {
-      return chunkRows(searchEmoji(needle, customEmoji), "search");
+      return chunkRows(searchEmoji(needle, customEmoji, annotations), "search");
     }
     const out: PickerListItem[] = [];
     const recents = resolveRecents(recentIds, customEmoji);
@@ -196,7 +201,7 @@ export function EmojiPickerSheet({
       out.push(...chunkRows(inCategory, category.id));
     }
     return out;
-  }, [query, customEmoji, recentIds, t]);
+  }, [query, customEmoji, recentIds, annotations, t]);
 
   const onPick = (item: PickerEmoji) => {
     const text = pickerEmojiInsertText(item, toneIndex);
@@ -290,6 +295,7 @@ export function EmojiPickerSheet({
                     key={pickerEmojiId(cell)}
                     item={cell}
                     toneIndex={toneIndex}
+                    annotations={annotations}
                     onPick={onPick}
                   />
                 ))}
