@@ -61,13 +61,23 @@ export const ExportArchiveButton: React.FC<Props> = ({
         path: summary.path,
       })
     : null;
+  // Only distinct attachments are counted here, so "copied" + "missing" is
+  // the number of files, not the number of references.
+  const files =
+    summary && summary.attachments > 0
+      ? [
+          t("security.exportAttachmentsWritten", { count: summary.attachments_written }),
+          t("security.exportAttachmentsMissing", { count: summary.attachments_missing.length }),
+        ].join(" · ")
+      : null;
   const status = done ? (
     <span
       data-testid={`${testId}-done`}
-      title={compact ? done : undefined}
-      className={`text-xs font-mono text-muted ${compact ? "truncate max-w-64" : "break-all"}`}
+      title={compact ? [done, files].filter(Boolean).join("\n") : undefined}
+      className={`flex flex-col text-xs font-mono text-muted ${compact ? "truncate max-w-64" : "break-all"}`}
     >
-      {done}
+      <span className={compact ? "truncate" : undefined}>{done}</span>
+      {files && <span className={compact ? "truncate" : undefined}>{files}</span>}
     </span>
   ) : error ? (
     <span

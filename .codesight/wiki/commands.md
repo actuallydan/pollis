@@ -329,10 +329,17 @@ the file). **No import command exists and none may be added** — a reader for t
 format would be the backup channel #856 forbids; `there_is_no_import_command` and
 `frontend/tests/export-archive.test.ts` guard both halves.
 
-**Attachments** are recorded by metadata only. Their bytes live encrypted in R2 and
-fetching them would make this a network operation; the `content_hash` is the
-convergent-encryption key, so an archive is sufficient to fetch and decrypt every
-attachment later without any other secret.
+**Attachments.** Every reference carries its metadata plus a deterministic `file`
+name (`<hash[..16]>-<sanitised name>`, one safe path component). Bytes are written to
+the sibling `<archive>-files/` directory for every distinct attachment whose decrypted
+copy is **already in this device's media cache** — looked up for the unlocked user *by
+name* (`r2::find_cached_file_for_user`, the #1000 lesson), decrypted under `db_key` and
+re-verified against its hash before being vouched for; anything that fails is reported
+missing rather than aborting. Still zero network. The summary returns `files_dir`,
+`attachments_written` and `attachments_missing[]` (the exact list the opt-in fetch
+takes). The JSON never claims a file exists — the filesystem is the source of truth.
+The `content_hash` is the convergent-encryption key, so an archive is also sufficient
+to fetch and decrypt every attachment later without any other secret.
 
 UI: Security page → "Your data" (account), `DMSettings` and the channel header
 (conversation) — all through `components/Security/ExportArchiveButton`.

@@ -209,6 +209,14 @@ export async function deleteAccount(userId: string): Promise<void> {
   await invoke('delete_account', { userId });
 }
 
+/// Mirrors `pollis_core::commands::export::MissingAttachment`.
+export interface MissingAttachment {
+  content_hash: string;
+  storage_key: string;
+  content_type: string | null;
+  file: string;
+}
+
 /// Mirrors `pollis_core::commands::export::ExportSummary`.
 export interface ExportSummary {
   path: string;
@@ -217,6 +225,9 @@ export interface ExportSummary {
   attachments: number;
   vault_entries: number;
   bytes: number;
+  files_dir: string;
+  attachments_written: number;
+  attachments_missing: MissingAttachment[];
 }
 
 /// On-device plaintext export (#856). `path` is a save-dialog result; the
