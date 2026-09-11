@@ -5,7 +5,7 @@ import { useObserver } from "mobx-react-lite";
 import { Chip } from "./ui";
 import { type as ty, semantic } from "../theme/tokens";
 import { SUPPORTED_LANGUAGES } from "../i18n/languages";
-import { layoutRestartPending, setLanguage } from "../i18n";
+import { layoutRestartPending, setLanguage, upper } from "../i18n";
 import { appStore } from "../stores/appStore";
 
 /**
@@ -30,7 +30,7 @@ export function LanguageSection() {
   return (
     <View style={{ paddingHorizontal: 18, paddingTop: 18 }} testID="pref-language">
       <Text style={[ty.label, { marginBottom: 10 }]} testID="pref-language-heading">
-        {t("language.heading")}
+        {upper(t("language.heading"))}
       </Text>
       <View
         style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}
