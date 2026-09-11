@@ -12,6 +12,7 @@ import {
   Sora_700Bold,
 } from "@expo-google-fonts/sora";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { useObserver } from "mobx-react-lite";
 import { palette } from "../theme/tokens";
 import { ThemeProvider } from "../components/theme";
 import { queryClient } from "../lib/queryClient";
@@ -19,17 +20,25 @@ import { initializeNativeBridge } from "../lib/native";
 import { usePushNotifications } from "../hooks/usePushNotifications";
 import { useInboxRealtime } from "../hooks/useInboxRealtime";
 import { AutoLockProvider } from "../lib/autolock";
-import { hydrateLanguage } from "../i18n";
+import { adoptUserLanguage, hydrateLanguage } from "../i18n";
+import { appStore } from "../stores/appStore";
 
 SplashScreen.preventAutoHideAsync();
 
 // App-level signed-in services, mounted under the providers so they have a
 // QueryClient + router and only run after the bridge is ready. Each hook is a
 // no-op until a user is signed in: push installs notification listeners; inbox
-// realtime keeps the groups/DM lists live while foregrounded.
+// realtime keeps the groups/DM lists live while foregrounded; the language
+// re-resolves so a user's own stored choice wins over the pre-auth screens'.
 function SignedInServicesGate() {
   usePushNotifications();
   useInboxRealtime();
+  const userId = useObserver(() => appStore.currentUser?.id ?? null);
+  useEffect(() => {
+    if (userId) {
+      void adoptUserLanguage(userId);
+    }
+  }, [userId]);
   return null;
 }
 

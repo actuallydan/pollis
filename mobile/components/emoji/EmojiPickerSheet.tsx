@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { View, Text, TextInput, Pressable, FlatList } from "react-native";
-import { semantic, type as ty, r, t } from "../../theme/tokens";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { semantic, type as ty, r, t as tint } from "../../theme/tokens";
 import { SheetOverlay } from "../chat/SheetOverlay";
+import { upper } from "../../i18n";
 import {
   EMOJI_CATEGORIES,
   SKIN_TONES,
@@ -36,6 +39,28 @@ const TONE_BASE = "\u{270B}";
 type PickerListItem =
   | { type: "header"; key: string; label: string }
   | { type: "row"; key: string; items: PickerEmoji[] };
+
+// One literal call per category so the catalogue check can see every key.
+function categoryLabel(t: TFunction, id: EmojiCategoryId): string {
+  switch (id) {
+    case "people":
+      return t("categories.people");
+    case "nature":
+      return t("categories.nature");
+    case "food":
+      return t("categories.food");
+    case "activity":
+      return t("categories.activity");
+    case "travel":
+      return t("categories.travel");
+    case "objects":
+      return t("categories.objects");
+    case "symbols":
+      return t("categories.symbols");
+    case "flags":
+      return t("categories.flags");
+  }
+}
 
 function chunkRows(
   items: PickerEmoji[],
@@ -104,6 +129,7 @@ export function EmojiPickerSheet({
   onSelect: (text: string) => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("emoji");
   const [query, setQuery] = useState("");
   const [toneIndex, setToneIndex] = useState(readSkinTone);
   const [recentIds, setRecentIds] = useState<string[]>(readRecentEmojiIds);
@@ -131,7 +157,11 @@ export function EmojiPickerSheet({
     const out: PickerListItem[] = [];
     const recents = resolveRecents(recentIds, customEmoji);
     if (recents.length > 0) {
-      out.push({ type: "header", key: "h-recents", label: "RECENTS" });
+      out.push({
+        type: "header",
+        key: "h-recents",
+        label: upper(t("picker.recent")),
+      });
       out.push(...chunkRows(recents.slice(0, COLUMNS * 2), "recents"));
     }
     // Custom emoji, one section per owning group.
@@ -145,7 +175,7 @@ export function EmojiPickerSheet({
       out.push({
         type: "header",
         key: `h-${groupId}`,
-        label: (list[0]?.group_name || "GROUP").toUpperCase(),
+        label: upper(list[0]?.group_name || t("mobile:emoji.groupFallback")),
       });
       out.push(
         ...chunkRows(
@@ -158,7 +188,7 @@ export function EmojiPickerSheet({
       out.push({
         type: "header",
         key: `h-${category.id}`,
-        label: category.label.toUpperCase(),
+        label: upper(categoryLabel(t, category.id as EmojiCategoryId)),
       });
       const inCategory = STANDARD_EMOJI.filter(
         (e) => e.category === (category.id as EmojiCategoryId),
@@ -166,7 +196,7 @@ export function EmojiPickerSheet({
       out.push(...chunkRows(inCategory, category.id));
     }
     return out;
-  }, [query, customEmoji, recentIds]);
+  }, [query, customEmoji, recentIds, t]);
 
   const onPick = (item: PickerEmoji) => {
     const text = pickerEmojiInsertText(item, toneIndex);
@@ -184,10 +214,10 @@ export function EmojiPickerSheet({
       <View style={{ height: 420, gap: 10 }}>
         <TextInput
           testID="input-emoji-search"
-          accessibilityLabel="Search emoji"
+          accessibilityLabel={t("picker.searchPlaceholder")}
           value={query}
           onChangeText={setQuery}
-          placeholder="Search emoji…"
+          placeholder={t("picker.searchPlaceholder")}
           placeholderTextColor={semantic.mute}
           autoCorrect={false}
           autoCapitalize="none"
@@ -211,7 +241,9 @@ export function EmojiPickerSheet({
               accessibilityRole="radio"
               accessibilityState={{ selected: toneIndex === index }}
               accessibilityLabel={
-                index === 0 ? "No skin tone" : `Skin tone ${index}`
+                index === 0
+                  ? t("skinTone.default")
+                  : t("skinTone.numbered", { index })
               }
               onPress={() => onTone(index)}
               style={{
@@ -224,7 +256,7 @@ export function EmojiPickerSheet({
                   toneIndex === index ? semantic.accent : semantic.hair,
                 borderRadius: r.sm,
                 backgroundColor:
-                  toneIndex === index ? t(0.12) : "transparent",
+                  toneIndex === index ? tint(0.12) : "transparent",
               }}
             >
               <Text style={{ fontSize: 18 }}>{`${TONE_BASE}${tone}`}</Text>
@@ -278,7 +310,7 @@ export function EmojiPickerSheet({
                 paddingTop: 16,
               }}
             >
-              No emoji match.
+              {t("picker.empty")}
             </Text>
           }
         />
