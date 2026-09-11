@@ -13,6 +13,7 @@ import {
   Ctx,
 } from "../../components/ui";
 import { Icon } from "../../components/icons";
+import { LanguageSection } from "../../components/LanguageSection";
 import { useTheme } from "../../components/theme";
 import { semantic, type as ty, r, DEFAULT_ACCENT_HEX } from "../../theme/tokens";
 import { usePreferences } from "../../hooks/queries";
@@ -218,6 +219,8 @@ export default function Preferences() {
             ))}
           </View>
         </View>
+
+        <LanguageSection />
 
         <SectionTitle>BEHAVIOR</SectionTitle>
         {BEHAVIOR_KEYS.map((b) => (
