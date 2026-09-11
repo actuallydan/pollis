@@ -341,8 +341,29 @@ takes). The JSON never claims a file exists — the filesystem is the source of 
 The `content_hash` is the convergent-encryption key, so an archive is also sufficient
 to fetch and decrypt every attachment later without any other secret.
 
+## export_fetch (`commands/export_fetch.rs`)
+
+The **opt-in second step** of the export, and the one place the feature touches the
+network. A separate module and command on purpose: `export.rs` stays scannable as
+strictly local, and the default path never comes here.
+
+- `fetch_export_attachments(files_dir, attachments: MissingAttachment[])` →
+  `FetchSummary { fetched, failed[] { content_hash, file, error } }` — downloads the
+  attachments an export reported missing into its files directory, via
+  `r2::download_media` (DS-minted presigned GET, decrypt, content-hash check). Only
+  ever reachable from the separately-worded "Download the missing attachments" button
+  that appears *after* an archive is written; `frontend/tests/export-archive.test.ts`
+  pins that to `ExportArchiveButton` alone. Sequential — one presigned GET at a time,
+  so a large archive cannot fan out into a burst against the DS.
+- The list comes from the renderer and is treated as untrusted: `files_dir` must be
+  absolute and every `file` a single path component (no separators, no `..`), or the
+  whole call is refused before any byte moves. A file already present with the right
+  hash is counted and skipped (idempotent, no re-download); bytes that fail their hash
+  are a per-file failure and never reach the disk.
+
 UI: Security page → "Your data" (account), `DMSettings` and the channel header
-(conversation) — all through `components/Security/ExportArchiveButton`.
+(conversation) — all through `components/Security/ExportArchiveButton`, which also
+carries the opt-in fetch offer when the summary reports missing attachments.
 
 ## pinned_messages (`commands/pinned_messages.rs`)
 

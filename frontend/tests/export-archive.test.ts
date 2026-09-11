@@ -43,9 +43,18 @@ test("no renderer code invokes an archive import or restore command", () => {
   assert.deepEqual(offenders, [], "an archive re-import path was added; #856 forbids one");
 });
 
-test("export_archive is invoked only through services/api.ts", () => {
+for (const command of ["export_archive", "fetch_export_attachments"]) {
+  test(`${command} is invoked only through services/api.ts`, () => {
+    const callers = sourceFiles(SRC)
+      .filter((file) => new RegExp(`['"]${command}['"]`).test(readFileSync(file, "utf8")))
+      .map((file) => relative(SRC, file));
+    assert.deepEqual(callers, ["services/api.ts"]);
+  });
+}
+
+test("the network step of the export is only ever reachable from its own opt-in button", () => {
   const callers = sourceFiles(SRC)
-    .filter((file) => /['"]export_archive['"]/.test(readFileSync(file, "utf8")))
+    .filter((file) => /fetchExportAttachments\(/.test(readFileSync(file, "utf8")))
     .map((file) => relative(SRC, file));
-  assert.deepEqual(callers, ["services/api.ts"]);
+  assert.deepEqual(callers, ["components/Security/ExportArchiveButton.tsx", "services/api.ts"]);
 });

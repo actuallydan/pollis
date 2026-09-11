@@ -239,6 +239,21 @@ export async function exportArchive(
   return invoke<ExportSummary>('export_archive', { path, conversationId: conversationId ?? null });
 }
 
+/// Mirrors `pollis_core::commands::export_fetch::FetchSummary`.
+export interface FetchSummary {
+  fetched: number;
+  failed: { content_hash: string; file: string; error: string }[];
+}
+
+/// The opt-in second step of the export — the ONE network call in the
+/// feature, only ever behind its own separately-worded button.
+export async function fetchExportAttachments(
+  filesDir: string,
+  attachments: MissingAttachment[],
+): Promise<FetchSummary> {
+  return invoke<FetchSummary>('fetch_export_attachments', { filesDir, attachments });
+}
+
 export async function listKnownAccounts(): Promise<AccountsIndex> {
   return invoke('list_known_accounts');
 }

@@ -31,10 +31,15 @@ export const ExportArchiveButton: React.FC<Props> = ({
   const [busy, setBusy] = useState(false);
   const [summary, setSummary] = useState<api.ExportSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const [fetched, setFetched] = useState<api.FetchSummary | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const run = async () => {
     setError(null);
     setSummary(null);
+    setFetched(null);
+    setFetchError(null);
     const target = await dialogSave({
       defaultPath: `${fileStem}.json`,
       filters: [{ name: "JSON", extensions: ["json"] }],
@@ -51,6 +56,59 @@ export const ExportArchiveButton: React.FC<Props> = ({
       setBusy(false);
     }
   };
+
+  // Opt-in and separately worded: the archive is already on disk by the time
+  // this can be pressed, and it is the only path in the feature that talks to
+  // the server.
+  const missing = summary?.attachments_missing ?? [];
+  const runFetch = async () => {
+    if (!summary || missing.length === 0) {
+      return;
+    }
+    setFetchError(null);
+    setFetching(true);
+    try {
+      setFetched(await api.fetchExportAttachments(summary.files_dir, missing));
+    } catch (err) {
+      setFetchError(errorMessage(err, t("security.exportFetchError")));
+    } finally {
+      setFetching(false);
+    }
+  };
+  const fetchStatus = fetched ? (
+    <span data-testid={`${testId}-fetched`} className="text-xs font-mono text-muted">
+      {[
+        t("security.exportFetched", { count: fetched.fetched }),
+        fetched.failed.length > 0 ? t("security.exportFetchFailed", { count: fetched.failed.length }) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+    </span>
+  ) : fetchError ? (
+    <span data-testid={`${testId}-fetch-error`} className="text-xs font-mono text-danger">
+      {fetchError}
+    </span>
+  ) : null;
+  const fetchOffer =
+    summary && missing.length > 0 && !fetched ? (
+      <div className="flex flex-col gap-2">
+        <p className="text-xs font-mono text-dim">{t("security.exportFetchNote")}</p>
+        <Button
+          data-testid={`${testId}-fetch`}
+          onClick={runFetch}
+          disabled={fetching}
+          isLoading={fetching}
+          loadingText={t("security.exportFetching")}
+          variant="secondary"
+          className="w-full"
+        >
+          {t("security.exportFetchButton", { count: missing.length })}
+        </Button>
+        {fetchStatus}
+      </div>
+    ) : (
+      fetchStatus
+    );
 
   const compact = variant === "icon";
   const done = summary
@@ -121,6 +179,7 @@ export const ExportArchiveButton: React.FC<Props> = ({
         {conversationId ? t("security.exportConversationButton") : t("security.exportButton")}
       </Button>
       {status}
+      {fetchOffer}
     </div>
   );
 };
