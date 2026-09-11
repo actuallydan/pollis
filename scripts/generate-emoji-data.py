@@ -134,9 +134,11 @@ That mode is the ONLY one that touches the network (stdlib ``urllib``, pinned
 to ``CLDR_RELEASE``); a plain run stays offline and deterministic. Both modes
 then emit one ``annotations/<lang>.ts`` per locale plus an ``index.ts`` whose
 loader dynamically imports them, under both ``frontend/src/components/Emoji/``
-and ``mobile/components/emoji/`` — each table is
-~50-90 KB and the picker only ever needs the active locale's and English's
-(#874's code-splitting rule).
+and ``mobile/components/emoji/``. Each table is ~90-190 KB and the picker only
+ever needs the active locale's and English's, which on the web bundle is a
+separate chunk per locale (#874's code-splitting rule); Metro does not split,
+so on mobile every locale ships in the binary and the dynamic import only
+defers parsing until the picker opens.
 
 Known approximation limits
 --------------------------
@@ -911,8 +913,10 @@ def render_annotation_module(
 
 def render_annotation_index(langs: list[str], release: str) -> str:
     lines = annotation_header(release)
-    lines.append("// Each locale is its own module behind a dynamic import: the picker needs the")
-    lines.append("// active locale's table and English's, never all of them.")
+    lines.append("// Each locale is its own module behind a dynamic import. In the web bundle that")
+    lines.append("// is a separate chunk (the picker needs the active locale's table and English's,")
+    lines.append("// never all of them); on native, where Metro does not split, every locale ships")
+    lines.append("// in the binary and the import only defers parsing until the picker opens.")
     lines.append("")
     lines.append("/** `[char, localized name, `|`-joined lowercase keywords]`. */")
     lines.append("export type EmojiAnnotationRow = readonly [")

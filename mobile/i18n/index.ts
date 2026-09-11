@@ -31,11 +31,6 @@ import {
 } from "./languages";
 import { loadDeviceLanguage, saveDeviceLanguage } from "./storage";
 
-// Layout mirroring is opt-in per app on React Native. Allowing it is what
-// makes `forceRTL` below take effect; on its own it changes nothing for the
-// LTR locales.
-I18nManager.allowRTL(true);
-
 void i18n.use(initReactI18next).init({
   resources: RESOURCES,
   lng: resolveDeviceLanguage(deviceLanguageCandidates()),
@@ -84,12 +79,19 @@ export function layoutRestartPending(): boolean {
   return I18nManager.isRTL !== (languageDirection(i18n.language) === "rtl");
 }
 
+/**
+ * React Native computes `isRTL = forced || (allowed && deviceLocaleIsRTL)`,
+ * so `forceRTL(false)` alone can never un-mirror an Arabic-locale phone whose
+ * user picked English: `allowRTL` has to follow the language too. Both are
+ * persisted natively and read at the next launch.
+ */
 function applyLayoutDirection(language: string): void {
   const wantRtl = languageDirection(language) === "rtl";
-  if (I18nManager.isRTL !== wantRtl) {
-    I18nManager.forceRTL(wantRtl);
-  }
+  I18nManager.allowRTL(wantRtl);
+  I18nManager.forceRTL(wantRtl);
 }
+
+applyLayoutDirection(i18n.language);
 
 /**
  * Apply the stored device choice, if any. Resolves once the language on
