@@ -916,8 +916,15 @@ global ordering + a UNIQUE index enforcing the per-subject invariant).
 - `updated_at` TEXT NOT NULL
 - Mobile only — desktop never registers, so the fanout is a no-op for desktop-only users.
 - **Content bound:** the notification this routes carries only `{conversationId, kind}` — never plaintext, sender, or any content. Consulted solely by `commands::push::notify_new_message`.
+- `device_id` TEXT _(#1090 — the **server-verified** `X-Pollis-Device` of the registering request, never a body field)_
 - `token` is the PK so a re-register from the same device upserts rather than duplicating.
 - Retention: rows unrefreshed for `POLLIS_DS_PUSH_TOKEN_RETENTION_DAYS` are swept by the DS.
+
+**Ownership (#1090).** The conflict branch used to reassign `user_id` unconditionally, so anyone holding a victim's token string could point it at their own account: the victim's phone then received the attacker's notifications and none of its own. Refusing every reassignment would have broken what the PK comment above describes — switching accounts on one phone re-registers the same token under a new user — so the row records the registering device and a takeover is honoured only from that same device. A pre-#1090 row has no binding and is adopted by the first device to re-register it. Migration `000024` adds the column.
+
+**Two further bounds (#1090).** The token must be shaped like an Expo token (`devices::is_expo_push_token`), so the table cannot be padded with junk that inflates every fan-out; and a user keeps at most `PUSH_TOKENS_PER_USER` (10), oldest evicted first, so a reinstall loop cannot grow one message into an unbounded number of Expo calls.
+
+The payload's `conversationId`/`kind` disclosure to Expo/APNs/FCM is tracked separately in #1122 — it needs an opaque handle and a client-protocol change.
 
 ### user_groups / user_dms _(migration 000009 — created, then unused)_
 Backfilled-then-stale, unread tables. Created by migration `000009` as the directory index for the per-conversation-DB split (#261 Phase 2). #261 was dropped (not-planned), and the maintenance + reads were reverted — but the migration is append-only history and the tables were already applied to prod/dev/test, so they remain **unreferenced**. Note they are not empty: the migration backfills them from current membership at the bottom of the file, so they hold a frozen snapshot of the roster as of the moment it was applied — stale, and misleading if anyone assumes otherwise. No code writes or reads them. Left in place; a future tightening migration can `DROP` them if desired. They **are** now cleared by account/group teardown — that frozen snapshot is real membership metadata about real users, so it has to go when they do.
@@ -1016,30 +1023,27 @@ See [Local message retention](#local-message-retention) below.
 - `preferences` TEXT NOT NULL DEFAULT '{}' _(single row, local mirror of remote)_
 - `updated_at` TEXT NOT NULL DEFAULT now
 
-### push_token _(#344, hardened #1090)_
+### directory_lookup_budget _(#1089)_
 
-`token` (the Expo push token) is the primary key, with `user_id`, `platform`,
-`updated_at` and — since #1090 — `device_id`, the **server-verified**
-`X-Pollis-Device` of the registering request.
+`(user_id, day)` → `lookups`. One small row per active user per UTC day, charged
+by `directory::charge_identifier_lookup` every time `/v1/directory/users`
+resolves an `identifier` (a username **or an email**) to an account.
 
-The conflict branch used to reassign `user_id` unconditionally, so anyone holding
-a victim's token string could point it at their own account: the victim's phone
-then received the attacker's notifications and none of its own. Refusing every
-reassignment would have broken what the original design wanted — switching
-accounts on one phone re-registers the same token under a new user — so the row
-records the device instead, and a takeover is honoured only from that same
-device. A pre-#1090 row carries no binding and is adopted by the first device to
-re-register it.
+The endpoint is otherwise an email→identity oracle for any account holder: feed
+it addresses and it answers which have Pollis accounts and under what name. The
+per-IP middleware tier sheds floods but an attacker rotates IPs, so the bound
+that binds is keyed on the authenticated user and read from the database —
+restart-proof and shared across container instances, the same reasoning
+`groups::apply_redeem_invite_link` writes down for redemption. Cap is
+`IDENTIFIER_LOOKUPS_PER_DAY` (50): a handful for a human, years of work for a
+mailing list.
 
-Two further bounds: the token must be shaped like an Expo token
-(`devices::is_expo_push_token`), so the table cannot be padded with junk that
-inflates every fan-out; and a user keeps at most `PUSH_TOKENS_PER_USER` (10),
-oldest evicted first, so a reinstall loop cannot grow one message into an
-unbounded number of Expo calls.
-
-The payload itself is content-free but still carries `conversationId`/`kind` to
-three third parties — tracked separately in #1122, which needs an opaque handle
-and a client-protocol change.
+Charged **before** the decision, so a refused attempt still costs — otherwise
+the cap resets on every 429. Bulk hydration by `user_ids` is NOT charged: those
+ids are already known to the caller and a cold launch legitimately issues many.
+Records no identifier and no result, deliberately — bounding the oracle must not
+build a log of who looked up whom. Purged on account deletion
+(`teardown::purge_user_rows`).
 
 ### read_cursor _(#844)_
 - `conversation_id` TEXT PK
