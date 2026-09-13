@@ -1016,6 +1016,31 @@ See [Local message retention](#local-message-retention) below.
 - `preferences` TEXT NOT NULL DEFAULT '{}' _(single row, local mirror of remote)_
 - `updated_at` TEXT NOT NULL DEFAULT now
 
+### push_token _(#344, hardened #1090)_
+
+`token` (the Expo push token) is the primary key, with `user_id`, `platform`,
+`updated_at` and — since #1090 — `device_id`, the **server-verified**
+`X-Pollis-Device` of the registering request.
+
+The conflict branch used to reassign `user_id` unconditionally, so anyone holding
+a victim's token string could point it at their own account: the victim's phone
+then received the attacker's notifications and none of its own. Refusing every
+reassignment would have broken what the original design wanted — switching
+accounts on one phone re-registers the same token under a new user — so the row
+records the device instead, and a takeover is honoured only from that same
+device. A pre-#1090 row carries no binding and is adopted by the first device to
+re-register it.
+
+Two further bounds: the token must be shaped like an Expo token
+(`devices::is_expo_push_token`), so the table cannot be padded with junk that
+inflates every fan-out; and a user keeps at most `PUSH_TOKENS_PER_USER` (10),
+oldest evicted first, so a reinstall loop cannot grow one message into an
+unbounded number of Expo calls.
+
+The payload itself is content-free but still carries `conversationId`/`kind` to
+three third parties — tracked separately in #1122, which needs an opaque handle
+and a client-protocol change.
+
 ### read_cursor _(#844)_
 - `conversation_id` TEXT PK
 - `last_read_at` TEXT NOT NULL
