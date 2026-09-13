@@ -1609,9 +1609,6 @@ mod tests {
         );
     }
 
-    /// A user may hold several devices and have only one revoked. The live
-    /// sibling must survive — otherwise revoking one device would silently log
-    /// the user out everywhere.
     // ── #1082: the self-presence gate on the eviction snapshot ──────────────
 
     /// The consequence the gate exists to prevent, stated as a test: an empty
@@ -1682,6 +1679,9 @@ mod tests {
         assert!(snapshot_includes_actor(&roster(&["alice"]), &valid(&[]), "alice", ""));
     }
 
+    /// A user may hold several devices and have only one revoked. The live
+    /// sibling must survive — otherwise revoking one device would silently log
+    /// the user out everywhere.
     #[test]
     fn revoking_one_device_spares_its_live_sibling() {
         let tree = [key("alice", "a1"), key("alice", "a2")];
