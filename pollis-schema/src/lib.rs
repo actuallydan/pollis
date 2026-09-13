@@ -232,6 +232,11 @@ pub const POST_BASELINE_MIGRATIONS: &[(u32, &str, &str)] = &[
         "directory_lookup_budget",
         include_str!("../migrations/000023_directory_lookup_budget.sql"),
     ),
+    (
+        25,
+        "retire_directory_mirror",
+        include_str!("../migrations/000025_retire_directory_mirror.sql"),
+    ),
 ];
 
 /// Every script for the MAIN DB, in apply order (baseline first). One element
