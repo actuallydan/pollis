@@ -233,6 +233,11 @@ pub const POST_BASELINE_MIGRATIONS: &[(u32, &str, &str)] = &[
         include_str!("../migrations/000023_directory_lookup_budget.sql"),
     ),
     (
+        24,
+        "push_token_device_binding",
+        include_str!("../migrations/000024_push_token_device_binding.sql"),
+    ),
+    (
         25,
         "retire_directory_mirror",
         include_str!("../migrations/000025_retire_directory_mirror.sql"),
