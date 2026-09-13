@@ -997,8 +997,11 @@ mod tests {
         }
     }
 
-    /// And the behaviour the scan is standing in for: the archive and its
-    /// attachment directory are owner-only on a platform that says so by mode.
+    /// And the behaviour the scan is standing in for: the archive is owner-only
+    /// on a platform that says so by mode. `#[cfg(unix)]` because the mode
+    /// accessor itself is unix-only — a runtime guard would still leave the
+    /// `PermissionsExt` import to fail the Windows build.
+    #[cfg(unix)]
     #[test]
     fn a_written_archive_is_owner_only() {
         if !crate::private_fs::owner_only_is_enforced_by_mode() {
