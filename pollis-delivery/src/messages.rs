@@ -685,8 +685,12 @@ pub async fn apply_send_message(
     if let Err(refused) = admit_sent_at(&body.sent_at) {
         return Ok(refused);
     }
+    // The sequence allocation and the row must land together — see
+    // `insert_envelope_with_seq`. Edit and delete already run in a transaction;
+    // the send path needs its own.
+    let tx = conn.transaction().await?;
     insert_envelope_with_seq(
-        conn,
+        &tx,
         &body.conversation_id,
         // The per-envelope deletion capability (#1086), stored as the client sent
         // it — the DS never computes it and cannot: it is an HMAC under a key only
@@ -705,6 +709,7 @@ pub async fn apply_send_message(
         ],
     )
     .await?;
+    tx.commit().await?;
     Ok(WriteOutcome::Ok)
 }
 
@@ -1099,22 +1104,32 @@ async fn next_delivery_seq(conn: &Connection, conversation_id: &str) -> anyhow::
 /// compares against, so a writer that skipped it would create an envelope
 /// delivered to nobody and collected by nothing.
 ///
+/// **Takes a `Transaction`, not a `Connection`, and that is the whole point.**
+/// Allocating the sequence and inserting the row are two statements; if another
+/// writer can slip between them, it allocates `N+1` and makes that row visible
+/// while `N` is still missing. A recipient fetching `seq > last_seq` in that
+/// window sees `N+1`, advances its cursor to it, and envelope `N` lands
+/// *below every cursor* — delivered to nobody and collected by GC. That is a
+/// fourth acceptable-loss mode, which we do not get to add.
+///
+/// Under SQLite/libsql a transaction whose first statement is a write holds the
+/// write lock to commit, so writers serialise and the gap is never observable.
+/// Requiring the transaction in the *type* is what stops a future caller from
+/// re-opening the window by passing a bare autocommit connection.
+///
+/// A rolled-back insert un-does the counter bump too, so there is not even a
+/// burned sequence; `idx_envelope_conv_seq` remains the backstop.
+///
 /// `columns` names the columns AFTER `conversation_id` and `seq`; `placeholders`
 /// supplies them starting at `?3`, and `params` binds them in that order.
-///
-/// Two statements, and deliberately not wrapped in a transaction on the send
-/// path: the counter is taken FIRST, so the only failure mode is a burned
-/// sequence if the insert then fails. A gap costs nothing — the cursor is `>`,
-/// never "the next one" — whereas taking the counter second could hand the same
-/// value out twice. `idx_envelope_conv_seq` is the backstop either way.
 async fn insert_envelope_with_seq(
-    conn: &Connection,
+    tx: &libsql::Transaction,
     conversation_id: &str,
     columns: &str,
     placeholders: &str,
     params: Vec<libsql::Value>,
 ) -> anyhow::Result<()> {
-    let seq = next_delivery_seq(conn, conversation_id).await?;
+    let seq = next_delivery_seq(tx, conversation_id).await?;
     let sql = format!(
         "INSERT INTO message_envelope (conversation_id, seq, {columns}) \
          VALUES (?1, ?2, {placeholders})"
@@ -1123,7 +1138,7 @@ async fn insert_envelope_with_seq(
     bound.push(conversation_id.into());
     bound.push(seq.into());
     bound.extend(params);
-    conn.execute(&sql, bound).await?;
+    tx.execute(&sql, bound).await?;
     Ok(())
 }
 
@@ -4680,6 +4695,18 @@ mod delivery_sequence_tests {
         }
     }
 
+    /// `conversation_seq.next_seq` as this connection can see it.
+    async fn visible_counter(conn: &Connection) -> i64 {
+        let mut rows = conn
+            .query(
+                "SELECT next_seq FROM conversation_seq WHERE conversation_id = 'c1'",
+                (),
+            )
+            .await
+            .unwrap();
+        rows.next().await.unwrap().map(|r| r.get::<i64>(0).unwrap()).unwrap_or(0)
+    }
+
     async fn seq_of(conn: &Connection, id: &str) -> Option<i64> {
         let mut rows = conn
             .query(
@@ -4689,6 +4716,80 @@ mod delivery_sequence_tests {
             .await
             .unwrap();
         rows.next().await.unwrap().and_then(|r| r.get::<Option<i64>>(0).ok().flatten())
+    }
+
+    /// The counter bump and the envelope row must become visible together.
+    ///
+    /// Regression for the allocate/insert gap: while a send was mid-flight the
+    /// sequence bump used to commit on its own, so a concurrent writer could
+    /// take `N+1` and publish *that* row first. A recipient fetching
+    /// `seq > last_seq` in the window would see `N+1`, advance its cursor onto
+    /// it, and envelope `N` would land below every cursor — delivered to nobody
+    /// and then collected. This asserts a reader mid-send sees neither half.
+    #[tokio::test]
+    async fn an_in_flight_send_never_exposes_a_sequence_without_its_envelope() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ds.db");
+
+        let writer = libsql::Builder::new_local(&path).build().await.unwrap();
+        let writer = writer.connect().unwrap();
+        writer.execute_batch("PRAGMA foreign_keys=OFF;").await.unwrap();
+        pollis_schema::apply::single_db(&writer).await.expect("schema");
+        writer
+            .execute_batch(
+                "INSERT INTO conversation (id, kind) VALUES ('c1', 'channel');
+                 INSERT INTO channels (id, group_id, name) VALUES ('c1', 'g1', 'chan');
+                 INSERT INTO group_member (group_id, user_id) VALUES ('g1', 'alice');
+                 INSERT INTO user_device (user_id, device_id) VALUES ('alice', 'a1');",
+            )
+            .await
+            .unwrap();
+
+        // A genuinely separate connection, the way a second DS worker would be.
+        let reader = libsql::Builder::new_local(&path).build().await.unwrap();
+        let reader = reader.connect().unwrap();
+
+        // One committed envelope, so the reader has a real cursor to sit on.
+        apply_send_message(&writer, None, &send("m1")).await.unwrap();
+        let first = seq_of(&writer, "m1").await.expect("committed envelope has a seq");
+
+        // A send caught mid-flight: sequence taken, row written, not yet committed.
+        let tx = writer.transaction().await.unwrap();
+        insert_envelope_with_seq(
+            &tx,
+            "c1",
+            "id, sender_id, ciphertext, sent_at, sealed",
+            "?3, ?4, ?5, ?6, 1",
+            vec![
+                "m2".into(),
+                "sealed".into(),
+                "mls:00".into(),
+                chrono::Utc::now().to_rfc3339().into(),
+            ],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            seq_of(&reader, "m2").await,
+            None,
+            "an uncommitted envelope must not be visible to another connection"
+        );
+        assert_eq!(
+            visible_counter(&reader).await,
+            first,
+            "the sequence bump must not commit ahead of the row it belongs to — \
+             a reader that sees the higher counter can be handed a gap"
+        );
+
+        tx.commit().await.unwrap();
+
+        let second = seq_of(&reader, "m2").await.expect("committed envelope has a seq");
+        assert!(
+            second > first,
+            "a committed send must sit strictly above the cursor a reader could \
+             have advanced to while it was in flight ({second} vs {first})"
+        );
     }
 
     /// Sequences are handed out strictly increasing, per conversation.

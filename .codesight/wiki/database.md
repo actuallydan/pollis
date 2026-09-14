@@ -381,6 +381,22 @@ row, at which point the cursors pointing into it go too. Pinned by
 which fails against the naive implementation. Every envelope — send, edit,
 tombstone — is written through one chokepoint, `messages::insert_envelope_with_seq`.
 
+**Why that chokepoint takes a `Transaction`, not a `Connection`.** Allocating the
+sequence and inserting the row are two statements. If another writer can slip
+between them it takes `N+1` and publishes *that* row while `N` is still missing;
+a recipient fetching `seq > last_seq` in that window sees `N+1`, advances its
+cursor onto it, and envelope `N` lands below every cursor — delivered to nobody,
+then collected. That would be a fourth acceptable loss, which the delivery
+contract does not have room for. Under SQLite/libsql a transaction whose first
+statement is a write holds the write lock until commit, so writers serialise and
+the gap is never observable; taking the transaction *in the signature* is what
+stops a later caller from re-opening the window with a bare autocommit
+connection. A rolled-back insert un-does the counter bump with it, so there is
+not even a burned sequence. Pinned by
+`delivery_sequence_tests::an_in_flight_send_never_exposes_a_sequence_without_its_envelope`,
+which reads from a second connection mid-send and fails if either half is
+visible alone.
+
 **What the sequence retired**, all of it the cost of ordering by a lexically
 compared string that two different clocks wrote:
 
