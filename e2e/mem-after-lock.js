@@ -20,6 +20,13 @@ function pidOfApp() {
   return pids[pids.length - 1]; // newest
 }
 
+// HOUSEKEEPING: every run leaves a core in systemd's store (root-owned,
+// ~8 MB compressed) that CONTAINS THE THROWAWAY ACCOUNT'S SECRET KEY. They age
+// out on systemd's retention, but after a session of repeated runs it is worth
+// `sudo coredumpctl --since=today ... ` / clearing
+// /var/lib/systemd/coredump by hand. The local copy this script greps is
+// deleted immediately; the systemd one is not ours to remove.
+//
 // Dump WITHOUT ptrace. `gcore` and /proc/pid/mem both need
 // CAP_SYS_PTRACE or kernel.yama.ptrace_scope=0 (this box is =1), which needs
 // root we do not have. But core_pattern pipes to systemd-coredump and
