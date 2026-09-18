@@ -22,10 +22,10 @@
 //!
 //!   3. The human reads the SAS off the new device's screen and types it into
 //!      the approver. The approving device calls `approve_device_enrollment`:
-//!      a. Re-derives the SAS from the ephemeral public key it fetched itself
-//!         and compares the typed value against that (#1096 — see
-//!         `derive_verification_code` for why comparing against the DS's stored
-//!         copy was the bug, not the check).
+//!      a. Re-derives the SAS from the ephemeral public key it fetched
+//!      itself and compares the typed value against that (#1096 — see
+//!      `derive_verification_code` for why comparing against the DS's
+//!      stored copy was the bug, not the check).
 //!      b. Generates its own ephemeral X25519 keypair.
 //!      c. ECDH(approver_priv, requester_pub) → HKDF → wrap key.
 //!      d. AES-256-GCM wraps `account_id_key.private` and writes
