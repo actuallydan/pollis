@@ -25,6 +25,7 @@ import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import { invoke } from "../native";
 import i18n from "../../i18n";
+import { readPayloadRouting } from "./routing";
 
 // Present foreground notifications as a banner / in the list, content-free
 // (no sound, no badge). This is pure config and safe at module load — it
@@ -181,34 +182,37 @@ type Routing = { conversationId: string; kind: string };
 // Returns null when there is nothing to act on, which is the same outcome as a
 // handle that fails to resolve: the tap opens the app rather than a
 // conversation, and a background push is skipped until the next poll.
+// Resolve a payload to something routable, doing I/O only when the payload
+// gave us a handle.
+//
+// Returns null when there is nothing to act on, which is also what a failed
+// resolve produces: the tap opens the app rather than a conversation, and a
+// background push is skipped until the next poll.
 async function readRouting(data: unknown): Promise<Routing | null> {
-  if (typeof data !== "object" || data === null) {
+  const decided = readPayloadRouting(data);
+  if (decided === null) {
     return null;
   }
-  const handle = (data as { h?: unknown }).h;
-  if (typeof handle === "string" && handle.length > 0) {
-    try {
-      const resolved = await invoke<Routing | null>("resolve_push_handle", {
-        handle,
-      });
-      if (
-        resolved &&
-        typeof resolved.conversationId === "string" &&
-        typeof resolved.kind === "string"
-      ) {
-        return resolved;
-      }
-    } catch {
-      // Offline, or the handle expired / was swept. Fall through to the plain
-      // id if this DS still sends one; otherwise degrade to opening the app.
+  if (decided.via === "plain") {
+    return { conversationId: decided.conversationId, kind: decided.kind };
+  }
+  try {
+    const resolved = await invoke<Routing | null>("resolve_push_handle", {
+      handle: decided.handle,
+    });
+    if (
+      resolved &&
+      typeof resolved.conversationId === "string" &&
+      typeof resolved.kind === "string"
+    ) {
+      return resolved;
     }
+  } catch {
+    // Offline, or the handle expired / was swept. Nothing to fall back to: a
+    // payload carrying `h` is from a DS that may no longer send the plain id,
+    // and guessing is worse than degrading to opening the app.
   }
-  const conversationId = (data as { conversationId?: unknown }).conversationId;
-  const kind = (data as { kind?: unknown }).kind;
-  if (typeof conversationId !== "string" || typeof kind !== "string") {
-    return null;
-  }
-  return { conversationId, kind };
+  return null;
 }
 
 /**
@@ -249,3 +253,6 @@ export function addPushListeners(handlers: PushHandlers): () => void {
     receivedSub.remove();
   };
 }
+
+export { readPayloadRouting } from "./routing";
+export type { PayloadRouting } from "./routing";

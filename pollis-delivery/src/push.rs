@@ -233,7 +233,7 @@ async fn push_tokens(
 /// Best-effort by design — a push nobody is waiting on must not be the thing
 /// that fails a send. A user with no handle simply gets no `h`, and the client
 /// falls back to `conversationId` exactly as an older client does.
-async fn mint_push_handles(
+pub async fn mint_push_handles(
     conn: &Connection,
     user_ids: &[String],
     conversation_id: &str,
@@ -275,6 +275,94 @@ async fn is_dm(conn: &Connection, conversation_id: &str) -> anyhow::Result<bool>
         )
         .await?;
     Ok(rows.next().await?.is_some())
+}
+
+// ── POST /v1/push/resolve ────────────────────────────────────────────────────
+
+/// How long a minted handle stays resolvable (#1122).
+///
+/// A notification is worth resolving for days, not months: the tap may come
+/// long after the buzz, and `onDataReceived` may re-ingest in the background
+/// before any tap at all. Past this the handle is swept and the client degrades
+/// to opening the app.
+///
+/// The TTL is the whole mitigation for the one cost this design has — the DS
+/// holding a durable "a notification for conversation X went to user Y" record
+/// it previously only held for the instant it built the payload.
+pub const PUSH_HANDLE_TTL_DAYS: i64 = 7;
+
+/// POST `/v1/push/resolve` — trade an opaque handle for its routing target.
+///
+/// Scoped to the authenticated user, and a handle that is not theirs answers
+/// exactly like one that does not exist: `conversation_id: None`. A distinct
+/// error would confirm the handle is real, which is the one thing the opaque
+/// handle exists to avoid leaking.
+///
+/// **Deliberately not single-use.** `onDataReceived` resolves it for a
+/// background re-ingest and a later tap resolves it again to navigate; burning
+/// it on first use would break tap-to-conversation for every notification the
+/// client had already ingested.
+pub async fn resolve_push_handle(
+    State(state): State<AppState>,
+    req: RawRequest,
+) -> Result<Response, AppError> {
+    let parsed: ResolvePushHandleBody = match serde_json::from_slice(&req.body) {
+        Ok(b) => b,
+        Err(_) => return Ok(crate::writes::bad_request("invalid body")),
+    };
+    let who = match authed_user(&state, &req, None).await? {
+        Ok(u) => u,
+        Err(resp) => return Ok(resp),
+    };
+    let conn = state.db.conn().await?;
+    let found = lookup_push_handle(&conn, &who, &parsed.handle).await?;
+    let (conversation_id, kind) = match found {
+        Some((c, k)) => (Some(c), Some(k)),
+        None => (None, None),
+    };
+    Ok(crate::writes::ok_response::<ResolvePushHandleBody>(
+        ResolvePushHandleResponse { conversation_id, kind },
+    ))
+}
+
+/// The scoped lookup: handle AND owner, inside the TTL.
+///
+/// `user_id` is part of the predicate rather than checked afterwards, so a
+/// handle belonging to someone else is indistinguishable from an absent one at
+/// the SQL level — there is no branch that could later be made to differ.
+pub async fn lookup_push_handle(
+    conn: &Connection,
+    user_id: &str,
+    handle: &str,
+) -> anyhow::Result<Option<(String, String)>> {
+    let mut rows = conn
+        .query(
+            "SELECT conversation_id, kind FROM push_handle \
+             WHERE handle = ?1 AND user_id = ?2 \
+               AND created_at >= datetime('now', ?3) \
+             LIMIT 1",
+            libsql::params![
+                handle.to_string(),
+                user_id.to_string(),
+                format!("-{PUSH_HANDLE_TTL_DAYS} days")
+            ],
+        )
+        .await?;
+    match rows.next().await? {
+        Some(row) => Ok(Some((row.get::<String>(0)?, row.get::<String>(1)?))),
+        None => Ok(None),
+    }
+}
+
+/// Drop handles past the TTL. Called from the DS retention sweep.
+pub async fn sweep_push_handles(conn: &Connection) -> anyhow::Result<u64> {
+    let n = conn
+        .execute(
+            "DELETE FROM push_handle WHERE created_at < datetime('now', ?1)",
+            libsql::params![format!("-{PUSH_HANDLE_TTL_DAYS} days")],
+        )
+        .await?;
+    Ok(n)
 }
 
 #[cfg(test)]
@@ -427,92 +515,4 @@ mod tests {
             .unwrap()
             .is_some());
     }
-}
-
-// ── POST /v1/push/resolve ────────────────────────────────────────────────────
-
-/// How long a minted handle stays resolvable (#1122).
-///
-/// A notification is worth resolving for days, not months: the tap may come
-/// long after the buzz, and `onDataReceived` may re-ingest in the background
-/// before any tap at all. Past this the handle is swept and the client degrades
-/// to opening the app.
-///
-/// The TTL is the whole mitigation for the one cost this design has — the DS
-/// holding a durable "a notification for conversation X went to user Y" record
-/// it previously only held for the instant it built the payload.
-pub const PUSH_HANDLE_TTL_DAYS: i64 = 7;
-
-/// POST `/v1/push/resolve` — trade an opaque handle for its routing target.
-///
-/// Scoped to the authenticated user, and a handle that is not theirs answers
-/// exactly like one that does not exist: `conversation_id: None`. A distinct
-/// error would confirm the handle is real, which is the one thing the opaque
-/// handle exists to avoid leaking.
-///
-/// **Deliberately not single-use.** `onDataReceived` resolves it for a
-/// background re-ingest and a later tap resolves it again to navigate; burning
-/// it on first use would break tap-to-conversation for every notification the
-/// client had already ingested.
-pub async fn resolve_push_handle(
-    State(state): State<AppState>,
-    req: RawRequest,
-) -> Result<Response, AppError> {
-    let parsed: ResolvePushHandleBody = match serde_json::from_slice(&req.body) {
-        Ok(b) => b,
-        Err(_) => return Ok(crate::writes::bad_request("invalid body")),
-    };
-    let who = match authed_user(&state, &req, None).await? {
-        Ok(u) => u,
-        Err(resp) => return Ok(resp),
-    };
-    let conn = state.db.conn().await?;
-    let found = lookup_push_handle(&conn, &who, &parsed.handle).await?;
-    let (conversation_id, kind) = match found {
-        Some((c, k)) => (Some(c), Some(k)),
-        None => (None, None),
-    };
-    Ok(crate::writes::ok_response::<ResolvePushHandleBody>(
-        ResolvePushHandleResponse { conversation_id, kind },
-    ))
-}
-
-/// The scoped lookup: handle AND owner, inside the TTL.
-///
-/// `user_id` is part of the predicate rather than checked afterwards, so a
-/// handle belonging to someone else is indistinguishable from an absent one at
-/// the SQL level — there is no branch that could later be made to differ.
-pub(crate) async fn lookup_push_handle(
-    conn: &Connection,
-    user_id: &str,
-    handle: &str,
-) -> anyhow::Result<Option<(String, String)>> {
-    let mut rows = conn
-        .query(
-            "SELECT conversation_id, kind FROM push_handle \
-             WHERE handle = ?1 AND user_id = ?2 \
-               AND created_at >= datetime('now', ?3) \
-             LIMIT 1",
-            libsql::params![
-                handle.to_string(),
-                user_id.to_string(),
-                format!("-{PUSH_HANDLE_TTL_DAYS} days")
-            ],
-        )
-        .await?;
-    match rows.next().await? {
-        Some(row) => Ok(Some((row.get::<String>(0)?, row.get::<String>(1)?))),
-        None => Ok(None),
-    }
-}
-
-/// Drop handles past the TTL. Called from the DS retention sweep.
-pub async fn sweep_push_handles(conn: &Connection) -> anyhow::Result<u64> {
-    let n = conn
-        .execute(
-            "DELETE FROM push_handle WHERE created_at < datetime('now', ?1)",
-            libsql::params![format!("-{PUSH_HANDLE_TTL_DAYS} days")],
-        )
-        .await?;
-    Ok(n)
 }
