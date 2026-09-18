@@ -304,6 +304,129 @@ mod tests {
     fn no_authorization_header_without_a_token() {
         assert_eq!(authorization(None), None);
     }
+
+    async fn conn() -> Connection {
+        let db = libsql::Builder::new_local(":memory:").build().await.unwrap();
+        let conn = db.connect().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys=OFF;").await.unwrap();
+        pollis_schema::apply::single_db(&conn).await.expect("schema");
+        conn
+    }
+
+    /// A handle resolves only for the user it was minted for, and only to what
+    /// it was minted for.
+    #[tokio::test]
+    async fn a_handle_resolves_for_its_owner() {
+        let c = conn().await;
+        let handles =
+            mint_push_handles(&c, &["alice".to_string()], "conv-1", "dm").await;
+        let h = handles.get("alice").expect("alice got a handle");
+
+        assert_eq!(
+            lookup_push_handle(&c, "alice", h).await.unwrap(),
+            Some(("conv-1".to_string(), "dm".to_string()))
+        );
+    }
+
+    /// Someone else's handle is indistinguishable from one that never existed.
+    ///
+    /// The point of the opaque handle is that possessing it proves nothing, so
+    /// the resolve must not confirm it is real to a caller it does not belong
+    /// to — same answer for "not yours" and "not a handle".
+    #[tokio::test]
+    async fn another_users_handle_is_indistinguishable_from_a_missing_one() {
+        let c = conn().await;
+        let handles =
+            mint_push_handles(&c, &["alice".to_string()], "conv-1", "dm").await;
+        let h = handles.get("alice").unwrap();
+
+        assert_eq!(
+            lookup_push_handle(&c, "bob", h).await.unwrap(),
+            None,
+            "bob must not be able to resolve alice's handle"
+        );
+        assert_eq!(
+            lookup_push_handle(&c, "bob", "never-minted").await.unwrap(),
+            None
+        );
+    }
+
+    /// Every notification gets a fresh handle.
+    ///
+    /// This is the whole reason the design is a random handle rather than an
+    /// HMAC of the conversation id: a stable per-conversation pseudonym would
+    /// let Expo/APNs/FCM COUNT a conversation without naming it, which is most
+    /// of what the metadata was worth.
+    #[tokio::test]
+    async fn handles_are_never_reused_across_notifications() {
+        let c = conn().await;
+        let users = vec!["alice".to_string()];
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..8 {
+            let h = mint_push_handles(&c, &users, "conv-1", "dm")
+                .await
+                .remove("alice")
+                .expect("minted");
+            assert!(
+                seen.insert(h),
+                "the same conversation must not produce a repeated handle"
+            );
+        }
+    }
+
+    /// One handle per recipient user, and users do not share.
+    #[tokio::test]
+    async fn each_recipient_gets_their_own_handle() {
+        let c = conn().await;
+        let handles = mint_push_handles(
+            &c,
+            &["alice".to_string(), "bob".to_string()],
+            "conv-1",
+            "channel",
+        )
+        .await;
+        let a = handles.get("alice").unwrap();
+        let b = handles.get("bob").unwrap();
+        assert_ne!(a, b, "two recipients must not share a handle");
+        assert_eq!(lookup_push_handle(&c, "alice", b).await.unwrap(), None);
+        assert_eq!(lookup_push_handle(&c, "bob", a).await.unwrap(), None);
+    }
+
+    /// Past the TTL a handle stops resolving, and the sweep removes it.
+    ///
+    /// The TTL is the mitigation for this table's one cost — a durable record
+    /// that a notification for conversation X went to user Y — so "it expires"
+    /// has to be a property, not a comment.
+    #[tokio::test]
+    async fn an_expired_handle_stops_resolving_and_is_swept() {
+        let c = conn().await;
+        let handles =
+            mint_push_handles(&c, &["alice".to_string()], "conv-1", "dm").await;
+        let h = handles.get("alice").unwrap().clone();
+
+        // Age the row past the TTL.
+        c.execute(
+            "UPDATE push_handle SET created_at = datetime('now', ?1)",
+            libsql::params![format!("-{} days", PUSH_HANDLE_TTL_DAYS + 1)],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            lookup_push_handle(&c, "alice", &h).await.unwrap(),
+            None,
+            "an expired handle must not resolve"
+        );
+        assert_eq!(sweep_push_handles(&c).await.unwrap(), 1);
+
+        // And a fresh one survives the sweep, so it is not deleting everything.
+        let fresh = mint_push_handles(&c, &["alice".to_string()], "conv-2", "dm").await;
+        assert_eq!(sweep_push_handles(&c).await.unwrap(), 0);
+        assert!(lookup_push_handle(&c, "alice", fresh.get("alice").unwrap())
+            .await
+            .unwrap()
+            .is_some());
+    }
 }
 
 // ── POST /v1/push/resolve ────────────────────────────────────────────────────
