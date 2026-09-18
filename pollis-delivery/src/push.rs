@@ -30,7 +30,19 @@
 //! Best-effort throughout: a push that fails to send must never fail a send that
 //! already landed.
 
+use std::collections::HashMap;
+
+use axum::extract::State;
+use axum::response::Response;
 use libsql::Connection;
+use pollis_api::devices::{ResolvePushHandleBody, ResolvePushHandleResponse};
+use rand::rngs::OsRng;
+use rand::RngCore as _;
+
+use crate::error::AppError;
+use crate::reads::authed_user;
+use crate::writes::RawRequest;
+use crate::AppState;
 use crate::util::{BIND_CHUNK, placeholders};
 
 /// Expo's push service endpoint. Accepts a JSON array of up to 100 messages.
@@ -108,9 +120,11 @@ pub async fn notify_new_message(
         "channel"
     };
 
+    let handles = mint_push_handles(conn, &user_ids, conversation_id, kind).await;
+
     let messages: Vec<serde_json::Value> = tokens
         .into_iter()
-        .map(|(token, platform)| {
+        .map(|(token, platform, user_id)| {
             // Generic, content-free alert — the data fields drive routing and a
             // local re-ingest; the body intentionally reveals nothing.
             let mut msg = serde_json::json!({
@@ -118,7 +132,13 @@ pub async fn notify_new_message(
                 "title": "New message",
                 "body": "You have a new message",
                 "priority": "high",
+                // `h` is the opaque handle (#1122); the client resolves it over
+                // its authenticated channel. `conversationId` and `kind` stay
+                // for ONE release so shipped clients keep routing taps — see
+                // the rollout note on #1122. A follow-up drops them once
+                // clients that prefer `h` are the floor.
                 "data": {
+                    "h": handles.get(&user_id),
                     "conversationId": conversation_id,
                     "kind": kind,
                 },
@@ -178,22 +198,73 @@ async fn conversation_recipients(
     Ok(out)
 }
 
+/// `(token, platform, user_id)` per registered device.
+///
+/// The `user_id` rides along because the notification handle is minted per
+/// RECIPIENT USER (#1122): every token belonging to one user carries that
+/// user's handle, so the payload names no conversation and a provider cannot
+/// correlate a handle across users.
 async fn push_tokens(
     conn: &Connection,
     user_ids: &[String],
-) -> anyhow::Result<Vec<(String, Option<String>)>> {
+) -> anyhow::Result<Vec<(String, Option<String>, String)>> {
     let mut out = Vec::new();
     for chunk in user_ids.chunks(BIND_CHUNK) {
         let placeholders = placeholders(chunk.len(), 1);
-        let sql =
-            format!("SELECT token, platform FROM push_token WHERE user_id IN ({placeholders})");
+        let sql = format!(
+            "SELECT token, platform, user_id FROM push_token WHERE user_id IN ({placeholders})"
+        );
         let params: Vec<libsql::Value> = chunk.iter().map(|u| u.clone().into()).collect();
         let mut rows = conn.query(&sql, params).await?;
         while let Some(row) = rows.next().await? {
-            out.push((row.get(0)?, row.get(1)?));
+            out.push((row.get(0)?, row.get(1)?, row.get(2)?));
         }
     }
     Ok(out)
+}
+
+/// Mint one opaque handle per recipient user and record what it resolves to
+/// (#1122). Returns `user_id -> handle`.
+///
+/// 128 bits from the OS CSPRNG, fresh every notification: an HMAC of the
+/// conversation id would be a stable pseudonym the providers could COUNT even
+/// without naming it, which is most of what the metadata was worth.
+///
+/// Best-effort by design — a push nobody is waiting on must not be the thing
+/// that fails a send. A user with no handle simply gets no `h`, and the client
+/// falls back to `conversationId` exactly as an older client does.
+async fn mint_push_handles(
+    conn: &Connection,
+    user_ids: &[String],
+    conversation_id: &str,
+    kind: &str,
+) -> HashMap<String, String> {
+    use base64::Engine as _;
+    let mut out = HashMap::new();
+    for user in user_ids {
+        let mut raw = [0u8; 16];
+        OsRng.fill_bytes(&mut raw);
+        let handle = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
+        let wrote = conn
+            .execute(
+                "INSERT INTO push_handle (handle, user_id, conversation_id, kind) \
+                 VALUES (?1, ?2, ?3, ?4)",
+                libsql::params![
+                    handle.clone(),
+                    user.clone(),
+                    conversation_id.to_string(),
+                    kind.to_string()
+                ],
+            )
+            .await;
+        match wrote {
+            Ok(_) => {
+                out.insert(user.clone(), handle);
+            }
+            Err(e) => tracing::warn!("push handle insert failed for {user}: {e}"),
+        }
+    }
+    out
 }
 
 async fn is_dm(conn: &Connection, conversation_id: &str) -> anyhow::Result<bool> {
@@ -233,4 +304,92 @@ mod tests {
     fn no_authorization_header_without_a_token() {
         assert_eq!(authorization(None), None);
     }
+}
+
+// ── POST /v1/push/resolve ────────────────────────────────────────────────────
+
+/// How long a minted handle stays resolvable (#1122).
+///
+/// A notification is worth resolving for days, not months: the tap may come
+/// long after the buzz, and `onDataReceived` may re-ingest in the background
+/// before any tap at all. Past this the handle is swept and the client degrades
+/// to opening the app.
+///
+/// The TTL is the whole mitigation for the one cost this design has — the DS
+/// holding a durable "a notification for conversation X went to user Y" record
+/// it previously only held for the instant it built the payload.
+pub const PUSH_HANDLE_TTL_DAYS: i64 = 7;
+
+/// POST `/v1/push/resolve` — trade an opaque handle for its routing target.
+///
+/// Scoped to the authenticated user, and a handle that is not theirs answers
+/// exactly like one that does not exist: `conversation_id: None`. A distinct
+/// error would confirm the handle is real, which is the one thing the opaque
+/// handle exists to avoid leaking.
+///
+/// **Deliberately not single-use.** `onDataReceived` resolves it for a
+/// background re-ingest and a later tap resolves it again to navigate; burning
+/// it on first use would break tap-to-conversation for every notification the
+/// client had already ingested.
+pub async fn resolve_push_handle(
+    State(state): State<AppState>,
+    req: RawRequest,
+) -> Result<Response, AppError> {
+    let parsed: ResolvePushHandleBody = match serde_json::from_slice(&req.body) {
+        Ok(b) => b,
+        Err(_) => return Ok(crate::writes::bad_request("invalid body")),
+    };
+    let who = match authed_user(&state, &req, None).await? {
+        Ok(u) => u,
+        Err(resp) => return Ok(resp),
+    };
+    let conn = state.db.conn().await?;
+    let found = lookup_push_handle(&conn, &who, &parsed.handle).await?;
+    let (conversation_id, kind) = match found {
+        Some((c, k)) => (Some(c), Some(k)),
+        None => (None, None),
+    };
+    Ok(crate::writes::ok_response::<ResolvePushHandleBody>(
+        ResolvePushHandleResponse { conversation_id, kind },
+    ))
+}
+
+/// The scoped lookup: handle AND owner, inside the TTL.
+///
+/// `user_id` is part of the predicate rather than checked afterwards, so a
+/// handle belonging to someone else is indistinguishable from an absent one at
+/// the SQL level — there is no branch that could later be made to differ.
+pub(crate) async fn lookup_push_handle(
+    conn: &Connection,
+    user_id: &str,
+    handle: &str,
+) -> anyhow::Result<Option<(String, String)>> {
+    let mut rows = conn
+        .query(
+            "SELECT conversation_id, kind FROM push_handle \
+             WHERE handle = ?1 AND user_id = ?2 \
+               AND created_at >= datetime('now', ?3) \
+             LIMIT 1",
+            libsql::params![
+                handle.to_string(),
+                user_id.to_string(),
+                format!("-{PUSH_HANDLE_TTL_DAYS} days")
+            ],
+        )
+        .await?;
+    match rows.next().await? {
+        Some(row) => Ok(Some((row.get::<String>(0)?, row.get::<String>(1)?))),
+        None => Ok(None),
+    }
+}
+
+/// Drop handles past the TTL. Called from the DS retention sweep.
+pub async fn sweep_push_handles(conn: &Connection) -> anyhow::Result<u64> {
+    let n = conn
+        .execute(
+            "DELETE FROM push_handle WHERE created_at < datetime('now', ?1)",
+            libsql::params![format!("-{PUSH_HANDLE_TTL_DAYS} days")],
+        )
+        .await?;
+    Ok(n)
 }
