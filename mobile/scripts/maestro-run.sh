@@ -23,8 +23,8 @@ ENV_FILE="$MAE/.env"
 APP_ID="com.pollis.mobile"
 
 # Device names — override to match your simulators/emulators.
-IOS_DEVICE="${IOS_DEVICE:-iPhone 17 Pro}"
-IPAD_DEVICE="${IPAD_DEVICE:-iPad Pro 13-inch (M4)}"
+IOS_DEVICE="${IOS_DEVICE:-iPhone 18 Pro}"
+IPAD_DEVICE="${IPAD_DEVICE:-iPad Pro 13-inch (M5)}"
 ANDROID_AVD="${ANDROID_AVD:-Pixel_8_API_35}"
 
 # Resolve the flow path.
