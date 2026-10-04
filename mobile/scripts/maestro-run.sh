@@ -71,10 +71,20 @@ case "$PLATFORM" in
   ios|ipad)
     NAME="$IOS_DEVICE"; [ "$PLATFORM" = "ipad" ] && NAME="$IPAD_DEVICE"
     echo "==> booting iOS simulator: $NAME"
-    xcrun simctl boot "$NAME" 2>/dev/null || true
-    open -a Simulator || true
-    UDID="$(xcrun simctl list devices | grep -F "$NAME (" | grep -Eo '[0-9A-F-]{36}' | head -1)"
-    [ -n "$UDID" ] && DEVICE_SEL=(--device "$UDID")
+    # Resolve the name among AVAILABLE devices first. Simulator names change
+    # with each Xcode (Xcode 27 has no "iPhone 17 Pro"), and an unmatched name
+    # used to fall through to a run with no --device at all.
+    UDID="$(xcrun simctl list devices available | grep -F "    $NAME (" | grep -Eo '[0-9A-F-]{36}' | head -1 || true)"
+    if [ -z "$UDID" ]; then
+      echo "no available simulator named \"$NAME\" — set IOS_DEVICE / IPAD_DEVICE to one of:" >&2
+      xcrun simctl list devices available | grep -E "iPhone|iPad" >&2
+      exit 1
+    fi
+    xcrun simctl boot "$UDID" 2>/dev/null || true
+    # Xcode 27 ships no Simulator.app; the simulator runs headless, which
+    # Maestro and `simctl io screenshot` are both fine with.
+    open -a Simulator 2>/dev/null || true
+    DEVICE_SEL=(--device "$UDID")
     ;;
   android)
     echo "==> booting Android emulator: $ANDROID_AVD"
