@@ -209,7 +209,13 @@ mobile/android-env.sh` before any ubrn/gradle/adb command. Toolchain (all
 no-sudo): OpenJDK 17 via `brew install openjdk@17`; SDK at
 `~/Library/Android/sdk` (cmdline-tools unzipped to `cmdline-tools/latest/`);
 `sdkmanager` packages `platform-tools platforms;android-36 build-tools;36.0.0
-ndk;27.1.12297006 cmake;3.22.1`. A clean `gradlew assembleDebug` produces
+ndk;27.1.12297006 cmake;3.22.1`, plus `emulator
+system-images;android-36;google_apis;arm64-v8a` for the Maestro tier, whose
+AVD is `pollis_e2e` (`maestro-run.sh`'s default): `echo no | avdmanager create
+avd -n pollis_e2e -k "system-images;android-36;google_apis;arm64-v8a" -d
+pixel_8`. AVDs live in `~/.android/avd`, outside the SDK, so they survive an SDK
+reinstall but are invisible (`emulator -list-avds` is empty) until the SDK and
+that system image are back. A clean `gradlew assembleDebug` produces
 `android/app/build/outputs/apk/debug/app-debug.apk` with `libpollis-native.so`
 embedded for arm64-v8a / armeabi-v7a / x86_64.
 

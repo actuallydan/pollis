@@ -25,7 +25,7 @@ APP_ID="com.pollis.mobile"
 # Device names — override to match your simulators/emulators.
 IOS_DEVICE="${IOS_DEVICE:-iPhone 18 Pro}"
 IPAD_DEVICE="${IPAD_DEVICE:-iPad Pro 13-inch (M5)}"
-ANDROID_AVD="${ANDROID_AVD:-Pixel_8_API_35}"
+ANDROID_AVD="${ANDROID_AVD:-pollis_e2e}"
 
 # Resolve the flow path.
 if [ "$FLOW" = "all" ]; then
@@ -87,8 +87,16 @@ case "$PLATFORM" in
     DEVICE_SEL=(--device "$UDID")
     ;;
   android)
-    echo "==> booting Android emulator: $ANDROID_AVD"
-    ( "$ANDROID_HOME/emulator/emulator" -avd "$ANDROID_AVD" -no-snapshot -no-boot-anim >/dev/null 2>&1 & )
+    if ! "$ANDROID_HOME/emulator/emulator" -list-avds 2>/dev/null | grep -qx "$ANDROID_AVD"; then
+      echo "no AVD named \"$ANDROID_AVD\" — set ANDROID_AVD to one of:" >&2
+      "$ANDROID_HOME/emulator/emulator" -list-avds >&2 || true
+      exit 1
+    fi
+    # Reuse a running emulator; a second instance of the same AVD refuses to start.
+    if ! adb devices | grep -q '^emulator-'; then
+      echo "==> booting Android emulator: $ANDROID_AVD"
+      ( "$ANDROID_HOME/emulator/emulator" -avd "$ANDROID_AVD" -no-snapshot -no-boot-anim >/dev/null 2>&1 & )
+    fi
     adb wait-for-device
     # give the launcher a moment
     adb shell 'while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 1; done'

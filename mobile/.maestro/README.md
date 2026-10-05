@@ -77,7 +77,8 @@ mobile/scripts/maestro-run.sh messaging android
 Screenshots land in `mobile/.maestro/artifacts/<date>/<platform>/` — that's the
 gallery the visual evaluator reviews. Override device names with `IOS_DEVICE=…`,
 `IPAD_DEVICE=…`, `ANDROID_AVD=…`. The defaults are Xcode 27's `iPhone 18 Pro`
-and `iPad Pro 13-inch (M5)`. Simulator names change with each Xcode, so the
+and `iPad Pro 13-inch (M5)`, and the `pollis_e2e` AVD (Pixel 8, API 36
+`google_apis` arm64 — see `mobile/CLAUDE.md` for creating it). Simulator names change with each Xcode, so the
 script resolves the name among *available* simulators and, if none matches,
 exits printing the ones that exist rather than running with no `--device` at
 all:
