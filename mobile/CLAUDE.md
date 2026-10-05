@@ -215,7 +215,13 @@ AVD is `pollis_e2e` (`maestro-run.sh`'s default): `echo no | avdmanager create
 avd -n pollis_e2e -k "system-images;android-36;google_apis;arm64-v8a" -d
 pixel_8`. AVDs live in `~/.android/avd`, outside the SDK, so they survive an SDK
 reinstall but are invisible (`emulator -list-avds` is empty) until the SDK and
-that system image are back. A clean `gradlew assembleDebug` produces
+that system image are back. If the emulator dies at boot with `detected a
+hanging thread 'QEMU2 main loop'` (seen on a heavily loaded Mac, right after
+"Vulkan emulation initialized"), kill any orphan `qemu-system-aarch64` still
+holding the AVD and boot it headless on the software renderer —
+`emulator -avd pollis_e2e -no-snapshot -no-boot-anim -no-window -gpu
+swiftshader_indirect` came up in ~30 s where the default boot crashed every
+time; `maestro-run.sh` reuses an emulator that is already running. A clean `gradlew assembleDebug` produces
 `android/app/build/outputs/apk/debug/app-debug.apk` with `libpollis-native.so`
 embedded for arm64-v8a / armeabi-v7a / x86_64.
 
