@@ -105,6 +105,31 @@ const SECRET_KEYS = [
   "APP_REVIEW_LOGIN",
 ] as const;
 
+// Non-secret per-environment tunables, set (or not) as wrangler `vars` and
+// forwarded to the container only when set — an unset key leaves the DS on its
+// compiled-in default (ratelimit.rs `RateLimitConfig::from_env`). Every per-IP
+// rate-limit tier is listed so any of them can be tuned per environment with a
+// config change alone; today only dev sets the two OTP tiers (the mobile e2e
+// suites sign up many accounts from one IP). Checked against
+// ds-config-manifest.json `optional_container_vars` by
+// scripts/check-ds-config-chain.py.
+const TUNABLE_VAR_KEYS = [
+  "RL_REQUEST_OTP_MAX",
+  "RL_REQUEST_OTP_WINDOW_SECS",
+  "RL_VERIFY_OTP_MAX",
+  "RL_VERIFY_OTP_WINDOW_SECS",
+  "RL_WRITE_MAX",
+  "RL_WRITE_WINDOW_SECS",
+  "RL_READ_MAX",
+  "RL_READ_WINDOW_SECS",
+  "RL_PROBE_MAX",
+  "RL_PROBE_WINDOW_SECS",
+  "RL_GET_MAX",
+  "RL_GET_WINDOW_SECS",
+  "RL_INVITE_REDEEM_MAX",
+  "RL_INVITE_REDEEM_WINDOW_SECS",
+] as const;
+
 interface SecretStoreBinding {
   get(): Promise<string>;
 }
@@ -122,7 +147,21 @@ type Env = {
   // is exactly how a routine dev migration would become a production outage.
   // Absent → DS_SINGLETON_NAME_FALLBACK, which is prod's existing object.
   DS_SINGLETON_NAME?: string;
-} & Record<(typeof SECRET_KEYS)[number], SecretStoreBinding | undefined>;
+} & Record<(typeof SECRET_KEYS)[number], SecretStoreBinding | undefined> &
+  Partial<Record<(typeof TUNABLE_VAR_KEYS)[number], string>>;
+
+// The tunables this environment actually sets, ready to spread into envVars.
+// Unset/empty keys are omitted so the DS default applies.
+function tunableVarEnv(env: Env): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const key of TUNABLE_VAR_KEYS) {
+    const value = env[key];
+    if (value) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
 
 // Derived from the base method so we don't depend on the (unexported)
 // CancellationOptions / StartAndWaitForPortsOptions types.
@@ -172,6 +211,8 @@ export class PollisDelivery extends Container<Env> {
     ...(this.env.POLLIS_DS_WATERMARK_STALE_MONTHS
       ? { POLLIS_DS_WATERMARK_STALE_MONTHS: this.env.POLLIS_DS_WATERMARK_STALE_MONTHS }
       : {}),
+    // Per-environment rate-limit tunables (TUNABLE_VAR_KEYS), only those set.
+    ...tunableVarEnv(this.env),
   };
 
   // Resolve every Secrets Store binding into a plain env map. Optional/unset
