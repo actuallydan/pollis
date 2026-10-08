@@ -187,6 +187,34 @@ those bytes are someone's identity key.
 **Trusted:** User's device, local database, the signed Tauri application binary (Tauri host + WebView renderer + `pollis-core`) at the installed version, and the device keystore — the OS keychain where one exists, otherwise the machine-bound encrypted file at the reduced strength described above.
 **Untrusted:** Network, Turso, server operators.
 
+## Client IPs at the Delivery Service
+
+No plain client IP is readable anywhere the DS controls — admins included. The
+only code that reads one is `pollis-delivery/src/ratelimit.rs`:
+`RateLimiter::client_key(tier, headers)` takes `CF-Connecting-IP` (else the first
+`X-Forwarded-For` hop, else the sentinel `"unknown"`) and hashes it in the same
+expression into a `ClientKey` = `{tier}:{hex(HMAC-SHA256(k, ip)[..16])}`, where
+`k` is 32 bytes from the OS CSPRNG drawn when the limiter is built — once per
+process, memory-only, never logged, persisted or configurable. `check` accepts
+only a `ClientKey`, whose sole constructor hashes, so a raw IP cannot become a
+map key; the same IP gets an unrelated pseudonym in another process and after a
+restart. Limits, windows and pruning are unchanged. Around it:
+`pollis-delivery/tests/no_client_ip_exposure.rs` fails if any other DS source
+names an IP header, any log/panic/print macro mentions headers, the DS adopts
+`ConnectInfo`/`peer_addr`/`TraceLayer`, the Worker logs or reads request
+headers, or either wrangler config stops pinning `observability.enabled: false`
+and `logpush: false` (Workers Logs records each request's headers and `cf`
+object). Cloudflare's edge still sees the IP in transit; `wrangler tail` can
+stream live request metadata to an account member and cannot be disabled by
+config. Policy: `docs/metadata-retention-policy.md` §3.
+
+The per-IP tiers are tunable per environment via `RL_{TIER}_{MAX,WINDOW_SECS}`
+wrangler `vars`, forwarded by `TUNABLE_VAR_KEYS` in `worker/index.ts` and
+declared under `optional_container_vars` in `ds-config-manifest.json`. Only dev
+sets any: `request-otp` 200 and `verify-otp` 600 per 10 min, because the mobile
+e2e suites run iPhone, iPad and Android in parallel from one machine (one IP) and
+every flow signs up a fresh account. Prod keeps the defaults (10 / 30 per 10 min).
+
 ## Network egress & the closed-overlay relay
 
 Every outbound connection goes to a fixed, small set of first-party hosts: the Delivery Service, Cloudflare R2, and LiveKit. (Turso used to be on that list; since #987 only the DS dials it — the client holds no database credential and does not link `libsql`.) The optional **closed-overlay relay** (`pollis-relay` crate; design `docs/relay-overlay-design.md` §14) can route the metadata-sensitive **control plane** through a first-party relay so the services see a relay's IP instead of the user's. It is **off by default** and inert unless `POLLIS_OVERLAY` selects a non-off mode at runtime.

@@ -28,7 +28,7 @@ Pollis stores no message plaintext anywhere. What the Delivery Service does hold
 which conversations exist, which users and devices belong to them, when envelopes were written, and
 how the MLS group state evolved. Encrypted envelopes are retained **only until every current member
 device has collected them** — bounded by the slowest device, never by a clock. Client IP addresses are
-used for rate limiting and are never written to a database. Push tokens are stored until the device
+used for rate limiting only, held in memory as a keyed per-process hash, and never written to a database. Push tokens are stored until the device
 re-registers or the account is deleted, and the notification they carry is content-free. Account
 records and membership rows are retained for the life of the account and removed when the account is
 deleted — as of 2026-08 by an enumerated, table-by-table teardown rather than by foreign-key cascades
@@ -221,14 +221,23 @@ done without breaking the envelope join) would be its own follow-up, deliberatel
 IPs are read for rate limiting only:
 
 - The Delivery Service reads `CF-Connecting-IP` (set by Cloudflare), falling back to the first hop of
-  `X-Forwarded-For`, else the sentinel `"unknown"` — `pollis-delivery/src/ratelimit.rs`. It is used as a
-  fixed-window counter key (`{tier}:{ip}`) held in an in-process `Mutex<HashMap>` and pruned
-  opportunistically past 10,000 entries. It is not persisted and does not survive a restart.
+  `X-Forwarded-For`, else the sentinel `"unknown"` — `pollis-delivery/src/ratelimit.rs` — and hashes it
+  immediately. The raw IP is never stored, even in memory: the fixed-window counter key is
+  `{tier}:{h}`, where `h` is the first 16 bytes of HMAC-SHA256 over the IP under a 32-byte key drawn
+  from the OS CSPRNG once per process. That key is held only in memory and is never logged, persisted
+  or configurable, so the stored pseudonyms cannot be reversed by enumerating the address space and
+  mean nothing after a restart. Counters live in an in-process `Mutex<HashMap>`, pruned
+  opportunistically past 10,000 entries, for at most their tier's window (60 s or 600 s). The API
+  makes a raw-IP key unrepresentable (`ClientKey` can only be built by hashing), and
+  `pollis-delivery/tests/no_client_ip_exposure.rs` fails the build if DS or Worker code logs, traces
+  or echoes an IP-bearing header, or if Workers Logs / Logpush are enabled for the DS Worker.
 - The relay reads the QUIC peer address for admission rate limiting only
   (`pollis-relay/src/server.rs:266`); it is not stored or logged.
 
 Caveat to state honestly rather than hide: **Cloudflare, as our edge, necessarily sees the client IP**,
-as does any transit provider. The relay overlay (`docs/relay-overlay-design.md`) exists precisely to hide
+as does any transit provider. An account member running `wrangler tail` against the DS Worker sees
+live request metadata for the duration of the tail; that is a Cloudflare account permission, not a
+config setting, and nothing is retained by it. The relay overlay (`docs/relay-overlay-design.md`) exists precisely to hide
 client IPs from the first-party services, and is opt-in and off by default. This policy governs what
 *we* retain; it does not claim our infrastructure providers see nothing.
 

@@ -128,8 +128,9 @@
         </div>
 
         <p>
-          Your IP address is <strong>not stored</strong>. It is read in memory for rate limiting and does not
-          survive a server restart. The network edge (Cloudflare) sees it in transit, as any edge does.
+          Your IP address is <strong>not stored</strong>. For rate limiting it is held in memory only as a
+          one-way keyed hash, for the length of the rate-limit window, and does not survive a server
+          restart. The network edge (Cloudflare) sees it in transit, as any edge does.
         </p>
         <p>
           Your device PIN never leaves your device; it locks the local keystore. The local message database on

@@ -469,7 +469,11 @@ routers are built from.
 **Auth is ENFORCED** in the harness DS (`require_auth = true`), so the suite drives
 the signed write path end to end. Per-IP rate limits are raised (every request in
 the run comes from 127.0.0.1, which the production limits read as one abusive
-client); `ratelimit.rs`'s own unit tests pin the real numbers.
+client); `ratelimit.rs`'s own unit tests pin the real numbers and that limiter keys
+are keyed hashes, never the IP. `pollis-delivery/tests/no_client_ip_exposure.rs`
+reads the DS and Worker source plus both wrangler configs and fails if a client
+IP could be logged, traced or recorded (see `overview.md` → Client IPs at the
+Delivery Service).
 
 ## The `DsFault` seam — injecting DS-side faults
 
