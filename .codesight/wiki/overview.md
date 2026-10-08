@@ -187,26 +187,36 @@ those bytes are someone's identity key.
 **Trusted:** User's device, local database, the signed Tauri application binary (Tauri host + WebView renderer + `pollis-core`) at the installed version, and the device keystore — the OS keychain where one exists, otherwise the machine-bound encrypted file at the reduced strength described above.
 **Untrusted:** Network, Turso, server operators.
 
-## Client IPs at the Delivery Service
+## Client IPs (DS, relay, LiveKit)
 
-No plain client IP is readable anywhere the DS controls — admins included. The
-only code that reads one is `pollis-delivery/src/ratelimit.rs`:
-`RateLimiter::client_key(tier, headers)` takes `CF-Connecting-IP` (else the first
-`X-Forwarded-For` hop, else the sentinel `"unknown"`) and hashes it in the same
-expression into a `ClientKey` = `{tier}:{hex(HMAC-SHA256(k, ip)[..16])}`, where
-`k` is 32 bytes from the OS CSPRNG drawn when the limiter is built — once per
-process, memory-only, never logged, persisted or configurable. `check` accepts
-only a `ClientKey`, whose sole constructor hashes, so a raw IP cannot become a
-map key; the same IP gets an unrelated pseudonym in another process and after a
-restart. Limits, windows and pruning are unchanged. Around it:
-`pollis-delivery/tests/no_client_ip_exposure.rs` fails if any other DS source
-names an IP header, any log/panic/print macro mentions headers, the DS adopts
-`ConnectInfo`/`peer_addr`/`TraceLayer`, the Worker logs or reads request
-headers, or either wrangler config stops pinning `observability.enabled: false`
-and `logpush: false` (Workers Logs records each request's headers and `cf`
-object). Cloudflare's edge still sees the IP in transit; `wrangler tail` can
-stream live request metadata to an account member and cannot be disabled by
-config. Policy: `docs/metadata-retention-policy.md` §3.
+No plain client IP is readable anywhere we run — admins included. Policy and
+full detail: `docs/metadata-retention-policy.md` §3.
+
+- **DS.** The Worker's Durable Object (`pollis-delivery/worker/index.ts`)
+  deletes every IP-bearing header (`CLIENT_IP_HEADERS`) and forwards only
+  `X-Pollis-Client-Bucket` = HMAC-SHA256(ip) under a random non-extractable
+  per-instance key (enough because every request goes through that one
+  object). The container never sees an IP. `ratelimit.rs`
+  `RateLimiter::client_key(tier, headers)` hashes the bucket (or, without the
+  Worker, the IP) again under a per-process CSPRNG key into a `ClientKey` =
+  `{tier}:{hex(HMAC[..16])}`; `check` accepts only a `ClientKey`, whose sole
+  constructor hashes. `tests/no_client_ip_exposure.rs` fails if DS source names
+  an IP header outside `ratelimit.rs`, logs headers, adopts
+  `ConnectInfo`/`peer_addr`/`TraceLayer`, if the Worker stops stripping a header
+  or logs, or if either wrangler config stops pinning `observability.enabled:
+  false` / `logpush: false`.
+- **Relay.** `pollis-relay/src/ratelimit.rs` `IpKey::of(ip)` (HMAC under a
+  per-boot key) is computed in the accept loop; the per-IP connection and
+  circuit maps hold only `IpKey`s.
+- **LiveKit.** Needs the IP to route media; keeps no logs (`livekit/DEPLOY.md`
+  → "No client IPs in logs").
+- **Device names.** Clients register `util::device_label()` ("macOS desktop"),
+  not the hostname; the DS redacts IP-shaped tokens in device names and
+  security-event notes (`util::redact_ip_literals`); migration 000034 scrubbed
+  old rows.
+
+Cloudflare's edge still sees the IP in transit and in its security dashboards;
+`wrangler tail` can stream live request metadata to an account member.
 
 The per-IP tiers are tunable per environment via `RL_{TIER}_{MAX,WINDOW_SECS}`
 wrangler `vars`, forwarded by `TUNABLE_VAR_KEYS` in `worker/index.ts` and

@@ -216,28 +216,43 @@ done without breaking the envelope join) would be its own follow-up, deliberatel
 
 ## 3. IP addresses
 
-**No client IP address is written to any database, log, or table.**
+**No client IP address is written to any database, log, or table — and none is readable in memory
+either, operators included.** IPs are used for rate limiting only, and only as keyed hashes:
 
-IPs are read for rate limiting only:
-
-- The Delivery Service reads `CF-Connecting-IP` (set by Cloudflare), falling back to the first hop of
-  `X-Forwarded-For`, else the sentinel `"unknown"` — `pollis-delivery/src/ratelimit.rs` — and hashes it
-  immediately. The raw IP is never stored, even in memory: the fixed-window counter key is
-  `{tier}:{h}`, where `h` is the first 16 bytes of HMAC-SHA256 over the IP under a 32-byte key drawn
-  from the OS CSPRNG once per process. That key is held only in memory and is never logged, persisted
-  or configurable, so the stored pseudonyms cannot be reversed by enumerating the address space and
-  mean nothing after a restart. Counters live in an in-process `Mutex<HashMap>`, pruned
-  opportunistically past 10,000 entries, for at most their tier's window (60 s or 600 s). The API
-  makes a raw-IP key unrepresentable (`ClientKey` can only be built by hashing), and
-  `pollis-delivery/tests/no_client_ip_exposure.rs` fails the build if DS or Worker code logs, traces
-  or echoes an IP-bearing header, or if Workers Logs / Logpush are enabled for the DS Worker.
-- The relay reads the QUIC peer address for admission rate limiting only
-  (`pollis-relay/src/server.rs:266`); it is not stored or logged.
+- **Delivery Service.** The client IP reaches the Cloudflare edge and the DS Worker's Durable Object,
+  which deletes every IP-bearing header (`CF-Connecting-IP`, `CF-Connecting-IPv6`, `CF-Pseudo-IPv4`,
+  `True-Client-IP`, `X-Real-IP`, `X-Forwarded-For`, `Forwarded`) and forwards only
+  `X-Pollis-Client-Bucket` = HMAC-SHA256 of the IP under a random, non-extractable key generated per
+  Durable Object instance (`pollis-delivery/worker/index.ts`). The container never receives a plain
+  client IP. The DS rate limiter (`pollis-delivery/src/ratelimit.rs`) hashes that bucket again under its
+  own 32-byte per-process key from the OS CSPRNG — held only in memory, never logged, persisted or
+  configurable — and keys its fixed-window counters on `{tier}:{h}` (16 bytes of the HMAC, hex).
+  Without the Worker in front (local runs) it falls back to `CF-Connecting-IP` / the first
+  `X-Forwarded-For` hop, hashed the same way. Counters live in an in-process `Mutex<HashMap>`, pruned
+  past 10,000 entries, for at most their tier's window (60 s or 600 s); none survive a restart. A
+  raw-IP key is unrepresentable (`ClientKey` can only be built by hashing), and
+  `pollis-delivery/tests/no_client_ip_exposure.rs` fails the build if DS or Worker code logs, traces or
+  echoes an IP-bearing header, if the Worker stops stripping one, or if Workers Logs / Logpush are
+  enabled in either wrangler config.
+- **Relay.** The relay reads the QUIC peer address for admission limits
+  (`pollis-relay/src/server.rs`, accept loop and `handle_connection`) and immediately reduces it to an
+  `IpKey` — 16 bytes of HMAC-SHA256 under a per-boot random key (`pollis-relay/src/ratelimit.rs`). Its
+  per-IP connection and circuit maps hold only those keys. Nothing is logged.
+- **LiveKit (calls).** The media server must see the client IP to route media; it keeps no logs of it:
+  nginx access and error logs are off, the PROXY-protocol hop that carried the client address to nginx is
+  gone, LiveKit logs at `warn`, and both containers run with docker `logging: driver: none`
+  (`livekit/`, see `livekit/DEPLOY.md` → "No client IPs in logs").
+- **Device names.** Clients used to register a device as `"{hostname} ({os})"`, and hostnames can embed
+  an address (`ip-10-0-0-12`). Clients now register an OS label ("macOS desktop"); the DS redacts any
+  IP-shaped token in a device name or security-log note on write (`pollis-delivery/src/util.rs`
+  `redact_ip_literals`), and migration `000034` scrubbed the rows written before.
 
 Caveat to state honestly rather than hide: **Cloudflare, as our edge, necessarily sees the client IP**,
 as does any transit provider. An account member running `wrangler tail` against the DS Worker sees
 live request metadata for the duration of the tail; that is a Cloudflare account permission, not a
-config setting, and nothing is retained by it. The relay overlay (`docs/relay-overlay-design.md`) exists precisely to hide
+config setting, and nothing is retained by it. Likewise **the edge provider's account administrators
+can view client IPs in its security dashboards** (firewall/WAF events, analytics); that is outside what
+our own configuration can turn off. The relay overlay (`docs/relay-overlay-design.md`) exists precisely to hide
 client IPs from the first-party services, and is opt-in and off by default. This policy governs what
 *we* retain; it does not claim our infrastructure providers see nothing.
 
