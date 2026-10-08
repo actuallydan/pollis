@@ -93,7 +93,10 @@ workflow's checks.
 1. The deploy's `docker compose up -d` recreates both containers, because their
    `logging` changed; recreating a container deletes its old `json-file` log.
    If in doubt, run `docker compose up -d --force-recreate` on the box.
-2. Make sure nothing else on the box still holds addresses:
+2. The deploy now runs `ufw logging off` every time and fails if either
+   container logs with anything but the `none` driver. For the one-time cleanup
+   of logs written before this change, dispatch the deploy with
+   `scrub_host_logs: true` — it does what is listed below. By hand, the same:
    ```bash
    ufw logging off                                   # UFW logs every blocked packet's source IP
    truncate -s 0 /var/lib/docker/containers/*/*-json.log   # any container log left behind
