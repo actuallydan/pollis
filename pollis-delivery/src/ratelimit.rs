@@ -14,18 +14,21 @@
 //! swap it for a shared store without touching the handlers. Reusable beyond the
 //! OTP endpoints — `check` is keyed by a tier plus a client identity.
 //!
-//! **Client IP:** the DS terminates TLS at a reverse proxy (Cloudflare) and
-//! serves plain HTTP, so the socket peer is the proxy, not the client. The real
-//! client IP is read from `CF-Connecting-IP` (set/overwritten by Cloudflare — a
-//! client cannot forge it *through* Cloudflare), falling back to the first
-//! `X-Forwarded-For` hop. Requests with neither header (local/dev/test, never
-//! real internet traffic) share one bucket so the limiter is still exercised
-//! rather than silently disabled.
+//! **Client identity:** the DS sits behind Cloudflare and serves plain HTTP, so
+//! the socket peer is the proxy, not the client. In production the container
+//! never sees a client IP at all: the Worker's Durable Object
+//! (`worker/index.ts`) deletes every IP-bearing header and sends
+//! `X-Pollis-Client-Bucket` — a keyed hash of the IP under a key only it holds —
+//! which a client cannot set (the object deletes any inbound copy). Without the
+//! Worker (local runs, tests) the DS falls back to `CF-Connecting-IP`, then the
+//! first `X-Forwarded-For` hop; requests with none of these share one bucket so
+//! the limiter is still exercised rather than silently disabled.
 //!
 //! **The IP is never a key.** The limiter needs to tell clients APART, not to
 //! know who they are, so the map holds `{tier}:{h}` where `h` is the first 16
-//! bytes of HMAC-SHA256 over the IP under a 32-byte key drawn from the OS CSPRNG
-//! when the [`RateLimiter`] is built. That key lives only in this process's
+//! bytes of HMAC-SHA256 over the client identity above (the Worker's bucket, or
+//! in a local run the IP) under a 32-byte key drawn from the OS CSPRNG when the
+//! [`RateLimiter`] is built. That key lives only in this process's
 //! memory — it is not logged, persisted or configurable — so a memory dump or a
 //! debug print of the map yields per-process pseudonyms that cannot be reversed
 //! by enumerating the IPv4 space, and that stop meaning anything at the next
@@ -276,7 +279,7 @@ impl RateLimiter {
     /// expression, so the raw IP never leaves this module — not to the
     /// middleware, not to a handler, not to a log line.
     pub fn client_key(&self, tier: &str, headers: &HeaderMap) -> ClientKey {
-        self.key_for_ip(tier, client_ip(headers))
+        self.key_for_ip(tier, client_identity(headers))
     }
 
     /// Hash `ip` into a [`ClientKey`]. Private: callers outside this module go
@@ -343,11 +346,25 @@ impl RateLimiter {
     }
 }
 
-/// The client IP for rate-limit keying — PRIVATE, and its only caller hashes
-/// the result immediately ([`RateLimiter::client_key`]). Prefers `CF-Connecting-IP` (Cloudflare
-/// sets it and a client cannot forge it through Cloudflare), then the first
-/// `X-Forwarded-For` hop. Absent both (local/dev/test), returns a shared
-/// sentinel so the limiter is still exercised rather than bypassed.
+/// The Worker's per-client bucket header (`worker/index.ts`). Set by the
+/// Durable Object after it deletes every IP header; never client-controlled.
+const CLIENT_BUCKET_HEADER: &str = "x-pollis-client-bucket";
+
+/// The client identity for rate-limit keying — PRIVATE, and its only caller
+/// hashes the result immediately ([`RateLimiter::client_key`]). Prefers the
+/// Worker's bucket (production: the only identity the container receives), and
+/// only without it — a local run with no Worker in front — the client IP.
+fn client_identity(headers: &HeaderMap) -> &str {
+    if let Some(bucket) = header_str(headers, CLIENT_BUCKET_HEADER) {
+        return bucket;
+    }
+    client_ip(headers)
+}
+
+/// The client IP, for a DS running without the Worker in front. Prefers
+/// `CF-Connecting-IP`, then the first `X-Forwarded-For` hop. Absent both,
+/// returns a shared sentinel so the limiter is still exercised rather than
+/// bypassed.
 fn client_ip(headers: &HeaderMap) -> &str {
     if let Some(ip) = header_str(headers, "cf-connecting-ip") {
         return ip;
@@ -712,5 +729,28 @@ mod tests {
 
         h.insert("cf-connecting-ip", "203.0.113.7".parse().unwrap());
         assert_eq!(client_ip(&h), "203.0.113.7");
+    }
+
+    /// Behind the Worker the container receives no IP, only the bucket — and
+    /// the bucket wins over any IP header that does arrive, so a local-run
+    /// fallback can never take precedence over the edge's answer.
+    #[test]
+    fn the_worker_bucket_is_the_identity_when_present() {
+        let mut h = HeaderMap::new();
+        h.insert("cf-connecting-ip", "203.0.113.7".parse().unwrap());
+        assert_eq!(client_identity(&h), "203.0.113.7");
+        h.insert(CLIENT_BUCKET_HEADER, "0123456789abcdef0123456789abcdef".parse().unwrap());
+        assert_eq!(client_identity(&h), "0123456789abcdef0123456789abcdef");
+
+        // Two clients with distinct buckets are limited independently.
+        let rl = RateLimiter::default();
+        let bucket = |b: &str| {
+            let mut h = HeaderMap::new();
+            h.insert(CLIENT_BUCKET_HEADER, b.parse().unwrap());
+            h
+        };
+        rl.check(&rl.client_key("t", &bucket("aa")), 1, 60, 1000);
+        assert_eq!(rl.check(&rl.client_key("t", &bucket("aa")), 1, 60, 1000), RateLimitOutcome::Limited);
+        assert_eq!(rl.check(&rl.client_key("t", &bucket("bb")), 1, 60, 1000), RateLimitOutcome::Allowed);
     }
 }

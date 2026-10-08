@@ -166,25 +166,39 @@ fn nothing_logs_request_headers() {
     );
 }
 
+/// The Worker is the one place a client IP legitimately arrives, so it must
+/// strip it: every IP-bearing header in `CLIENT_IP_HEADERS` (deleted before the
+/// request reaches the container) and nothing logged on the way.
 #[test]
-fn the_worker_never_logs_or_reads_ip_headers() {
+fn the_worker_strips_every_ip_header_and_logs_nothing() {
     let src = fs::read_to_string(crate_dir().join("worker/index.ts")).expect("read worker/index.ts");
+    let list = src
+        .split("const CLIENT_IP_HEADERS = [")
+        .nth(1)
+        .and_then(|rest| rest.split("] as const").next())
+        .expect("worker/index.ts must declare `const CLIENT_IP_HEADERS = [ ... ] as const`");
+    let required = IP_HEADERS.iter().copied().chain(["cf-connecting-ipv6", "cf-pseudo-ipv4"]);
+    for h in required {
+        assert!(
+            list.contains(&format!("\"{h}\"")),
+            "CLIENT_IP_HEADERS in worker/index.ts does not strip {h}"
+        );
+    }
+    assert!(
+        src.contains("for (const name of CLIENT_IP_HEADERS) {") && src.contains("headers.delete(name);"),
+        "worker/index.ts must delete every CLIENT_IP_HEADERS entry before forwarding"
+    );
+    assert!(
+        src.contains("headers.delete(CLIENT_BUCKET_HEADER);"),
+        "worker/index.ts must drop an inbound bucket header so a client cannot pick its own bucket"
+    );
     let mut violations = Vec::new();
     for (n, line) in code_lines(&src) {
-        let lower = line.to_ascii_lowercase();
         if line.contains("console.") {
             violations.push(format!("worker/index.ts:{n}: console output"));
         }
-        if lower.contains("request.headers") || lower.contains(".cf.") || lower.contains("request.cf") {
-            violations.push(format!("worker/index.ts:{n}: reads request headers / cf metadata"));
-        }
-        for h in IP_HEADERS.iter().filter(|h| **h != "forwarded") {
-            if lower.contains(h) {
-                violations.push(format!("worker/index.ts:{n}: names IP header {h}"));
-            }
-        }
     }
-    assert!(violations.is_empty(), "the Worker exposes request metadata:\n{}", violations.join("\n"));
+    assert!(violations.is_empty(), "the Worker logs:\n{}", violations.join("\n"));
 }
 
 /// Workers Logs (`observability`) records each invocation's request — headers
