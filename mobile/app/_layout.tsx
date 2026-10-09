@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import {
   useFonts,
   Geist_400Regular,
@@ -107,6 +108,9 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: semantic.bg }}>
       <SafeAreaProvider>
+        {/* Tracks the soft keyboard for every <Screen> and sheet (#1246):
+            the real IME inset under edge-to-edge, animated in step. */}
+        <KeyboardProvider>
         <QueryClientProvider client={queryClient}>
           <ThemeProvider>
             <StatusBar style="light" />
@@ -145,6 +149,8 @@ export default function RootLayout() {
               <Stack.Screen name="conversation/info" />
               <Stack.Screen name="chat/[id]" />
               <Stack.Screen name="chat/thread" />
+              {/* Full-screen attachment viewer (#1248): a page, not a modal. */}
+              <Stack.Screen name="media" />
               <Stack.Screen name="user/[id]" />
               <Stack.Screen name="report" options={settingsPage} />
               {/* Personal settings pages (settingsPage = drillIn since the
@@ -186,6 +192,7 @@ export default function RootLayout() {
             </AutoLockProvider>
           </ThemeProvider>
         </QueryClientProvider>
+        </KeyboardProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

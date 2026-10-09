@@ -15,6 +15,7 @@ import { DaySeparator } from "../../components/chat/DaySeparator";
 import { MessageRow } from "../../components/chat/MessageRow";
 import { Composer } from "../../components/chat/Composer";
 import { authorName } from "../../lib/authorName";
+import { outgoingText } from "../../lib/messageText";
 import { EditBar } from "../../components/chat/EditBar";
 import { MessageActionsSheet } from "../../components/chat/MessageActionsSheet";
 import { ChannelMenuSheet } from "../../components/chat/ChannelMenuSheet";
@@ -51,6 +52,7 @@ import { ensurePushRegistration } from "../../lib/push";
 import { appStore } from "../../stores/appStore";
 import { observer } from "mobx-react-lite";
 import { useNav } from "../../components/pane/paneContext";
+import { useOpenMediaViewer } from "../../hooks/useOpenMediaViewer";
 import { useIsRegular } from "../../hooks/useLayoutClass";
 import { selectConversation } from "../../hooks/useOpenConversation";
 
@@ -88,6 +90,7 @@ function TextChat(props: ChatViewProps = {}) {
     (params.kind === "channel" || params.kind === "dm" ? params.kind : null);
   const displayName =
     props.name ?? (typeof params.name === "string" ? params.name : undefined);
+  const openMedia = useOpenMediaViewer(conversationId, kind);
 
   const [draft, setDraft] = useState("");
   const [pendingAttachments, setPendingAttachments] = useState<
@@ -192,7 +195,7 @@ function TextChat(props: ChatViewProps = {}) {
   }, [newestId]);
 
   const onSend = () => {
-    const text = draft.trim();
+    const text = outgoingText(draft);
     if ((!text && pendingAttachments.length === 0) || sendMessage.isPending) {
       return;
     }
@@ -224,7 +227,7 @@ function TextChat(props: ChatViewProps = {}) {
   }, []);
 
   const onSaveEdit = () => {
-    const text = editDraft.trim();
+    const text = outgoingText(editDraft);
     if (!text || !editTarget) {
       return;
     }
@@ -425,6 +428,7 @@ function TextChat(props: ChatViewProps = {}) {
           time={timeLabel(m.created_at)}
           text={m.content}
           attachments={m.attachments}
+          onOpenAttachment={openMedia}
           pending={m.pending}
           failed={m.failed}
           edited={!!m.edited_at}
@@ -473,6 +477,7 @@ function TextChat(props: ChatViewProps = {}) {
       isDm,
       threadSummaries,
       openThread,
+      openMedia,
       mentionNames,
       selfName,
       t,

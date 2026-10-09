@@ -9,6 +9,7 @@ import { GROUP_WINDOW_MS, timeLabel } from "../../components/chat/dates";
 import { MessageRow } from "../../components/chat/MessageRow";
 import { Composer } from "../../components/chat/Composer";
 import { authorName } from "../../lib/authorName";
+import { outgoingText } from "../../lib/messageText";
 import {
   useMessages,
   useSendMessage,
@@ -18,6 +19,7 @@ import {
   type Message,
 } from "../../hooks/queries";
 import { useMentionCandidates } from "../../hooks/useMentionCandidates";
+import { useOpenMediaViewer } from "../../hooks/useOpenMediaViewer";
 import { appStore } from "../../stores/appStore";
 import { observer } from "mobx-react-lite";
 
@@ -56,6 +58,7 @@ function ThreadScreen() {
   );
 
   const { data: replies = [], isLoading } = useThreadMessages(threadId);
+  const openMedia = useOpenMediaViewer(conversationId, kind, threadId);
   const sendMessage = useSendMessage(conversationId, kind);
 
   // Mentions (#886) — same roster-only pool as the parent conversation.
@@ -80,7 +83,7 @@ function ThreadScreen() {
   }, [mentionCandidates, selfName]);
 
   const onSend = () => {
-    const text = draft.trim();
+    const text = outgoingText(draft);
     if (!text || !threadId || sendMessage.isPending) {
       return;
     }
@@ -121,6 +124,7 @@ function ThreadScreen() {
           time={timeLabel(m.created_at)}
           text={m.content}
           attachments={m.attachments}
+          onOpenAttachment={openMedia}
           pending={m.pending}
           failed={m.failed}
           edited={!!m.edited_at}
@@ -139,7 +143,7 @@ function ThreadScreen() {
         />
       );
     },
-    [currentUser, router, t, replies, mentionNames, selfName],
+    [currentUser, router, t, replies, mentionNames, selfName, openMedia],
   );
 
   const rootName = root
@@ -157,6 +161,7 @@ function ThreadScreen() {
           time={timeLabel(root.created_at)}
           text={root.content}
           attachments={root.attachments}
+          onOpenAttachment={openMedia}
           edited={!!root.edited_at}
           mentionNames={mentionNames}
           selfName={selfName}
