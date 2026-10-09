@@ -58,6 +58,33 @@ test("a build without POLLIS_OTA=production has updates off and no URL at all", 
   }
 });
 
+test("update requests carry no per-install identifier: EAS-Client-ID is a constant for everyone", () => {
+  const u = updatesConfigFor({ POLLIS_OTA: "production" }, true);
+  assert.equal(u.requestHeaders["EAS-Client-ID"], OTA.OTA_NEUTRAL_CLIENT_ID);
+  assert.match(OTA.OTA_NEUTRAL_CLIENT_ID, /^0{8}-0{4}-0{4}-0{4}-0{12}$/);
+  assert.equal(u.requestHeaders["Expo-Fatal-Error"], "");
+  // The override only works because both native downloaders apply
+  // config.requestHeaders AFTER their own EAS-Client-ID, on manifest and asset
+  // requests alike. Pin that ordering in the installed expo-updates, so an
+  // upgrade that moves it fails here instead of silently re-identifying installs.
+  const ios = readFileSync(join(mobile, "node_modules", "expo-updates", "ios", "EXUpdates", "AppLoader", "FileDownloader.swift"), "utf8");
+  for (const fn of ["private func setHTTPHeaderFields(", "private func setManifestHTTPHeaderFields("]) {
+    const body = ios.slice(ios.indexOf(fn), ios.indexOf("\n  }\n", ios.indexOf(fn)));
+    assert.ok(body.indexOf('forHTTPHeaderField: "EAS-Client-ID"') > 0, fn);
+    assert.ok(body.indexOf("for (key, value) in config.requestHeaders") > body.indexOf('forHTTPHeaderField: "EAS-Client-ID"'), fn);
+  }
+  const android = readFileSync(
+    join(mobile, "node_modules", "expo-updates", "android", "src", "main", "java", "expo", "modules", "updates", "loader", "FileDownloader.kt"),
+    "utf8",
+  );
+  for (const fn of ["fun createRequestForAsset(", "fun createRequestForRemoteUpdate("]) {
+    const start = android.indexOf(fn);
+    const body = android.slice(start, android.indexOf(".build()", start));
+    assert.ok(body.indexOf('.header("EAS-Client-ID", easClientID)') > 0, fn);
+    assert.ok(body.indexOf("for ((key, value) in configuration.requestHeaders)") > body.indexOf('.header("EAS-Client-ID", easClientID)'), fn);
+  }
+});
+
 test("an unknown POLLIS_OTA value is an error, not a silent off", () => {
   assert.throws(() => updatesConfigFor({ POLLIS_OTA: "prod" }, true), /must be "production"/);
   assert.throws(() => updatesConfigFor({ POLLIS_OTA: "staging" }, true), /must be "production"/);
@@ -84,7 +111,11 @@ test("a prod build is code-signed, checks on load in the background, and names t
     enableBsdiffPatchSupport: false,
     codeSigningCertificate: "./store/ota-code-signing.pem",
     codeSigningMetadata: { keyid: "main", alg: "rsa-v1_5-sha256" },
-    requestHeaders: { "expo-channel-name": "production" },
+    requestHeaders: {
+      "expo-channel-name": "production",
+      "EAS-Client-ID": "00000000-0000-0000-0000-000000000000",
+      "Expo-Fatal-Error": "",
+    },
   });
   // The URL a prod build asks is the URL the pipeline publishes for.
   const lib = readFileSync(join(mobile, "scripts", "ota", "lib.ts"), "utf8");

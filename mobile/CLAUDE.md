@@ -683,7 +683,15 @@ afterwards targets only the binaries built afterwards.
   has the URL, `ON_LOAD`/`0`, the channel header `expo-channel-name:
   production`, and `codeSigningCertificate: ./store/ota-code-signing.pem` +
   `codeSigningMetadata {keyid: main, alg: rsa-v1_5-sha256}` — the app refuses
-  any unsigned or wrongly signed manifest or directive. Every other build
+  any unsigned or wrongly signed manifest or directive. **No per-install
+  identifier on update requests:** expo-updates puts a random per-install UUID
+  in `EAS-Client-ID` on every manifest and asset request (and the last fatal
+  JS error in `Expo-Fatal-Error`); `requestHeaders` overrides them with a
+  constant all-zero UUID and `""`. This works because both native
+  FileDownloaders apply `requestHeaders` after their own headers (a test pins
+  that ordering in the installed expo-updates — re-check it on an SDK bump).
+  What remains is per-release (runtime version, current/embedded/failed update
+  ids), the platform, and the OS HTTP client's generic User-Agent. Every other build
   (dev client, Maestro's api-dev Release builds, CI's debug APK) gets
   `enabled: false` and **no URL**, so it cannot fetch anything: a dev build
   never takes a prod update, and nothing publishes a dev update a prod build

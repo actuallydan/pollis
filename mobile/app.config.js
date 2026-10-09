@@ -60,6 +60,8 @@ const OTA_CHANNEL = "production";
 const OTA_UPDATE_URL = "https://updates.pollis.com/api/manifest";
 const OTA_CERT_PATH = "./store/ota-code-signing.pem";
 const OTA_PROD_DS = "https://api.pollis.com";
+// Every install sends the same value: nothing in an update request identifies one.
+const OTA_NEUTRAL_CLIENT_ID = "00000000-0000-0000-0000-000000000000";
 
 function updatesConfigFor(env, certExists) {
   const mode = env.POLLIS_OTA;
@@ -100,7 +102,21 @@ function updatesConfigFor(env, certExists) {
     enableBsdiffPatchSupport: false,
     codeSigningCertificate: OTA_CERT_PATH,
     codeSigningMetadata: { keyid: "main", alg: "rsa-v1_5-sha256" },
-    requestHeaders: { "expo-channel-name": OTA_CHANNEL },
+    requestHeaders: {
+      "expo-channel-name": OTA_CHANNEL,
+      // expo-updates attaches an install-scoped random UUID (`EAS-Client-ID`,
+      // stored on the device) to every manifest AND asset request — a stable
+      // per-install identifier the update server has no use for, and which
+      // Cloudflare's edge would see next to the client IP. Both platforms'
+      // FileDownloader apply `requestHeaders` after setting it (iOS
+      // `setValue`, Android OkHttp `header()` — both replace), so a constant
+      // here overwrites it on every request.
+      "EAS-Client-ID": OTA_NEUTRAL_CLIENT_ID,
+      // The previous launch's fatal JS error text (up to 1 KiB) is otherwise
+      // sent on the next manifest request; it is diagnostic data that could
+      // carry anything the error message did. Also applied last, so blanked.
+      "Expo-Fatal-Error": "",
+    },
   };
 }
 
@@ -149,4 +165,4 @@ module.exports = ({ config }) => {
 };
 
 module.exports.updatesConfigFor = updatesConfigFor;
-module.exports.OTA = { OTA_CHANNEL, OTA_UPDATE_URL, OTA_CERT_PATH, OTA_PROD_DS };
+module.exports.OTA = { OTA_CHANNEL, OTA_UPDATE_URL, OTA_CERT_PATH, OTA_PROD_DS, OTA_NEUTRAL_CLIENT_ID };

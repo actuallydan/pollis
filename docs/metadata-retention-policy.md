@@ -247,8 +247,11 @@ either, operators included.** IPs are used for rate limiting only, and only as k
   per-IP connection and circuit maps hold only those keys. Nothing is logged.
 - **OTA update server (`updates.pollis.com`, #1250).** The mobile app's update check is a
   plain `GET` carrying only what the Expo Updates protocol needs (platform, runtime version,
-  channel, the current/embedded update ids; expo-updates also attaches an install-scoped
-  `EAS-Client-ID` the server has no use for). The Worker reads only the routing headers,
+  channel, the per-release current/embedded update ids). expo-updates would also attach an
+  install-scoped random `EAS-Client-ID` and the previous launch's fatal-error text; the app
+  overrides both with constants (`EAS-Client-ID: 00000000-…`, `Expo-Fatal-Error: ""`) through
+  `updates.requestHeaders`, which both platforms apply last, so nothing in an update request
+  identifies an install (`mobile/tests/ota-config.test.ts`). The Worker reads only the routing headers,
   logs nothing, and its wrangler config pins `observability.enabled: false` and
   `logpush: false`; `pollis-updates/tests/no-client-ip.test.ts` fails the build otherwise.
   It keeps no per-client state at all — the R2 bucket holds only the published updates.
