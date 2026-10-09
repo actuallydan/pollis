@@ -6,6 +6,7 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { invoke } from "../../lib/native";
+import { endSession } from "../../lib/session";
 import { appStore } from "../../stores/appStore";
 import type { User } from "../../types";
 
@@ -117,17 +118,14 @@ export function useInitializeIdentity() {
 }
 
 export function useLogout() {
-  const setCurrentUser = appStore.setCurrentUser;
-  const logoutStore = appStore.logout;
-
   return useMutation({
     mutationFn: async (vars: { deleteData?: boolean } | void) => {
       await invoke("logout", { deleteData: vars?.deleteData ?? false });
     },
-    onSuccess: () => {
-      logoutStore();
-      setCurrentUser(null);
-    },
+    // Settled, not just success: both callers route to sign-in either way,
+    // so a failed `logout` must not leave the old session's UI state and
+    // decrypted media behind (desktop's sign-out does the same).
+    onSettled: () => endSession(),
   });
 }
 

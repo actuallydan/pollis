@@ -62,6 +62,19 @@ const resolvedUris = new Map<string, string>();
 
 let dirEnsured: Promise<void> | null = null;
 
+// Bumped by every `clearMediaCache()`. A resolve or release that began
+// before the clear belongs to the session that ended: a resolve still in
+// flight must not register (or hand out) a file written after the wipe, and
+// a late release from a view unmounting after sign-out must not decrement a
+// count the next session now owns.
+let generation = 0;
+
+// The current cache generation. Capture it alongside a resolve and hand it
+// back to `releaseMediaUri` so a release that outlives a clear is a no-op.
+export function mediaCacheGeneration(): number {
+  return generation;
+}
+
 // Create the media cache dir once. Idempotent across the app lifetime.
 function ensureDir(): Promise<void> {
   if (dirEnsured) {
@@ -106,6 +119,7 @@ export async function resolveMediaUri(
     return existing;
   }
 
+  const startedIn = generation;
   const promise = (async () => {
     await ensureDir();
     const uri = await invoke<string>("get_media_path", {
@@ -117,6 +131,13 @@ export async function resolveMediaUri(
     if (!uri) {
       throw new Error(`get_media_path returned empty path for ${content_hash}`);
     }
+    if (startedIn !== generation) {
+      // The cache was cleared (sign-out) while Rust was decrypting, so this
+      // file landed after the wipe. Unlink it instead of handing plaintext
+      // from the ended session to anyone.
+      await FileSystem.deleteAsync(uri, { idempotent: true });
+      throw new Error(`media cache cleared while resolving ${content_hash}`);
+    }
     resolvedUris.set(content_hash, uri);
     return uri;
   })();
@@ -127,8 +148,11 @@ export async function resolveMediaUri(
   promise.catch(() => {
     // Drop the rejected promise so the next consumer retries instead of
     // re-awaiting a permanent failure. The reference count is reconciled
-    // by the consumer's `releaseMediaUri` call in its cleanup.
-    inFlight.delete(content_hash);
+    // by the consumer's `releaseMediaUri` call in its cleanup. Only drop our
+    // own entry — after a clear the slot may hold a newer resolve.
+    if (inFlight.get(content_hash) === promise) {
+      inFlight.delete(content_hash);
+    }
   });
 
   return promise;
@@ -137,8 +161,16 @@ export async function resolveMediaUri(
 // Release one reference to a resolved attachment. When the last consumer
 // releases, the decrypted file is unlinked so plaintext doesn't outlive
 // the render (issue #346's lifecycle recommendation). Safe to call even
-// if the resolve failed.
-export async function releaseMediaUri(contentHash: string): Promise<void> {
+// if the resolve failed. Pass the `mediaCacheGeneration()` captured at
+// resolve time: a release from before the last clear has nothing left to
+// release, since the clear already unlinked its file.
+export async function releaseMediaUri(
+  contentHash: string,
+  resolvedIn?: number,
+): Promise<void> {
+  if (resolvedIn !== undefined && resolvedIn !== generation) {
+    return;
+  }
   const next = (refCounts.get(contentHash) ?? 0) - 1;
   if (next > 0) {
     refCounts.set(contentHash, next);
@@ -159,8 +191,10 @@ export async function releaseMediaUri(contentHash: string): Promise<void> {
 
 // Drop every cached media file and reset bookkeeping. For sign-out /
 // account-switch teardown, where the sandbox should not retain decrypted
-// plaintext from the previous session.
+// plaintext from the previous session. Called from `endSession()`
+// (lib/session) — every path that ends a session goes through it.
 export async function clearMediaCache(): Promise<void> {
+  generation += 1;
   inFlight.clear();
   refCounts.clear();
   resolvedUris.clear();

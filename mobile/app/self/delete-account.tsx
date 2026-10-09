@@ -10,6 +10,7 @@ import { Icon } from "../../components/icons";
 import { semantic, type as ty, space } from "../../theme/tokens";
 import { useDeleteAccount } from "../../hooks/queries";
 import { appStore } from "../../stores/appStore";
+import { endSession } from "../../lib/session";
 
 // The word the user must type to arm deletion. Matches desktop's
 // SecurityPage: deliberately a constant, not translatable copy, so the
@@ -31,12 +32,12 @@ function DeleteAccount() {
       return;
     }
     deleteAccount.mutate(currentUser.id, {
-      onSuccess: () => {
+      onSuccess: async () => {
         // The account is gone server-side and this device's data is wiped.
         // Drop everything the UI still holds (decrypted messages live in the
-        // query cache) and land on the sign-in screen.
+        // query cache, decrypted media on disk) and land on the sign-in screen.
         queryClient.clear();
-        appStore.logout();
+        await endSession();
         router.replace("/(auth)/email");
       },
     });

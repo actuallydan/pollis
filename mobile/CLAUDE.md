@@ -852,6 +852,10 @@ Current state:
   (android + ios cross-compile jobs).
 - **Media:** `get_media_path` decrypts an R2 object to a sandbox `file://` for
   `expo-image` — mobile can't run desktop's loopback media server. See `lib/media/`.
+  Every path that ends a session (sign-out, account deletion, revoked-device
+  sign-out) goes through `endSession()` (`lib/session/`), which resets the store
+  and runs `clearMediaCache()` — never call `appStore.logout()` directly
+  (`tests/session-teardown.test.ts` enforces it).
 - **Foreground realtime (scaffold):** mobile joins the same SFU rooms as desktop
   via the JS LiveKit SDK in **data-only** mode (`lib/realtime/`;
   `useConversationRealtime` for the open chat, `useInboxRealtime` for the

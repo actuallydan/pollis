@@ -9,6 +9,7 @@ export {
   resolveMediaUri,
   releaseMediaUri,
   clearMediaCache,
+  mediaCacheGeneration,
   MEDIA_DIR,
 } from "./cache";
 export { registerMediaMock } from "./mock";
