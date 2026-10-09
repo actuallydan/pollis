@@ -34,6 +34,7 @@
     "expo-sharing": "~57.0.22",
     "expo-splash-screen": "~57.0.9",
     "expo-status-bar": "~57.0.1",
+    "expo-updates": "~57.0.25",
     "i18next": "^26.4.2",
     "livekit-client": "^2.19.0",
     "lucide-react-native": "^1.8.0",
