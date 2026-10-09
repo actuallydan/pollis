@@ -1,7 +1,12 @@
 name: Mobile OTA Release (signed JS updates)
 
-# Over-the-air JS/asset updates for the mobile app (#1250), served by the
-# pollis-updates Worker at updates.pollis.com with the Expo Updates protocol.
+# Over-the-air JS/asset updates for the mobile app (#1250), served with the
+# Expo Updates protocol by the DS front-door Worker at api.pollis.com/updates/
+# (pollis-delivery/worker/updates.ts) — straight from R2, never through the DS
+# container. The update store is the `ota/` prefix of the public release bucket
+# `pollis`, written with the same R2 credentials the release workflows (and
+# this workflow's provenance step) already use; the publish CLI applies the
+# prefix itself.
 # An OTA replaces the code that handles plaintext and skips store review, so:
 #
 #   * Every manifest and directive is SIGNED (RSA-SHA256) by a key that exists
@@ -229,8 +234,8 @@ jobs:
           FROM_GROUP: ${{ github.event.inputs.from_group }}
           PLATFORM: ${{ github.event.inputs.platform }}
           RUNTIME_VERSION: ${{ github.event.inputs.runtime_version }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_UPDATES_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_UPDATES_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
@@ -241,11 +246,11 @@ jobs:
               exit 1
             fi
             node scripts/ota-publish.ts prepare-republish --from-group "$FROM_GROUP" \
-              --out "$RUNNER_TEMP/ota" --bucket pollis-updates --endpoint "$endpoint"
+              --out "$RUNNER_TEMP/ota" --bucket pollis --endpoint "$endpoint"
           else
             node scripts/ota-publish.ts prepare-rollback --platform "$PLATFORM" \
               --runtime-version "${RUNTIME_VERSION:-all}" \
-              --out "$RUNNER_TEMP/ota" --bucket pollis-updates --endpoint "$endpoint"
+              --out "$RUNNER_TEMP/ota" --bucket pollis --endpoint "$endpoint"
           fi
 
       - name: Upload the plan
@@ -330,12 +335,12 @@ jobs:
       - name: Upload content to R2
         working-directory: mobile
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_UPDATES_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_UPDATES_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           node scripts/ota-publish.ts upload --phase content --in "$RUNNER_TEMP/ota" \
-            --bucket pollis-updates --endpoint "https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
+            --bucket pollis --endpoint "https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
       # 2. The transparency leaves, with SLSA provenance published at each
       #    leaf's provenance_uri — the same shape as desktop-release.yml's
@@ -406,15 +411,15 @@ jobs:
       - name: Flip the live pointers
         working-directory: mobile
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_UPDATES_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_UPDATES_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           node scripts/ota-publish.ts upload --phase live --in "$RUNNER_TEMP/ota" \
-            --bucket pollis-updates --endpoint "https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
+            --bucket pollis --endpoint "https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
       # 5. "Workflow green" is not "live": fetch it back as a phone would.
-      - name: Verify through updates.pollis.com
+      - name: Verify through api.pollis.com/updates
         working-directory: mobile
         run: node scripts/ota-publish.ts verify --in "$RUNNER_TEMP/ota"
 

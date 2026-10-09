@@ -1,7 +1,16 @@
 // The Expo Updates protocol v1 (https://docs.expo.dev/technical-specs/expo-updates-1/),
 // server side, for Pollis's over-the-air JS updates (#1250).
 //
-// This Worker is a DUMB PIPE on purpose. It never holds the code-signing key
+// Served by the DS front-door Worker (index.ts) under `/updates/` on
+// api.pollis.com, and answered HERE, in the Worker, straight from R2: an
+// update request never reaches the DS container or its Durable Object, so app
+// launches and multi-MB bundle downloads never queue behind message traffic on
+// the single serialized instance.
+//
+//   GET /updates/api/manifest          the live manifest or directive
+//   GET|HEAD /updates/assets/<sha256>  content-addressed bundles and assets
+//
+// This module is a DUMB PIPE on purpose. It never holds the code-signing key
 // and never builds, edits or re-serializes a manifest: the publish pipeline
 // (mobile/scripts/ota-publish.ts) signs each manifest or directive behind an
 // approval gate and stores the exact bytes plus their `expo-signature` value in
@@ -11,22 +20,37 @@
 // manifest whose signature does not verify against the certificate compiled
 // into it.
 //
-// R2 layout (bucket `pollis-updates`, written only by the publish pipeline):
+// R2 layout (the public release bucket `pollis`, under OTA_KEY_PREFIX; written
+// only by the publish pipeline, which uses the same prefix):
 //
-//   current/<channel>/<platform>/<runtimeVersion>.json   the live pointer:
+//   ota/current/<channel>/<platform>/<runtimeVersion>.json   the live pointer:
 //       { "kind": "manifest" | "directive", "body": "<exact signed JSON>",
 //         "signature": "sig=\"…\", keyid=\"main\", alg=\"rsa-v1_5-sha256\"" }
-//   assets/<sha256 hex>                                  content-addressed
+//   ota/assets/<sha256 hex>                                  content-addressed
 //       bundles and assets, immutable
-//   updates/…, groups/…                                  the publish archive
-//       (rollback/republish source); never served
+//   ota/updates/…, ota/groups/…                              the publish archive
+//       (rollback/republish source); never served here
+//
+// The bucket is public (cdn.pollis.com), so these objects are also readable
+// there. That is fine: nothing under ota/ is secret (the bundle is the same JS
+// every store build ships, and every manifest is signed and logged), and the
+// app only ever asks api.pollis.com/updates.
 //
 // Privacy: the only request data read is the protocol headers below. Nothing
-// is logged, and the wrangler config turns Workers Logs and Logpush off, so no
-// client IP is recorded anywhere (tests/no-client-ip.test.ts).
+// is logged, and the DS wrangler configs keep Workers Logs and Logpush off, so
+// no client IP is recorded anywhere (worker-tests/updates-no-client-ip.test.ts).
 //
 // This module imports nothing Cloudflare-specific so it runs under `node
 // --test` exactly as it runs in workerd.
+
+// Every key this module reads lives under this prefix of the shared bucket.
+// The publish pipeline writes under the same one (mobile/scripts/ota/lib.ts
+// OTA_KEY_PREFIX; mobile/tests/ota-worker.test.ts pins that they agree).
+export const OTA_KEY_PREFIX = "ota/";
+
+// Every route this module owns. index.ts hands any path under it here and
+// never forwards one to the container.
+export const UPDATES_PATH_PREFIX = "/updates/";
 
 export interface StoredObject {
   text(): Promise<string>;
@@ -40,11 +64,20 @@ export interface BucketLike {
   get(key: string): Promise<StoredObject | null>;
 }
 
+// What the protocol handlers see: a bucket whose keys are already relative to
+// OTA_KEY_PREFIX, and the one channel this deployment serves.
 export interface UpdatesEnv {
   UPDATES: BucketLike;
-  // The one channel this deployment serves. Requests naming any other channel
-  // are refused, so a build configured for some other channel gets nothing.
+  // Requests naming any other channel are refused, so a build configured for
+  // some other channel gets nothing.
   CHANNEL: string;
+}
+
+// The DS Worker's bindings this module needs. Both optional: an environment
+// that binds no bucket (dev) serves no updates at all.
+export interface UpdatesBindings {
+  UPDATES?: BucketLike;
+  OTA_CHANNEL?: string;
 }
 
 export type PointerKind = "manifest" | "directive";
@@ -62,7 +95,7 @@ export type Platform = (typeof PLATFORMS)[number];
 // accepted so the policy can change without a Worker deploy, but nothing that
 // could walk the R2 key space (no `/`, no `..`).
 const RUNTIME_VERSION_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-const ASSET_PATH_RE = /^\/assets\/([0-9a-f]{64})$/;
+const ASSET_PATH_RE = /^\/updates\/assets\/([0-9a-f]{64})$/;
 // Exactly what the publish pipeline writes: three sf-string members, the
 // algorithm the app's codeSigningMetadata names.
 const SIGNATURE_RE = /^sig="[A-Za-z0-9+/]+={0,2}", keyid="[A-Za-z0-9_-]{1,64}", alg="rsa-v1_5-sha256"$/;
@@ -231,7 +264,7 @@ export async function handle(request: Request, env: UpdatesEnv): Promise<Respons
     return textResponse(405, "method not allowed", { allow: "GET, HEAD" });
   }
   const { pathname } = new URL(request.url);
-  if (pathname === "/api/manifest") {
+  if (pathname === "/updates/api/manifest") {
     if (request.method !== "GET") {
       return textResponse(405, "method not allowed", { allow: "GET" });
     }
@@ -242,4 +275,31 @@ export async function handle(request: Request, env: UpdatesEnv): Promise<Respons
     return handleAsset(request, env, asset[1]);
   }
   return textResponse(404, "not found");
+}
+
+// True for every path this module owns (and so the container never sees).
+export function isUpdatesPath(pathname: string): boolean {
+  return pathname === "/updates" || pathname.startsWith(UPDATES_PATH_PREFIX);
+}
+
+// Confine every read to OTA_KEY_PREFIX. The handlers' key shapes already
+// cannot leave it (runtime versions and hashes admit no `/`), and R2 keys are
+// literal strings with no path normalisation; this makes the bound structural.
+export function prefixedBucket(bucket: BucketLike, prefix: string): BucketLike {
+  return {
+    get(key: string) {
+      return bucket.get(prefix + key);
+    },
+  };
+}
+
+// Entry point from index.ts.
+export async function handleUpdates(request: Request, bindings: UpdatesBindings): Promise<Response> {
+  if (!bindings.UPDATES || !bindings.OTA_CHANNEL) {
+    return textResponse(404, "updates are not served by this deployment");
+  }
+  return handle(request, {
+    UPDATES: prefixedBucket(bindings.UPDATES, OTA_KEY_PREFIX),
+    CHANNEL: bindings.OTA_CHANNEL,
+  });
 }

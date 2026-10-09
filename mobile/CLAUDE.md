@@ -50,7 +50,7 @@ option requires) rather than excluding `tests/` from typechecking the way
 It runs in CI in the **`expo-doctor` job** of `mobile-core-check.yml` — the
 cheap one, with no Rust, NDK or Gradle — so a broken reducer fails in seconds
 instead of behind a 3-ABI cross-compile. The same job runs the OTA update
-server's tests (`node --test pollis-updates/tests/*.test.ts`); `tests/ota-*`
+routes' tests (`node --test pollis-delivery/worker-tests/*.test.ts`); `tests/ota-*`
 cover the publish pipeline (signing with a throwaway in-memory certificate,
 never the real one) and the app's `updates` config.
 
@@ -663,7 +663,7 @@ export EXPO_PUBLIC_POLLIS_DELIVERY_URL=https://api.pollis.com POLLIS_ABI_SPLITS=
 ## OTA updates (#1250)
 
 The app updates its own JS and assets without prompting: on every launch
-expo-updates asks `updates.pollis.com` in the background
+expo-updates asks `api.pollis.com/updates/api/manifest` in the background
 (`checkAutomatically: ON_LOAD`, `fallbackToCacheTimeout: 0` — launch is never
 held), downloads a newer update if there is one, and runs it on the **next
 cold start**. There is no UI. Our own server speaks the Expo Updates protocol;
@@ -715,14 +715,24 @@ afterwards targets only the binaries built afterwards.
   and old binaries keep their own, old-key-signed pointers.
   Consequence: **a pollis-core change blocks OTA for every binary built before
   it** — that is intended.
-- **Server** (`pollis-updates/`, Cloudflare Worker `pollis-updates`, R2 bucket
-  `pollis-updates`): serves `GET /api/manifest` (protocol v1, multipart/mixed,
-  routed on `expo-platform` + `expo-runtime-version`, 204 when nothing is
-  published) and `GET /assets/<sha256>` (content-addressed, immutable). It
-  passes pre-signed bytes and their `expo-signature` through unchanged and
-  **never holds the key**: a compromised Worker can withhold or replay, never
-  forge. Workers Logs + Logpush off, no logging, no client-identifying header
-  read (`pollis-updates/tests/no-client-ip.test.ts`).
+- **Server**: the DS front-door Worker itself (`pollis-delivery/worker/updates.ts`,
+  wired in `worker/index.ts`) — no separate project, domain or bucket. Under
+  `/updates/` on api.pollis.com it serves `GET /updates/api/manifest`
+  (protocol v1, multipart/mixed, routed on `expo-platform` +
+  `expo-runtime-version`, 204 when nothing is published) and
+  `GET /updates/assets/<sha256>` (content-addressed, immutable), **in the
+  Worker, straight from R2**: an update request never reaches the DS container
+  or its Durable Object, so it neither wakes the single instance nor queues
+  behind message traffic. Storage is the `ota/` prefix of the public release
+  bucket `pollis` (binding `UPDATES`, `OTA_CHANNEL=production`, prod config
+  only; api-dev binds neither and answers 404 — no dev build enables updates,
+  and a dev deploy must not hold a handle on prod's bucket). It passes
+  pre-signed bytes and their `expo-signature` through unchanged and **never
+  holds the key**: a compromised Worker can withhold or replay, never forge.
+  Workers Logs + Logpush off on both DS configs, no logging, no
+  client-identifying header read
+  (`pollis-delivery/worker-tests/updates-no-client-ip.test.ts`). It ships with
+  the normal DS deploy (`delivery-deploy-prod.yml`).
 - **Publish** (`.github/workflows/mobile-ota-release.yml`, driven by
   `scripts/ota-publish.ts`): `build` (expo export with prod `EXPO_PUBLIC_*`
   from the environment, `EXPO_NO_DOTENV`, runtime versions, the store-build
@@ -732,7 +742,9 @@ afterwards targets only the binaries built afterwards.
   the prod-DS check from the bytes, bare node with no npm tree, then signs) →
   `publish`: upload bytes + archive, SLSA provenance, **append to the
   transparency log**, only then flip the live pointers, then re-fetch through
-  `updates.pollis.com` and verify signature + every hash.
+  `api.pollis.com/updates/` and verify signature + every hash. The update
+  store is written with the release workflows' existing R2 credentials
+  (`R2_ACCESS_KEY_ID` / `R2_SECRET_KEY`); the CLI adds the `ota/` prefix.
 - **Transparency**: each update is three `binaries`-tree leaves — the signed
   manifest (`ota-manifest`, which commits to the update id, runtime version and
   every asset hash), the launch bundle (`ota-bundle`) and the asset list
@@ -748,7 +760,7 @@ afterwards targets only the binaries built afterwards.
   refuses to overwrite, proves the pair, prints the next steps). It goes to
   Doppler as `OTA_CODE_SIGNING_KEY`, synced **only** to the `ota-signing`
   environment secret, plus an offline copy; then it is deleted locally. Never
-  in the repo, never a repository-level secret, never on the Worker.
+  in the repo, never a repository-level secret, never on the DS or its Worker.
 - **Certificate**: `store/ota-code-signing.pem` (the one `*.pem` that
   `.gitignore` lets through), compiled into every prod build. 20-year
   validity — expo-updates checks it, and an expired certificate silently ends
@@ -775,8 +787,8 @@ cd mobile && node scripts/ota-publish.ts verify --platform ios --runtime-version
 ```
 
 Every operation is approved in the `ota-signing` environment and logged before
-it goes live. The group id is in each run's summary and in `groups/` in the
-bucket. Rolling forward after a rollback is simply the next publish (a newer
+it goes live. The group id is in each run's summary and in `ota/groups/` in
+the `pollis` bucket. Rolling forward after a rollback is simply the next publish (a newer
 `createdAt` wins). The client keeps a crashing update from bricking the app on
 its own (expo-updates rolls back to the previous update if one fails before
 its first render), but a bug that renders fine needs one of the two rollbacks
@@ -786,7 +798,9 @@ private key is only ever handed to `sign`.
 **First OTA-capable build:** expo-updates is a native module, so the first
 store build that can receive updates is the next one cut after this lands
 (**1.0.2**), built with `POLLIS_OTA=production` and the certificate committed.
-Nothing published before then reaches anyone; 1.0.0/1.0.1 never check.
+Nothing published before then reaches anyone; 1.0.0/1.0.1 never check. The
+update routes go live with the first DS prod deploy after this lands (they
+answer 204 until something is published); there is no other server to set up.
 
 ---
 

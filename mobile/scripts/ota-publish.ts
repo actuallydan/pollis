@@ -34,6 +34,7 @@ import { fileURLToPath } from "node:url";
 import {
   CHANNEL,
   MANIFEST_URL,
+  OTA_KEY_PREFIX,
   PLATFORMS,
   UPDATES_BASE_URL,
   assertBundleTargetsProd,
@@ -397,8 +398,17 @@ function aws(args: string[]): string {
   return run("aws", args, { env: AWS_ENV });
 }
 
+// The update store is the `ota/` prefix of the release bucket. These three
+// helpers (and the live-pointer listing in prepare-rollback) are the only
+// update-store I/O, and they take keys relative to that prefix — the same keys
+// the Worker reads (pollis-delivery/worker/updates.ts). The transparency
+// accumulator (log-append) lives in its own bucket and is not prefixed.
+function storeKey(key: string): string {
+  return `${OTA_KEY_PREFIX}${key}`;
+}
+
 function r2Exists(r2: R2, key: string): boolean {
-  const res = spawnSync("aws", ["s3api", "head-object", "--bucket", r2.bucket, "--key", key, "--endpoint-url", r2.endpoint], {
+  const res = spawnSync("aws", ["s3api", "head-object", "--bucket", r2.bucket, "--key", storeKey(key), "--endpoint-url", r2.endpoint], {
     env: AWS_ENV,
     encoding: "utf8",
   });
@@ -406,12 +416,12 @@ function r2Exists(r2: R2, key: string): boolean {
 }
 
 function r2Put(r2: R2, key: string, file: string, contentType: string, cacheControl: string): void {
-  aws(["s3", "cp", file, `s3://${r2.bucket}/${key}`, "--endpoint-url", r2.endpoint, "--content-type", contentType, "--cache-control", cacheControl, "--only-show-errors"]);
+  aws(["s3", "cp", file, `s3://${r2.bucket}/${storeKey(key)}`, "--endpoint-url", r2.endpoint, "--content-type", contentType, "--cache-control", cacheControl, "--only-show-errors"]);
 }
 
 function r2Get(r2: R2, key: string): Buffer {
   const tmp = join(mkdtempSync(join(tmpdir(), "ota-")), "obj");
-  aws(["s3", "cp", `s3://${r2.bucket}/${key}`, tmp, "--endpoint-url", r2.endpoint, "--only-show-errors"]);
+  aws(["s3", "cp", `s3://${r2.bucket}/${storeKey(key)}`, tmp, "--endpoint-url", r2.endpoint, "--only-show-errors"]);
   return readFileSync(tmp);
 }
 
@@ -539,7 +549,7 @@ function cmdPrepareRollback(opts: Record<string, string>): void {
     let rvs: string[];
     if (rvOpt === "all") {
       // Every runtime version that currently has a live pointer: the panic button.
-      const listing = aws(["s3", "ls", `s3://${r2.bucket}/current/${CHANNEL}/${p}/`, "--endpoint-url", r2.endpoint]);
+      const listing = aws(["s3", "ls", `s3://${r2.bucket}/${storeKey(`current/${CHANNEL}/${p}/`)}`, "--endpoint-url", r2.endpoint]);
       rvs = [...listing.matchAll(/\s(\S+)\.json\s*$/gm)].map((m) => m[1]);
     } else {
       rvs = [rvOpt];

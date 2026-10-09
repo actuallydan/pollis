@@ -99,7 +99,8 @@ holds a CI token, and for it signing nothing but key sets.
 on mobile: every OTA-capable phone runs whatever JS it signs, without a store review.
 Assume compromise on the same triggers as above (read out of the `ota-signing`
 environment, a workflow or Action that could reach it, an admin change, or an
-update in `current/` — or a phone — that no `mobile-ota-release.yml` run produced).
+update in `ota/current/` of the release bucket — or a phone — that no
+`mobile-ota-release.yml` run produced).
 
 1. **Stop serving.** Publish `rollback-to-embedded` for every platform and runtime
    version (`gh workflow run mobile-ota-release.yml --ref main -f action=rollback-to-embedded
@@ -116,8 +117,10 @@ update in `current/` — or a phone — that no `mobile-ota-release.yml` run pro
 4. **The hard part, stated plainly:** builds already in the field pin the leaked
    certificate and cannot be told to stop trusting it — expo-updates has no
    revocation. Until those builds age out, whoever holds the leaked key can sign
-   an update they would accept; only the update server (which they would also need
-   to control, or a network position against TLS) stands between them. Ship the
+   an update they would accept; only the update server — the DS Worker's
+   `/updates/` routes and the release bucket's `ota/` prefix behind them, which they
+   would also need to control (or a network position against TLS) — stands between
+   them. Ship the
    rotated store build quickly and treat old builds as untrusted for OTA.
 
 ## Related

@@ -80,7 +80,7 @@ test("the manifest is the protocol-v1 shape with content-addressed assets", () =
     key: md5Hex(png),
     contentType: "image/png",
     fileExtension: ".png",
-    url: `https://updates.pollis.com/assets/${sha256Hex(png)}`,
+    url: `https://api.pollis.com/updates/assets/${sha256Hex(png)}`,
   });
   assert.equal(m.extra.expoClient.extra.eas.projectId, expoClient.extra.eas.projectId);
   assert.doesNotThrow(() => assertManifestShape(sampleManifest(), { runtimeVersion: RV }));
@@ -189,7 +189,7 @@ function samplePlan(): Plan {
     groupId: "39c30b86-563b-4f10-a062-f7820bbd70a8",
     createdAt: "2026-10-09T12:00:00.000Z",
     channel: "production",
-    baseUrl: "https://updates.pollis.com",
+    baseUrl: "https://api.pollis.com/updates",
     commit: "f".repeat(40),
     sourceDateEpoch: 1_760_000_000,
     toolchain: { rustc: "1.96.0", node: "22.20.0", pnpm: "10.25.0", runnerImage: "ubuntu24@20261005.1" },

@@ -13,7 +13,8 @@
 # signed by the private key. The key lives in exactly one place that can use
 # it: the `ota-signing` GitHub environment (required reviewer), as the
 # environment secret OTA_CODE_SIGNING_KEY, synced from Doppler. It is never on
-# the update server (updates.pollis.com only passes pre-signed bytes through).
+# the update server (the DS Worker at api.pollis.com/updates/ only passes
+# pre-signed bytes through).
 #
 # Uses `expo-updates codesigning:generate` (the expo-updates the app ships), so
 # the certificate carries exactly the extensions the app's verifier demands:

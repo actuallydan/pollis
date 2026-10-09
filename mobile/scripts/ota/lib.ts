@@ -12,8 +12,17 @@ import { createHash, sign, verify, X509Certificate, createPrivateKey } from "nod
 export const PROD_DS = "https://api.pollis.com";
 export const PROD_DS_HOST = "api.pollis.com";
 export const DEV_DS_HOST = "api-dev.pollis.com";
-export const UPDATES_BASE_URL = "https://updates.pollis.com";
+// The update server is the DS front-door Worker (pollis-delivery/worker/updates.ts),
+// answering under /updates/ on the prod DS host without touching the container.
+export const UPDATES_BASE_URL = `${PROD_DS}/updates`;
 export const MANIFEST_URL = `${UPDATES_BASE_URL}/api/manifest`;
+// The update store is the `ota/` prefix of the public release bucket (`pollis`,
+// the one behind cdn.pollis.com). Every update-store key this pipeline reads or
+// writes is relative to it, exactly as the Worker reads them
+// (pollis-delivery/worker/updates.ts OTA_KEY_PREFIX; mobile/tests/ota-worker.test.ts
+// pins that the two agree).
+export const OTA_BUCKET = "pollis";
+export const OTA_KEY_PREFIX = "ota/";
 export const CHANNEL = "production";
 export const KEY_ID = "main";
 export const ALG = "rsa-v1_5-sha256";

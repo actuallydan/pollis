@@ -45,9 +45,12 @@ on:
       - 'frontend/src/i18n/locales/**'
       - 'scripts/mobile-i18n-resources.mjs'
       - 'scripts/i18n-check.mjs'
-      # OTA updates (#1250): the update-server Worker, the release workflows the
-      # mobile tests pin, and the frozen leaf the OTA records must match.
-      - 'pollis-updates/**'
+      # OTA updates (#1250): the update routes in the DS front-door Worker, the
+      # release workflows the mobile tests pin, and the frozen leaf the OTA
+      # records must match.
+      - 'pollis-delivery/worker/**'
+      - 'pollis-delivery/worker-tests/**'
+      - 'pollis-delivery/wrangler.*.jsonc'
       - '.github/workflows/mobile-ota-release.yml'
       - '.github/workflows/mobile-apk-release.yml'
       - 'verifiable-log-builder/src/binaries.rs'
@@ -70,7 +73,9 @@ on:
       - 'frontend/src/i18n/locales/**'
       - 'scripts/mobile-i18n-resources.mjs'
       - 'scripts/i18n-check.mjs'
-      - 'pollis-updates/**'
+      - 'pollis-delivery/worker/**'
+      - 'pollis-delivery/worker-tests/**'
+      - 'pollis-delivery/wrangler.*.jsonc'
       - '.github/workflows/mobile-ota-release.yml'
       - '.github/workflows/mobile-apk-release.yml'
       - 'verifiable-log-builder/src/binaries.rs'
@@ -226,10 +231,11 @@ jobs:
         working-directory: mobile
         run: pnpm test
 
-      # The OTA update server (updates.pollis.com, #1250): protocol responses
-      # and the no-client-IP config. Pure node, no install needed.
-      - name: Update-server Worker tests
-        run: node --test pollis-updates/tests/*.test.ts
+      # The OTA update routes in the DS front-door Worker (api.pollis.com/updates/,
+      # #1250): protocol responses and the no-client-IP config. Pure node, no
+      # install needed.
+      - name: OTA update-route tests (DS Worker)
+        run: node --test pollis-delivery/worker-tests/*.test.ts
 
   # The first end-to-end mobile build in CI: uniffi bindings + a 3-ABI
   # cargo-ndk cross-compile of pollis-core, Expo prebuild, Gradle release

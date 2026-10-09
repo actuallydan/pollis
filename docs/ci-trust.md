@@ -98,8 +98,8 @@ including one added in a PR that merges without review.
   **required reviewer**, and deployment refs limited to `main` and `mobile-ota-*` tags.
   Only `mobile-ota-release.yml`'s `sign` job names the environment
   (`mobile/tests/ota-config.test.ts` pins that the key is referenced exactly once,
-  there). Create the environment before the first OTA publish; until it exists the
-  `sign` job cannot read the key and nothing can be published.
+  there). The environment exists (created with the key, #1250); without it the
+  `sign` job could not read the key and nothing could be published.
 
 ### 4. Restrict `workflow_dispatch` on the release and deploy workflows
 

@@ -57,7 +57,9 @@ const pkg = require("./package.json");
 // other key. The private half never touches this repo or the update server;
 // see scripts/generate-ota-signing-key.sh and mobile/CLAUDE.md "OTA updates".
 const OTA_CHANNEL = "production";
-const OTA_UPDATE_URL = "https://updates.pollis.com/api/manifest";
+// Served by the DS front-door Worker itself (pollis-delivery/worker/updates.ts),
+// never forwarded to the DS container.
+const OTA_UPDATE_URL = "https://api.pollis.com/updates/api/manifest";
 const OTA_CERT_PATH = "./store/ota-code-signing.pem";
 const OTA_PROD_DS = "https://api.pollis.com";
 // Every install sends the same value: nothing in an update request identifies one.

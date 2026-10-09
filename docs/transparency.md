@@ -291,7 +291,7 @@ the verifier changed:
 | `provenance_uri` | `cdn.pollis.com/releases/mobile-ota/<tag>/<artifact_name>.intoto.jsonl` (SLSA, keyless) |
 
 What this makes detectable: an update served to anyone that is not in the log
-(fetch the manifest from `updates.pollis.com` with your platform and runtime
+(fetch the manifest from `api.pollis.com/updates/api/manifest` with your platform and runtime
 version, hash the manifest part, look for it), and a targeted update (the log is
 the same for everyone, and every group is one tag). What it does not prevent: the
 update server withholding an update from someone — that is availability, and the

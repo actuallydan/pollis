@@ -27,7 +27,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { assertCodeSigningCertificate } from "../scripts/ota/lib.ts";
+import { MANIFEST_URL, assertCodeSigningCertificate } from "../scripts/ota/lib.ts";
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -105,7 +105,7 @@ test("a prod build is code-signed, checks on load in the background, and names t
   const u = updatesConfigFor({ POLLIS_OTA: "production", EXPO_PUBLIC_POLLIS_DELIVERY_URL: "https://api.pollis.com" }, true);
   assert.deepEqual(u, {
     enabled: true,
-    url: "https://updates.pollis.com/api/manifest",
+    url: "https://api.pollis.com/updates/api/manifest",
     checkAutomatically: "ON_LOAD",
     fallbackToCacheTimeout: 0,
     enableBsdiffPatchSupport: false,
@@ -118,8 +118,7 @@ test("a prod build is code-signed, checks on load in the background, and names t
     },
   });
   // The URL a prod build asks is the URL the pipeline publishes for.
-  const lib = readFileSync(join(mobile, "scripts", "ota", "lib.ts"), "utf8");
-  assert.ok(lib.includes(`UPDATES_BASE_URL = "${new URL(u.url).origin}"`));
+  assert.equal(u.url, MANIFEST_URL);
 });
 
 test("app.config.js evaluates the committed certificate when one exists", () => {
