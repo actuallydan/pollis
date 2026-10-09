@@ -28,7 +28,12 @@ import {
 } from "../hooks/queries";
 import { releaseNamedMediaUri, resolveNamedMediaUri } from "../lib/media/cache";
 import { saveToPhotoLibrary, shareFile } from "../lib/media/export";
-import { canSaveToLibrary, collectViewerItems, mediaKind } from "../lib/media/viewer";
+import {
+  canSaveToLibrary,
+  collectViewerItems,
+  currentAttachmentId,
+  mediaKind,
+} from "../lib/media/viewer";
 import { formatBytes } from "../lib/exportArchive";
 import { semantic, space, type as ty } from "../theme/tokens";
 import type { MessageAttachment } from "../types";
@@ -73,14 +78,18 @@ export default function MediaViewerScreen() {
     return [...(root ? [root] : []), ...(replies ?? [])];
   }, [conversationData, replies, threadId]);
 
+  // Both ids follow a pending → confirmed swap (`currentAttachmentId`): the
+  // viewer may open on a just-sent attachment before its send settles. The
+  // swap lands with the cache update that re-renders this screen.
   const { items, index: initialIndex } = useMemo(
-    () => collectViewerItems(messages, attachmentId),
+    () => collectViewerItems(messages, currentAttachmentId(attachmentId)),
     [messages, attachmentId],
   );
 
   // Track the page by attachment id, not index: a message arriving or being
   // deleted while the viewer is open shifts indices, not identities.
-  const [currentId, setCurrentId] = useState(attachmentId);
+  const [trackedId, setCurrentId] = useState(attachmentId);
+  const currentId = currentAttachmentId(trackedId);
   const foundIndex = items.findIndex((a) => a.id === currentId);
   const currentIndex = foundIndex >= 0 ? foundIndex : 0;
   const current: MessageAttachment | null = items[currentIndex] ?? null;

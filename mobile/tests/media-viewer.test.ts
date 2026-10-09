@@ -15,7 +15,9 @@ import { fileURLToPath } from "node:url";
 
 import {
   canSaveToLibrary,
+  aliasAttachment,
   collectViewerItems,
+  currentAttachmentId,
   exportFilename,
   formatClock,
   mediaKind,
@@ -98,4 +100,24 @@ test("the viewer is a pushed page, not a modal", () => {
   assert.doesNotMatch(src, /<Modal\b|presentation:\s*["']modal/);
   const layout = readFileSync(join(ROOT, "app/_layout.tsx"), "utf8");
   assert.match(layout, /<Stack\.Screen name="media" \/>/);
+});
+
+test("a viewer opened on a pending attachment follows it to the confirmed id", () => {
+  assert.equal(currentAttachmentId("picked-1"), "picked-1");
+  aliasAttachment("picked-1", "r2/key-1");
+  assert.equal(currentAttachmentId("picked-1"), "r2/key-1");
+  assert.equal(currentAttachmentId("r2/key-1"), "r2/key-1");
+  // The confirmed message is what the cache holds after the send settles.
+  const confirmed = [{ id: "m1", created_at: 1, attachments: [att("r2/key-1", "image/png")] }];
+  const { items, index } = collectViewerItems(confirmed, currentAttachmentId("picked-1"));
+  assert.deepEqual(items.map((a) => a.id), ["r2/key-1"]);
+  assert.equal(index, 0);
+});
+
+test("the send settles its pending attachments' ids for the viewer, and the viewer reads them", () => {
+  const send = readFileSync(join(ROOT, "hooks/queries/useMessages.ts"), "utf8");
+  assert.match(send, /onSuccess:[\s\S]*?aliasAttachment\(att\.id, to\)[\s\S]*?setQueryData/);
+  const viewer = readFileSync(join(ROOT, "app/media.tsx"), "utf8");
+  assert.match(viewer, /collectViewerItems\(messages, currentAttachmentId\(attachmentId\)\)/);
+  assert.match(viewer, /currentId = currentAttachmentId\(trackedId\)/);
 });

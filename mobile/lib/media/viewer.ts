@@ -177,6 +177,28 @@ export function collectViewerItems(
   return { items, index };
 }
 
+// A picked attachment is on screen (optimistic send) under the picker's id;
+// once the send settles the confirmed message carries the R2 key instead. A
+// viewer opened on the pending copy follows the id across that swap.
+const attachmentAliases = new Map<string, string>();
+
+/** Record that attachment `from` (a pending copy) is now `to`. */
+export function aliasAttachment(from: string, to: string): void {
+  if (from && to && from !== to) {
+    attachmentAliases.set(from, to);
+  }
+}
+
+/** The attachment's current id, following any pending → confirmed swap. */
+export function currentAttachmentId(id: string): string {
+  let next = id;
+  // Bounded: an alias never points back at a pending id, but don't trust it.
+  for (let i = 0; i < 4 && attachmentAliases.has(next); i++) {
+    next = attachmentAliases.get(next) as string;
+  }
+  return next;
+}
+
 /** "1:05" / "1:02:09" for the audio player's clock. */
 export function formatClock(seconds: number): string {
   const total = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
