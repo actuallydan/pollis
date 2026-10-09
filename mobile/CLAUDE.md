@@ -886,6 +886,7 @@ app/
   group/*              new, invite, invite-links, members, settings, emoji, requests, discover
   chat/[id].tsx        conversation (Header + list + composer); chat/thread.tsx
   dm/{new,info,requests}.tsx · conversation/info.tsx · user/[id].tsx · report.tsx
+  media.tsx            full-screen attachment viewer (#1248): zoom/swipe, video, audio, save/share
   self/*               preferences, user-settings, security, blocked, saved, …
 components/
   ui.tsx               primitives: Txt, Screen, Header, IconButton, SectionTitle,
@@ -925,6 +926,16 @@ the right pane (Groups tab, while focused). Content width on iPad: every
 full-screen page and every pane page uses `<Screen>`'s one
 `layout.screenMaxWidth` column; only auth steps pass `centered`
 (`layout.authMaxWidth`) — tests/screen-widths.test.ts pins this.
+
+Keyboard (#1246): `react-native-keyboard-controller` owns it. `KeyboardProvider`
+wraps the root layout; `<Screen>` and `SheetOverlay` use its
+`KeyboardAvoidingView` (`behavior="padding"`, `automaticOffset`) on both
+platforms, and a `<Screen>` nested in another skips its own. Never import
+`KeyboardAvoidingView` from `react-native` or hand-roll an inset from
+`Keyboard` events: the app is edge-to-edge, so `adjustResize` is inert and
+`keyboardDidShow` heights come out short. A screen that mounts with the
+keyboard already up (email → OTP) seeds from the current keyboard state.
+`tests/keyboard.test.ts` pins this.
 
 ## Backend integration — wired vs pending
 
@@ -966,7 +977,8 @@ Current state:
   `app/m/[...permalink].tsx`, Saved screen at `app/self/saved.tsx`, verified
   clipboard copy via expo-clipboard); attachments (picker → `upload_media`
   path arg → desktop's exact `_att`/`_txt` envelope from `lib/attachments.ts`;
-  inbound images render via `components/Media.tsx` + `get_media_path`). The DS base URL
+  inbound images render via `components/Media.tsx` + `get_media_path`; tapping any
+  attachment opens the full-screen viewer `app/media.tsx`, #1248). The DS base URL
   is threaded through `initializeNativeBridge` as `pollis_delivery_url`
   (`EXPO_PUBLIC_POLLIS_DELIVERY_URL`, dev → api-dev.pollis.com) — required, and
   since #987 the ONLY backend: OTP bootstrap, every remote write and every remote
@@ -996,6 +1008,14 @@ Current state:
   (android + ios cross-compile jobs).
 - **Media:** `get_media_path` decrypts an R2 object to a sandbox `file://` for
   `expo-image` — mobile can't run desktop's loopback media server. See `lib/media/`.
+  Every path that ends a session (sign-out, account deletion, revoked-device
+  sign-out) goes through `endSession()` (`lib/session/`): it resets the store,
+  pops every signed-in screen and lands on sign-in, then clears the React Query
+  cache, decrypted media (`pollis-media/`), export archives (`pollis-export/`)
+  and the emoji cache. Never call `appStore.logout()` or route to sign-in by
+  hand. The root layout runs `sweepStalePlaintext()` once per process before
+  any session restores (not `app/index.tsx`, which is re-entered mid-session).
+  `tests/session-teardown.test.ts` enforces all of it.
 - **Foreground realtime (scaffold):** mobile joins the same SFU rooms as desktop
   via the JS LiveKit SDK in **data-only** mode (`lib/realtime/`;
   `useConversationRealtime` for the open chat, `useInboxRealtime` for the
@@ -1014,7 +1034,11 @@ Current state:
   config plugins, **no** `registerGlobals()`, and deliberately **no microphone /
   camera-for-voice permissions** (we do not want to request mic/video access from
   users — not now, not speculatively). The `CAMERA` permission that exists is for
-  QR pairing only. When voice is actually built, add the LiveKit/webrtc Expo
+  QR pairing only. Never set a plugin's `cameraPermission` to `false` to keep it
+  that way: expo-image-picker turns `false` into a blocked CAMERA on Android
+  (`tools:node="remove"`, which also strips expo-camera's) and a deleted
+  `NSCameraUsageDescription` on iOS — that shipped in 1.0.0/1.0.1 (#1255);
+  `tests/camera-permission.test.ts` pins it. When voice is actually built, add the LiveKit/webrtc Expo
   config plugins, `registerGlobals()`, the permission declarations, and the call
   UI together — all in one go, under #343.
 
@@ -1177,3 +1201,10 @@ Titles and back live at the TOP (`<Header>`). Bottom sheets are
 `SheetOverlay` (Modal, full-screen backdrop, title + 44×44 Close —
 `btn-sheet-close`, or the sheet's `closeTestID` — no drag handle, no extra
 Cancel button): rows in `Group surface="high"`.
+The entrance (#1249) runs on Reanimated on the UI thread: one shared value
+drives backdrop opacity and the card's translateY, starting from the window
+height on the Modal's `onShow` (no layout measurement), with a 600 ms
+fallback that settles to static styles — `tests/sheet-entrance.test.ts` pins
+that net. `@gorhom/bottom-sheet` was evaluated and rejected: on Reanimated
+4.4+ its sheets can mount invisible (gorhom #2721, #2696) and its modal can
+wedge after an interrupted dismiss (#2762); upstream had no fix as of 2026-10.
