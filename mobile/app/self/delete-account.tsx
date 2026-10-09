@@ -1,7 +1,5 @@
 import { useState } from "react";
 import { View, Text } from "react-native";
-import { useRouter } from "expo-router";
-import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { observer } from "mobx-react-lite";
 import { Screen, Header, Body, Card, Field, Button, BottomAction } from "../../components/ui";
@@ -19,8 +17,6 @@ const DELETE_CONFIRM_WORD = "DELETE";
 
 function DeleteAccount() {
   const { t } = useTranslation("settings");
-  const router = useRouter();
-  const queryClient = useQueryClient();
   const currentUser = appStore.currentUser;
   const [confirmText, setConfirmText] = useState("");
   const deleteAccount = useDeleteAccount();
@@ -32,14 +28,9 @@ function DeleteAccount() {
       return;
     }
     deleteAccount.mutate(currentUser.id, {
-      onSuccess: async () => {
-        // The account is gone server-side and this device's data is wiped.
-        // Drop everything the UI still holds (decrypted messages live in the
-        // query cache, decrypted media on disk) and land on the sign-in screen.
-        queryClient.clear();
-        await endSession();
-        router.replace("/(auth)/email");
-      },
+      // The account is gone server-side and this device's data is wiped.
+      // Drop everything the UI still holds and land on the sign-in screen.
+      onSuccess: () => endSession(),
     });
   };
 

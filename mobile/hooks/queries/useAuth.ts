@@ -122,9 +122,9 @@ export function useLogout() {
     mutationFn: async (vars: { deleteData?: boolean } | void) => {
       await invoke("logout", { deleteData: vars?.deleteData ?? false });
     },
-    // Settled, not just success: both callers route to sign-in either way,
-    // so a failed `logout` must not leave the old session's UI state and
-    // decrypted media behind (desktop's sign-out does the same).
+    // Settled, not just success: a failed `logout` still lands on sign-in,
+    // so it must not leave the old session's state behind (desktop's
+    // sign-out does the same).
     onSettled: () => endSession(),
   });
 }

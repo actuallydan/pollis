@@ -1,14 +1,16 @@
 /*
- * Ending a session clears the decrypted media cache (#1256).
+ * Decrypted data does not outlive the session (#1256).
  *
- * `clearMediaCache()` existed but nothing called it, so every attachment a
- * session had decrypted to `pollis-media/` stayed on disk after sign-out or
- * account deletion. Every path that ends a session now goes through
- * `endSession()` (lib/session), whose pure half is `tearDownSession`.
+ * Sign-out left decrypted attachments in `pollis-media/`, export archives in
+ * `pollis-export/` and message bodies in the React Query cache; a crashed
+ * run left the same plaintext on disk until the next sign-out. Every path
+ * that ends a session now goes through `endSession()` (lib/session), whose
+ * pure half is `tearDownSession`, and the root layout sweeps leftovers once
+ * per process at startup.
  *
- * Two things are pinned: the teardown really clears the cache (and survives
- * the clear failing), and no sign-out path goes around it — a new one that
- * calls `appStore.logout()` directly would quietly bring the gap back.
+ * Pinned here: the teardown clears every piece (and keeps going when one
+ * fails), no sign-out path goes around it, and the startup sweep runs once,
+ * from the root layout, never from the re-enterable boot screen.
  */
 
 import test from "node:test";
@@ -17,7 +19,12 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { tearDownSession } from "../lib/session/teardown.ts";
+import {
+  oncePerProcess,
+  sweepPlaintext,
+  tearDownSession,
+  type SessionTeardownDeps,
+} from "../lib/session/teardown.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
@@ -35,43 +42,120 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
-test("the teardown resets the store and then clears the media cache", async () => {
-  const calls: string[] = [];
-  await tearDownSession({
+function recordingDeps(calls: string[], failing: string[] = []): SessionTeardownDeps {
+  const step = (name: string) => async () => {
+    calls.push(name);
+    if (failing.includes(name)) {
+      throw new Error(`${name} failed`);
+    }
+  };
+  return {
     resetStore: () => {
       calls.push("resetStore");
     },
-    clearMediaCache: async () => {
-      calls.push("clearMediaCache");
+    leaveSignedInScreens: () => {
+      calls.push("leaveSignedInScreens");
     },
-  });
-  assert.deepEqual(calls, ["resetStore", "clearMediaCache"]);
-});
+    clearQueryCache: step("clearQueryCache"),
+    clearMediaCache: step("clearMediaCache"),
+    clearExportArchives: step("clearExportArchives"),
+    clearEmojiCache: step("clearEmojiCache"),
+  };
+}
 
-test("a failed cache wipe still ends the session", async () => {
-  let reset = false;
+async function quietly<T>(fn: () => Promise<T>): Promise<T> {
   const warn = console.warn;
   console.warn = () => {};
   try {
-    await tearDownSession({
-      resetStore: () => {
-        reset = true;
-      },
-      clearMediaCache: async () => {
-        throw new Error("disk full");
-      },
-    });
+    return await fn();
   } finally {
     console.warn = warn;
   }
-  assert.equal(reset, true, "a failed wipe must not leave the user signed in");
+}
+
+test("the teardown resets the store, leaves the signed-in screens, then clears everything", async () => {
+  const calls: string[] = [];
+  await tearDownSession(recordingDeps(calls));
+  // Screens go before the caches, so none is left mounted to refetch into
+  // or re-read what is being cleared.
+  assert.deepEqual(calls.slice(0, 2), ["resetStore", "leaveSignedInScreens"]);
+  assert.deepEqual(new Set(calls.slice(2)), new Set([
+    "clearQueryCache",
+    "clearMediaCache",
+    "clearExportArchives",
+    "clearEmojiCache",
+  ]));
 });
 
-test("endSession wires the real media cache clear", () => {
+test("one failed wipe neither stops the others nor keeps the user signed in", async () => {
+  const calls: string[] = [];
+  await quietly(() => tearDownSession(recordingDeps(calls, ["clearQueryCache", "clearMediaCache"])));
+  assert.ok(calls.includes("resetStore"), "a failed wipe must not leave the user signed in");
+  assert.ok(calls.includes("clearExportArchives"));
+  assert.ok(calls.includes("clearEmojiCache"));
+});
+
+test("endSession wires the real wipes", () => {
   const src = read("lib/session/index.ts");
-  assert.match(src, /import \{ clearMediaCache \} from "\.\.\/media\/cache"/);
-  assert.match(src, /clearMediaCache,/);
-  assert.match(src, /resetStore: appStore\.logout/);
+  for (const dep of [
+    "resetStore: appStore.logout",
+    "queryClient.clear()",
+    "clearMediaCache,",
+    "clearExportArchives,",
+    "clearEmojiCache,",
+    "router.dismissAll()",
+    'router.replace("/(auth)/email")',
+  ]) {
+    assert.ok(src.includes(dep), `endSession no longer wires ${dep}`);
+  }
+});
+
+test("the startup sweep clears media and export archives", async () => {
+  const calls: string[] = [];
+  await quietly(() =>
+    sweepPlaintext({
+      clearMediaCache: async () => {
+        calls.push("media");
+        throw new Error("disk");
+      },
+      clearExportArchives: async () => {
+        calls.push("export");
+      },
+    })(),
+  );
+  assert.deepEqual(new Set(calls), new Set(["media", "export"]));
+  assert.match(
+    read("lib/session/index.ts"),
+    /oncePerProcess\(\s*sweepPlaintext\(\{ clearMediaCache, clearExportArchives \}\)/,
+  );
+});
+
+test("the startup sweep runs once per process, however often it is asked for", async () => {
+  let runs = 0;
+  const sweep = oncePerProcess(async () => {
+    runs += 1;
+  });
+  await Promise.all([sweep(), sweep()]);
+  await sweep();
+  assert.equal(runs, 1, "a second sweep could wipe media out from under mounted screens");
+});
+
+test("a failed startup sweep does not block boot", async () => {
+  const sweep = oncePerProcess(async () => {
+    throw new Error("disk");
+  });
+  await quietly(() => sweep());
+});
+
+test("the root layout sweeps before rendering; the re-enterable boot screen never does", () => {
+  const layout = read("app/_layout.tsx");
+  assert.match(layout, /sweepStalePlaintext\(\)\.finally\(\(\) => setSweepReady\(true\)\)/);
+  assert.match(layout, /if \(!loaded \|\| !bridgeReady \|\| !languageReady \|\| !sweepReady\)/);
+  // app/index.tsx is re-entered mid-session (app/invite/[token].tsx routes
+  // back to "/"), so a sweep there would delete media mounted screens use.
+  for (const rel of ["app/index.tsx", "app/invite/[token].tsx"]) {
+    assert.doesNotMatch(read(rel), /sweepStalePlaintext|clearMediaCache/, `${rel} must not sweep`);
+  }
 });
 
 test("every sign-out path goes through endSession", () => {
@@ -92,6 +176,6 @@ test("nothing but endSession resets the store on sign-out", () => {
   assert.deepEqual(
     offenders,
     [],
-    "a sign-out path that calls appStore.logout() directly skips the media cache wipe",
+    "a sign-out path that calls appStore.logout() directly skips the teardown",
   );
 });
