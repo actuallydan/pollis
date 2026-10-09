@@ -47,13 +47,15 @@ for (const env of ["dev", "prod"]) {
   });
 }
 
-test("only prod binds the update bucket, under the release bucket and one channel", () => {
+test("only prod binds the update bucket; both carry the one channel (inert on dev)", () => {
   const prod = jsonc(join(root, "wrangler.prod.jsonc"));
   assert.deepEqual(prod.r2_buckets, [{ binding: "UPDATES", bucket_name: "pollis" }]);
   assert.equal((prod.vars as Record<string, string>).OTA_CHANNEL, "production");
   const dev = jsonc(join(root, "wrangler.dev.jsonc"));
   assert.equal(dev.r2_buckets, undefined);
-  assert.equal((dev.vars as Record<string, string>).OTA_CHANNEL, undefined);
+  // A worker var both configs must carry (ds-config-manifest.json); without the
+  // bucket it serves nothing.
+  assert.equal((dev.vars as Record<string, string>).OTA_CHANNEL, "production");
 });
 
 test("the updates module never logs and never reads client-identifying data", () => {
