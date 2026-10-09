@@ -235,6 +235,7 @@ export async function resolveNamedMediaUri(
     return existing;
   }
 
+  const startedIn = generation;
   const promise = (async () => {
     namedBaseRefs.set(content_hash, (namedBaseRefs.get(content_hash) ?? 0) + 1);
     const source = await resolveMediaUri(attachment);
@@ -245,22 +246,38 @@ export async function resolveNamedMediaUri(
     const target = `${dir}${exportFilename(filename, content_type, content_hash)}`;
     await FileSystem.deleteAsync(target, { idempotent: true });
     await FileSystem.copyAsync({ from: source, to: target });
+    if (startedIn !== generation) {
+      // Cleared (sign-out) while copying: this copy landed after the wipe.
+      await FileSystem.deleteAsync(dir, { idempotent: true });
+      throw new Error(`media cache cleared while copying ${content_hash}`);
+    }
     return target;
   })();
   namedInFlight.set(content_hash, promise);
   promise.catch(() => {
-    // Let the next caller retry; references are reconciled on release.
-    namedInFlight.delete(content_hash);
+    // Let the next caller retry; references are reconciled on release. Only
+    // drop our own entry — after a clear the slot may hold a newer copy.
+    if (namedInFlight.get(content_hash) === promise) {
+      namedInFlight.delete(content_hash);
+    }
   });
   return promise;
 }
 
-/** Release one reference taken by `resolveNamedMediaUri`. */
+/**
+ * Release one reference taken by `resolveNamedMediaUri`. Pass the
+ * `mediaCacheGeneration()` captured at resolve time, as for
+ * `releaseMediaUri`: a release from before the last clear is a no-op.
+ */
 export async function releaseNamedMediaUri(
   attachment: Pick<MessageAttachment, "object_key" | "content_hash">,
+  resolvedIn?: number,
 ): Promise<void> {
   const { object_key, content_hash } = attachment;
   if (!object_key || !content_hash) {
+    return;
+  }
+  if (resolvedIn !== undefined && resolvedIn !== generation) {
     return;
   }
   const next = (namedRefCounts.get(content_hash) ?? 0) - 1;
@@ -274,7 +291,7 @@ export async function releaseNamedMediaUri(
   namedBaseRefs.delete(content_hash);
   await FileSystem.deleteAsync(`${NAMED_DIR}${content_hash}/`, { idempotent: true });
   for (let i = 0; i < baseRefs; i++) {
-    await releaseMediaUri(content_hash);
+    await releaseMediaUri(content_hash, generation);
   }
 }
 

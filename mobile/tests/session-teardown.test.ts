@@ -179,3 +179,20 @@ test("nothing but endSession resets the store on sign-out", () => {
     "a sign-out path that calls appStore.logout() directly skips the teardown",
   );
 });
+
+test("the media viewer's named copies respect a sign-out clear", () => {
+  const cache = read("lib/media/cache.ts");
+  // A copy that finishes after the clear is deleted, not handed out.
+  assert.match(cache, /copyAsync[\s\S]*?if \(startedIn !== generation\)[\s\S]*?deleteAsync\(dir/);
+  assert.match(cache, /releaseNamedMediaUri\([\s\S]*?resolvedIn\?: number[\s\S]*?resolvedIn !== generation/);
+  // Every release passes the generation it resolved in: the viewer closes
+  // (and its hooks unmount) after the clear when sign-out pops it.
+  for (const rel of ["app/media.tsx", "hooks/useNamedMediaUri.ts"]) {
+    const src = read(rel);
+    const calls = src.match(/releaseNamedMediaUri\([^;]*\);/g) ?? [];
+    assert.ok(calls.length > 0, `${rel} no longer releases named copies`);
+    for (const call of calls) {
+      assert.match(call, /resolvedIn,?\s*\)/, `${rel}: ${call} drops the generation`);
+    }
+  }
+});
