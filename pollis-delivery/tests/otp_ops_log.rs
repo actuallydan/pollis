@@ -268,4 +268,8 @@ fn only_dev_turns_the_ops_log_on() {
 
     let dev = wrangler_vars("dev");
     assert_eq!(dev.get("POLLIS_DS_OPS_LOG").and_then(|v| v.as_str()), Some("true"));
+    // Dev runs the OTP tiers unlimited for the parallel e2e suites.
+    for key in ["RL_REQUEST_OTP_MAX", "RL_VERIFY_OTP_MAX"] {
+        assert_eq!(dev.get(key).and_then(|v| v.as_str()), Some("off"), "{key}");
+    }
 }
