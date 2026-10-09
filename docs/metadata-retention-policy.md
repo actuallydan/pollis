@@ -245,6 +245,13 @@ either, operators included.** IPs are used for rate limiting only, and only as k
   (`pollis-relay/src/server.rs`, accept loop and `handle_connection`) and immediately reduces it to an
   `IpKey` — 16 bytes of HMAC-SHA256 under a per-boot random key (`pollis-relay/src/ratelimit.rs`). Its
   per-IP connection and circuit maps hold only those keys. Nothing is logged.
+- **OTA update server (`updates.pollis.com`, #1250).** The mobile app's update check is a
+  plain `GET` carrying only what the Expo Updates protocol needs (platform, runtime version,
+  channel, the current/embedded update ids; expo-updates also attaches an install-scoped
+  `EAS-Client-ID` the server has no use for). The Worker reads only the routing headers,
+  logs nothing, and its wrangler config pins `observability.enabled: false` and
+  `logpush: false`; `pollis-updates/tests/no-client-ip.test.ts` fails the build otherwise.
+  It keeps no per-client state at all — the R2 bucket holds only the published updates.
 - **LiveKit (calls).** The media server must see the client IP to route media; it keeps no logs of it:
   nginx access and error logs are off, the PROXY-protocol hop that carried the client address to nginx is
   gone, LiveKit logs at `warn`, and both containers run with docker `logging: driver: none`
