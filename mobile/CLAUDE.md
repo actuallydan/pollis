@@ -1053,7 +1053,11 @@ Current state:
   `useConversationRealtime` for the open chat, `useInboxRealtime` for the
   groups/DM lists). It ingests + invalidates on `new_message` / `dm_created` /
   `membership_changed`. Graceful no-op until `get_livekit_token` exists on the
-  bridge.
+  bridge. A missed wake-up is caught up, not waited out: returning to the
+  foreground re-ingests every listed conversation, and a LiveKit `Reconnected`
+  re-ingests that room (`lib/messageWake.ts`) — a message sent from the user's
+  other device has no push to fall back on. Such a message is shown live but
+  never counted unread (decided after ingest from the newest row's sender).
 - **Push (client wired):** `lib/push/` + `usePushNotifications` — contextual
   permission (asked on first conversation open, not at login), token registration
   (`register_push_token`, best-effort), content-free tap/data handlers, and a

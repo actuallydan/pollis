@@ -620,6 +620,9 @@ export function useIngestConversation() {
         });
         // Newly decrypted rows are newly searchable.
         queryClient.invalidateQueries({ queryKey: searchQueryKeys.all });
+        // And may be the newest in their conversation: refresh the list
+        // previews, which read the same local store.
+        queryClient.invalidateQueries({ queryKey: lastMessageQueryKeys.all });
       } catch (e) {
         // Best-effort — ingest is advisory. The next refetch will retry.
         console.warn("[useIngestConversation] ingest failed:", e);
