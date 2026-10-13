@@ -1001,8 +1001,15 @@ Current state:
   toward the start edge, so the back gestures and the list's scroll are never
   taken; numbers and curve in `lib/swipeReply.ts`), a **double tap** (a short
   spring nudge, then the same), the message sheet's Reply row, or the row's
-  Reply accessibility action. No haptic: expo-haptics is not installed, and
-  adding a native module would stop this shipping over the air. A finger
+  Reply accessibility action. Haptics (#1286, `expo-haptics`, so 1.0.4+ only):
+  a tick as the swipe crosses the reply threshold and again if it drops back
+  under, one for the double tap, one as a long press opens the sheet, and one
+  per reaction toggle. The table is `lib/hapticEvents.ts`, played by
+  `lib/haptics.ts`: iOS impact/selection generators, Android
+  `performAndroidHapticsAsync` (View.performHapticFeedback, so it follows the
+  phone's touch-feedback setting; never the raw vibrator). Fire-and-forget,
+  never throws into the interaction; the swipe hops to JS only on the frame
+  its armed state flips (`tests/haptics.test.ts`). A finger
   resting on a row that opens the message sheet fades it one surface up
   (#1282: `bg` → `raised`, or `accentFaint` → `accentSoft` on a tinted row)
   after a 100 ms delay so a scroll never flashes rows, held through the

@@ -19,6 +19,7 @@ import { applyReactionToggle } from "./reactionOptimistic";
 import { appStore } from "../../stores/appStore";
 import { useObserver } from "mobx-react-lite";
 import type { ConversationKind } from "./useMessages";
+import { haptic } from "../../lib/haptics";
 
 /** Mirror of `pollis_core::commands::messages::reactions::Reaction`. */
 export interface Reaction {
@@ -131,6 +132,8 @@ export function useToggleReaction(
     },
 
     onMutate: async (vars) => {
+      // Every reaction toggle, from a pill or the sheet, confirms by touch (#1286).
+      haptic(vars.mode === "add" ? "reactionAdd" : "reactionRemove");
       if (!currentUser || !conversationId || !kind) {
         return { previous: [] };
       }
