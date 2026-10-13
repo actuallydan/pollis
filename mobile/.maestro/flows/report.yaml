@@ -36,10 +36,12 @@ tags:
 - tapOn:
     id: "btn-verify"
     text: "Mark verified"
+# Once verified the chip reads "Verified" and its spoken label becomes
+# "Remove verification" (iOS matches the label, Android the text).
 - extendedWaitUntil:
     visible:
       id: "btn-verify"
-      text: "Verified"
+      text: "Verified|Remove verification"
     timeout: 15000
 - takeScreenshot: report-00-verified
 - tapOn:
