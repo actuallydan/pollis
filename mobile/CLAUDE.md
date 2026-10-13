@@ -1058,6 +1058,12 @@ Current state:
   re-ingests that room (`lib/messageWake.ts`) — a message sent from the user's
   other device has no push to fall back on. Such a message is shown live but
   never counted unread (decided after ingest from the newest row's sender).
+  Every one of those catch-ups refetches the open conversation, so an
+  optimistic send must survive a refetch: the newest page carries any
+  `pending-…` stub over, and the send's success swaps it — or restores the
+  confirmed row if a refetch lost it — then refetches once the row is stored
+  (`hooks/queries/pendingMessages.ts`; the same for thread replies). Without
+  this a just-sent message blinked out to "No messages yet".
 - **Push (client wired):** `lib/push/` + `usePushNotifications` — contextual
   permission (asked on first conversation open, not at login), token registration
   (`register_push_token`, best-effort), content-free tap/data handlers, and a
