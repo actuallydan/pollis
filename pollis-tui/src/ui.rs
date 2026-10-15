@@ -337,6 +337,18 @@ fn render_messages(frame: &mut Frame, area: Rect, home: &HomeState) {
 /// Borrows from `m` rather than owning: this runs for every visible message on
 /// every frame, and the owned form copied the whole body text each time.
 fn message_line(m: &pollis_core::commands::messages::ChannelMessage) -> Line<'_> {
+    // A message this device should have been able to read and could not
+    // (#1312). Nothing readable says who sent it, so no sender is shown.
+    if m.undecryptable {
+        return Line::from(vec![
+            Span::styled("?", Style::default().fg(Color::DarkGray)),
+            Span::raw("  "),
+            Span::styled(
+                UNDECRYPTABLE_TEXT,
+                Style::default().fg(Color::Red).add_modifier(Modifier::ITALIC),
+            ),
+        ]);
+    }
     let sender = m.sender_username.as_deref().unwrap_or(&m.sender_id);
     let sender_style = Style::default()
         .fg(Color::Cyan)
@@ -365,6 +377,10 @@ fn message_line(m: &pollis_core::commands::messages::ChannelMessage) -> Line<'_>
     }
     Line::from(spans)
 }
+
+/// The placeholder line for a lost message — the same words desktop and mobile
+/// use.
+pub(crate) const UNDECRYPTABLE_TEXT: &str = "This message couldn't be decrypted on this device";
 
 /// A focused pane gets a solid accent border; an unfocused one a muted border.
 fn border_style(focused: bool) -> Style {
@@ -592,4 +608,37 @@ fn centered(area: Rect, w: u16, h: u16) -> Rect {
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
     Rect::new(x, y, w, h)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pollis_core::commands::messages::ChannelMessage;
+
+    fn text(line: &Line<'_>) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    /// A lost message (#1312) renders as the placeholder, with no sender —
+    /// never as an empty line or as "(unable to decrypt)" under a fake author.
+    #[test]
+    fn an_undecryptable_message_renders_the_placeholder() {
+        let m = ChannelMessage {
+            id: "m".to_string(),
+            conversation_id: "c".to_string(),
+            sender_id: "sealed".to_string(),
+            sender_username: None,
+            ciphertext: String::new(),
+            content: None,
+            reply_to_id: None,
+            thread_id: None,
+            sent_at: "t".to_string(),
+            edited_at: None,
+            deleted_at: None,
+            undecryptable: true,
+        };
+        let rendered = text(&message_line(&m));
+        assert!(rendered.contains(UNDECRYPTABLE_TEXT), "{rendered}");
+        assert!(!rendered.contains("sealed"), "{rendered}");
+    }
 }
