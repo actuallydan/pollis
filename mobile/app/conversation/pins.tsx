@@ -134,6 +134,7 @@ function PinnedMessagesScreen() {
         <Chip
           variant="outline"
           testID={`btn-unpin-${item.message_id}`}
+          disabled={togglePin.isPending}
           accessibilityLabel={t("mobile:pins.unpinA11y", { author })}
           onPress={() =>
             togglePin.mutate({
