@@ -129,16 +129,35 @@ tags:
           text: "Photo, .*"
           index: 0
           optional: true
+# Android's photo picker labels each thumbnail "Photo taken on <date>"; the
+# seeded image is the first one in "Recent".
 - runFlow:
     when:
       platform: Android
     commands:
       - tapOn:
-          point: "16%,61%"
+          text: "Photo taken on.*"
+          index: 0
           optional: true
 - tapOn:
     text: "(?i)(add|done).*"
     optional: true
+# A picker that is still up (nothing could be picked) is cancelled, so the
+# rest of the flow runs against the Vault.
+- runFlow:
+    when:
+      notVisible:
+        id: "btn-attach"
+    commands:
+      - tapOn:
+          text: "Cancel"
+          optional: true
+- runFlow:
+    when:
+      notVisible:
+        id: "btn-attach"
+    commands:
+      - back
 - extendedWaitUntil:
     visible:
       id: "strip-attachments"
