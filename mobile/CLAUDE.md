@@ -1027,6 +1027,9 @@ Current state:
   Pin / Unpin is a row in the message sheet (main timeline only, as desktop),
   the list is `app/conversation/pins.tsx` behind the chat header's pin button
   (a pane page on iPad), and there is no per-row pin marker (desktop has none).
+  Pins carry no realtime event, so the list refetches every time it opens
+  (`usePinnedMessages(id, { fresh: true })`); the sheet's label reads the
+  chat screen's 30 s-cached copy.
   A list row taps back to the conversation scrolled to the message: the same
   `resolve_message_permalink` as the permalink route, then
   `stores/messageJumpStore.ts` (desktop's store, same shape) — the chat screen
