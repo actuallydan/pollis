@@ -27,8 +27,19 @@ tags:
     text: "before the lost message"
 - assertVisible:
     id: "text-undecryptable-.*"
+# The peer sent TWO undecryptable messages in a row: one row, counted.
 - assertVisible:
-    text: "This message couldn't be decrypted on this device."
+    text: "2 messages couldn't be decrypted on this device."
 - assertNotVisible:
     text: "this message is lost in transit"
+- assertNotVisible:
+    text: "so is this one"
 - takeScreenshot: lost-message-02-placeholder
+# Its link opens Diagnostics, where each loss has its own log line.
+- tapOn:
+    id: "btn-undecryptable-diagnostics-.*"
+- extendedWaitUntil:
+    visible:
+      id: "screen-self-diagnostics"
+    timeout: 15000
+- takeScreenshot: lost-message-03-diagnostics

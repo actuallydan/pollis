@@ -5,7 +5,7 @@
 #
 # The peer is `pollis-tui`'s `lost_message_peer` example (a test-harness build
 # that never ships): it signs up a fresh account, waits for the device to open
-# a DM with it, and sends three messages with the middle one's ciphertext
+# a DM with it, and sends four messages with the middle two's ciphertext
 # corrupted. The device's real ingest meets a message it cannot decrypt, and
 # part 2 asserts the placeholder shows where it belongs.
 #

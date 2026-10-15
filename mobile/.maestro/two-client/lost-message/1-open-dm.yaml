@@ -5,7 +5,7 @@ tags:
 # LOST MESSAGE (#1312), part 1 of 2 — driven by scripts/maestro-lost-message.sh.
 # Sign up a fresh account and open a DM with the peer the script just signed up
 # (${MAESTRO_PEER_HANDLE}). The peer, a dev-DS client run by the script, accepts
-# it and sends three messages, the middle one corrupted so no device can open it.
+# it and sends four messages, the middle two corrupted so no device can open them.
 
 - runFlow: ../../subflows/sign-in.yaml
 - tapOn:

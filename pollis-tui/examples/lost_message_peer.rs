@@ -2,11 +2,11 @@
 //!
 //! Signs up a fresh account on the DS named by `POLLIS_DELIVERY_URL` (the dev
 //! DS — it fixes the OTP), prints its handle, waits for the phone under test to
-//! open a DM with it, then sends three messages: one ordinary, one whose
+//! open a DM with it, then sends four messages: one ordinary, two whose
 //! ciphertext is corrupted before it leaves (`test_hooks::corrupt_next_send`,
 //! which only exists in a `test-harness` build, i.e. this example), and one
-//! ordinary. The phone's real ingest then meets a message it cannot open, and
-//! the flow asserts the placeholder sits between the other two.
+//! ordinary. The phone's real ingest then meets two messages it cannot open,
+//! and the flow asserts ONE collapsed placeholder sits between the other two.
 //!
 //! Not a shipping binary: examples build against pollis-tui's dev-dependencies,
 //! which is the only place pollis-core carries `test-harness`.
@@ -68,8 +68,11 @@ async fn main() -> Result<()> {
         }
     };
     send("before the lost message").await?;
+    // Two in a row: the phone collapses a run into one row.
     messages::test_hooks::corrupt_next_send();
     send("this message is lost in transit").await?;
+    messages::test_hooks::corrupt_next_send();
+    send("so is this one").await?;
     send("after the lost message").await?;
     println!("PEER_DONE dm={dm_id}");
     Ok(())

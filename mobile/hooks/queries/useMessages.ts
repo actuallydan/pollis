@@ -84,6 +84,9 @@ export interface Message {
   /** A placeholder for a message this device could not decrypt (#1312):
    *  no content, no author, nothing to act on. */
   undecryptable?: boolean;
+  /** How many consecutive placeholders this row stands for — set by
+   *  `collapseUndecryptable` when the timeline is built. */
+  undecryptableCount?: number;
   /** Local-only optimistic stub flag. Replaced when `send_message` resolves. */
   pending?: boolean;
   /** Local-only: the optimistic stub's send failed. Kept in the list, labelled. */
