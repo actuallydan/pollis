@@ -162,9 +162,20 @@ export default function Search() {
         s: t("mobile:self.hub.savedSub"),
         to: "/self/saved" as const,
       },
+      // The Vault (#1316), also matched on desktop's keywords ("notes",
+      // "files", "note to self"…).
+      {
+        id: "vault",
+        n: t("search:pages.vaultName"),
+        s: t("mobile:vault.rowSub"),
+        k: t("search:pages.vaultKeywords"),
+        to: "/vault" as const,
+      },
     ].filter(
       (p) =>
-        p.n.toLowerCase().includes(lower) || p.s.toLowerCase().includes(lower),
+        p.n.toLowerCase().includes(lower) ||
+        p.s.toLowerCase().includes(lower) ||
+        (p.k ?? "").toLowerCase().includes(lower),
     );
   }, [trimmed, t]);
 

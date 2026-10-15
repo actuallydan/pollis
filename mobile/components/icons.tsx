@@ -68,6 +68,11 @@ import {
   RotateCcw,
   RotateCw,
   Stethoscope,
+  Vault,
+  Pin,
+  PinOff,
+  Images,
+  MessageSquare,
   type LucideIcon,
 } from "lucide-react-native";
 import { I18nManager, View } from "react-native";
@@ -179,6 +184,11 @@ export const Icon = {
   info: wrap(Info, 16),
   alert: wrap(AlertCircle, 14),
   diagnostics: wrap(Stethoscope, 14),
+  vault: wrap(Vault),
+  pin: wrap(Pin),
+  pinOff: wrap(PinOff),
+  images: wrap(Images),
+  messageSquare: wrap(MessageSquare),
 
   /* ── Media (#1248) ── */
   play: wrap(Play),
