@@ -397,7 +397,11 @@ asks `messages::loss::classify`:
 A loss writes a `[loss]` line to the on-device log (conversation, envelope,
 sealed position, where the replay went, the join floor) and, for a `message`,
 a placeholder row (`message.undecryptable`). Clients render it as "This message
-couldn't be decrypted on this device" with no author and no actions. A
+couldn't be decrypted on this device" with no author and no message actions,
+only a link to Diagnostics (desktop `/diagnostics`, mobile Self → Diagnostics;
+the TUI has no such page). A run of consecutive placeholders is drawn as ONE
+row that says how many (`collapseUndecryptable` on desktop and mobile,
+`message_lines` in the TUI); the rows themselves stay one per envelope. A
 successful decrypt of the same id later replaces it; a control frame drops it.
 
 A lineage this device held before #1312 has no recorded join; its floor becomes
