@@ -12,6 +12,7 @@ import {
   timeLabel,
 } from "../../components/chat/dates";
 import { DaySeparator } from "../../components/chat/DaySeparator";
+import { UndecryptableRow } from "../../components/chat/UndecryptableRow";
 import { MessageRow } from "../../components/chat/MessageRow";
 import { Composer } from "../../components/chat/Composer";
 import { authorName } from "../../lib/authorName";
@@ -497,6 +498,9 @@ function TextChat(props: ChatViewProps = {}) {
         return <DaySeparator label={item.label} />;
       }
       const m = item.message;
+      if (m.undecryptable) {
+        return <UndecryptableRow messageId={m.id} time={timeLabel(m.created_at)} />;
+      }
       const mine = currentUser?.id === m.sender_id;
       const summary = threadSummaries?.get(m.id);
       const name =
