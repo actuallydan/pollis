@@ -29,10 +29,19 @@ export const pinQueryKeys = {
  * legitimately error while this device waits for the conversation's pin key
  * (a fresh join); the screen words that as "not available yet", and the
  * next mount retries — desktop's "heals on the next pass".
+ *
+ * `fresh`: refetch on every mount, whatever the cache holds. The pinned list
+ * passes it — pins change with no realtime event (another member pins or
+ * unpins), and the chat screen has usually just cached the list for its
+ * message sheet, so a 30 s-fresh copy would hide a pin made a moment ago.
  */
-export function usePinnedMessages(conversationId: string | null) {
+export function usePinnedMessages(
+  conversationId: string | null,
+  { fresh = false }: { fresh?: boolean } = {},
+) {
   const currentUser = useObserver(() => appStore.currentUser);
   return useQuery({
+    refetchOnMount: fresh ? "always" : true,
     queryKey: pinQueryKeys.conversation(conversationId),
     queryFn: async (): Promise<PinnedMessage[]> =>
       (await invoke<PinnedMessage[]>("list_pinned_messages", {

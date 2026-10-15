@@ -104,6 +104,10 @@ test("the message sheet pins, the header opens the list, and every jump door que
   for (const door of ["app/conversation/pins.tsx", "app/self/saved.tsx", "app/m/[...permalink].tsx"]) {
     assert.match(src(door), /messageJumpStore\.request\(/, door);
   }
+  // Another member's pin has no realtime event: opening the list reads fresh,
+  // never the chat screen's 30 s-cached copy.
+  assert.match(src("app/conversation/pins.tsx"), /usePinnedMessages\(conversationId, \{\s*fresh: true,/);
+  assert.match(src("hooks/queries/usePins.ts"), /refetchOnMount: fresh \? "always" : true/);
   // On iPad the list opens inside the detail pane.
   assert.match(src("components/pane/paneContext.ts"), /"\/conversation\/pins"/);
   assert.match(src("components/MasterDetail.tsx"), /"\/conversation\/pins": PinnedMessages/);

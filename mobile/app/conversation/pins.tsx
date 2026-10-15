@@ -44,7 +44,9 @@ function PinnedMessagesScreen() {
   const conversationId = params.id ?? null;
   const name = typeof params.name === "string" ? params.name : undefined;
   const currentUser = appStore.currentUser;
-  const { data: pins = [], isLoading, isError } = usePinnedMessages(conversationId);
+  const { data: pins = [], isLoading, isError } = usePinnedMessages(conversationId, {
+    fresh: true,
+  });
   const togglePin = useTogglePinnedMessage();
   const resolvePermalink = useResolvePermalink();
   const [unresolved, setUnresolved] = useState(false);
