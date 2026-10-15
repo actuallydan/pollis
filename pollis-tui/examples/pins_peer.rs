@@ -89,7 +89,11 @@ async fn main() -> Result<()> {
         let _ = pollis_tui::data::dm_messages(&state, &me.id, &dm_id, None).await;
         match pinned_messages::list_pinned_messages(dm_id.clone(), me.id.clone(), &state).await {
             Ok(pins) => {
-                let device_pin = pins.iter().any(|p| p.content.contains(DEVICE_TEXT));
+                // Case-insensitive: the phone's keyboard capitalises the
+                // first letter of what Maestro types.
+                let device_pin = pins
+                    .iter()
+                    .any(|p| p.content.to_lowercase().contains(DEVICE_TEXT));
                 let peer_pin = pins.iter().any(|p| p.message_id == sent.id);
                 if device_pin && !saw_device_pin {
                     saw_device_pin = true;
