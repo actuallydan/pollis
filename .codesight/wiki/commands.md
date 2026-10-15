@@ -447,7 +447,9 @@ the remote is the source of truth (sync replaces the cache).
 
 - `get_vault_messages(user_id)` → `VaultMessage[]` — oldest first (chat order). Pulls
   and replaces the local cache when the DS is reachable; serves the last synced state
-  when not. An entry this build cannot decrypt is hidden, never deleted.
+  when not. An entry this build cannot decrypt is hidden, never deleted. A row the
+  DS has only ever inserted carries `updated_at == created_at`; a rewrite (edit or
+  pin) stamps the server clock, which is what both UIs' "(edited)" keys on.
 - `send_vault_message(user_id, content)` → `VaultMessage`
 - `edit_vault_message(id, new_content, user_id)` → `VaultMessage` — keeps `pinned` and
   `created_at`.
