@@ -9,8 +9,10 @@
     "undecryptable": {
       "tag": "undecryptable",
       "title": "Couldn't decrypt",
-      "body": "This message couldn't be decrypted on this device.",
-      "detail": "Something was sent here, but this device couldn't read it. Your other devices may still have it."
+      "body_one": "This message couldn't be decrypted on this device.",
+      "body_other": "{{count}} messages couldn't be decrypted on this device.",
+      "detail": "Something was sent here, but this device couldn't read it. Your other devices may still have it.",
+      "diagnostics": "See diagnostics"
     }
   },
   "status": {

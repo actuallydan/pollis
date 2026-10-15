@@ -1,5 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "@tanstack/react-router";
 import { LockKeyhole } from "lucide-react";
 import { formatTimeOfDay, formatFullTimestamp, toMs } from "../../utils/format";
 import type { Message } from "../../types";
@@ -11,22 +12,39 @@ interface UndecryptableMessageProps {
 }
 
 /**
- * A message this device was entitled to read and could not decrypt (#1312).
+ * A message this device was entitled to read and could not decrypt (#1312) —
+ * or a run of them, which `MessageList` collapses into one row
+ * (`undecryptable_count`).
  *
  * It stands where the message would have been, so a loss is visible instead
  * of silent. Nothing readable says who sent it, so there is no author, and
- * nothing can be done with it, so there are no actions.
+ * nothing can be done with it, so there are no message actions. Its one link
+ * opens Diagnostics, where each loss has its own log line.
  */
 export const UndecryptableMessage: React.FC<UndecryptableMessageProps> = ({ message, skin }) => {
   const { t } = useTranslation("chat");
+  const navigate = useNavigate();
   const at = toMs(message.created_at);
+  const count = message.undecryptable_count ?? 1;
+  const body = t("message.undecryptable.body", { count });
   const detail = t("message.undecryptable.detail");
+  const diagnosticsLink = (
+    <button
+      type="button"
+      data-testid="undecryptable-diagnostics-link"
+      className="underline bg-transparent text-accent"
+      onClick={() => void navigate({ to: "/diagnostics" })}
+    >
+      {t("message.undecryptable.diagnostics")}
+    </button>
+  );
 
   if (skin === "refined") {
     return (
       <div
         data-testid={`message-${message.id}`}
         data-undecryptable="true"
+        data-undecryptable-count={count}
         tabIndex={-1}
         className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-2 items-start px-4 pt-msg-header pb-msg-row outline-none"
       >
@@ -50,9 +68,11 @@ export const UndecryptableMessage: React.FC<UndecryptableMessageProps> = ({ mess
             </bdi>
           </div>
           <div data-testid="message-content" className="text-sm leading-msg text-muted">
-            {t("message.undecryptable.body")}
+            {body}
           </div>
-          <div className="text-xs text-muted">{detail}</div>
+          <div className="text-xs text-muted">
+            {detail} {diagnosticsLink}
+          </div>
         </div>
       </div>
     );
@@ -62,6 +82,7 @@ export const UndecryptableMessage: React.FC<UndecryptableMessageProps> = ({ mess
     <div
       data-testid={`message-${message.id}`}
       data-undecryptable="true"
+      data-undecryptable-count={count}
       tabIndex={-1}
       title={detail}
       className="px-4 py-1 outline-none"
@@ -80,8 +101,8 @@ export const UndecryptableMessage: React.FC<UndecryptableMessageProps> = ({ mess
           data-testid="message-content"
           className="font-mono text-sm break-words flex-1 min-w-0 text-muted"
         >
-          <span className="text-fg">[{t("message.undecryptable.tag")}]</span>{" "}
-          {t("message.undecryptable.body")}
+          <span className="text-fg">[{t("message.undecryptable.tag")}]</span> {body}{" "}
+          {diagnosticsLink}
         </span>
       </div>
     </div>

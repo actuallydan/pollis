@@ -9,7 +9,9 @@
  *   - it renders in place, between the messages around it;
  *   - it names no author (nothing readable says who sent it) and leaks no
  *     sentinel id;
- *   - it offers no actions — there is nothing to reply to, edit or react to.
+ *   - it offers no message actions — nothing to reply to, edit or react to —
+ *     only a link to Diagnostics, where each loss has its own log line;
+ *   - a run of consecutive losses is ONE row that says how many.
  *
  * Screenshots of both skins land in `e2e/artifacts/playwright/` for review.
  *
@@ -26,6 +28,9 @@ const CHANNEL_ID = "01HQ7Z3K9M2P5R8T1V4W6Y0XCB";
 const MSG_BEFORE = "01HQ7Z3K9M2P5R8T1V4W6Y0BEF";
 const MSG_LOST = "01HQ7Z3K9M2P5R8T1V4W6Y0LST";
 const MSG_AFTER = "01HQ7Z3K9M2P5R8T1V4W6Y0AFT";
+// A run of three lost messages, later in the log.
+const RUN = ["01HQ7Z3K9M2P5R8T1V4W6Y0RN1", "01HQ7Z3K9M2P5R8T1V4W6Y0RN2", "01HQ7Z3K9M2P5R8T1V4W6Y0RN3"];
+const MSG_LAST = "01HQ7Z3K9M2P5R8T1V4W6Y0LAS";
 
 const SKINS = ["terminal", "refined"] as const;
 type Skin = (typeof SKINS)[number];
@@ -66,6 +71,22 @@ function preloadState(skin: Skin) {
           sender_username: USER.username,
           content: "got it, thanks",
           sent_at: "2026-10-14T15:06:00.000Z",
+        },
+        ...RUN.map((id, i) => ({
+          id,
+          conversation_id: CHANNEL_ID,
+          sender_id: "sealed",
+          content: null,
+          sent_at: `2026-10-14T15:1${i}:00.000Z`,
+          undecryptable: true,
+        })),
+        {
+          id: MSG_LAST,
+          conversation_id: CHANNEL_ID,
+          sender_id: BOB.id,
+          sender_username: BOB.username,
+          content: "anyone still here?",
+          sent_at: "2026-10-14T15:20:00.000Z",
         },
       ],
     },
@@ -132,10 +153,21 @@ for (const skin of SKINS) {
     expect(order[0]).toBeLessThan(order[1]);
     expect(order[1]).toBeLessThan(order[2]);
 
-    // Nothing to act on: hovering it shows no action bar.
+    // Nothing to act on: hovering it shows no action bar. Its one control is
+    // the Diagnostics link.
     await lost.hover();
     await expect(lost.locator("[data-testid^='message-action']")).toHaveCount(0);
-    await expect(lost.getByRole("button")).toHaveCount(0);
+    await expect(lost.getByRole("button")).toHaveCount(1);
+    await expect(lost.getByTestId("undecryptable-diagnostics-link")).toBeVisible();
+
+    // A run of three is one row that says three; the other two are not drawn.
+    const run = page.getByTestId(`message-${RUN[0]}`);
+    await expect(run).toHaveAttribute("data-undecryptable-count", "3");
+    await expect(run.getByTestId("message-content")).toContainText(
+      "3 messages couldn't be decrypted on this device.",
+    );
+    await expect(page.getByTestId(`message-${RUN[1]}`)).toHaveCount(0);
+    await expect(page.getByTestId(`message-${RUN[2]}`)).toHaveCount(0);
 
     await page.screenshot({
       path: test.info().outputPath(`lost-message-${skin}.png`),
@@ -143,3 +175,12 @@ for (const skin of SKINS) {
     });
   });
 }
+
+test("the placeholder's link opens Diagnostics", async ({ page }) => {
+  await boot(page, "refined");
+  await openChannel(page);
+  // Plain click, no force: the next row's hidden action bar overlaps this
+  // row's bottom edge and used to swallow it.
+  await page.getByTestId(`message-${MSG_LOST}`).getByTestId("undecryptable-diagnostics-link").click();
+  await expect(page.getByTestId("diagnostics-page")).toBeVisible();
+});
