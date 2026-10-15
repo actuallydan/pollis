@@ -29,6 +29,8 @@ tags:
 - tapOn:
     id: "input-composer"
 - inputText: "hello peer"
+# The keyboard can sit over the send button and take the tap (Gboard's mic).
+- hideKeyboard
 - tapOn:
     id: "btn-send"
 - takeScreenshot: lost-message-01-dm-open
