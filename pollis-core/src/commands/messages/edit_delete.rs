@@ -723,11 +723,21 @@ pub(crate) async fn register_attachment_refs(
     message_id: &str,
     content: &str,
 ) {
-    for att in parse_attachment_refs(content) {
+    let refs = parse_attachment_refs(content);
+    if refs.is_empty() {
+        return;
+    }
+    // The envelope is sealed, so its `sender_id` names no one: the DS binds the
+    // declaration to its author through the envelope's deletion capability
+    // instead. Without it every declaration is refused (403) and the object is
+    // left collectable by the next delete of the same bytes anywhere.
+    let delete_token = super::delete_capability::envelope_delete_token(state, message_id).await;
+    for att in refs {
         let body = pollis_api::messages::AttachmentRegisterBody::ForMessage {
             content_hash: att.content_hash.clone(),
             r2_key: att.r2_key,
             message_id: message_id.to_string(),
+            delete_token: delete_token.clone(),
         };
         if let Err(e) = crate::commands::mls::ds_post_ok(state, &body).await {
             crate::diag!(

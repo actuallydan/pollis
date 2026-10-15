@@ -215,3 +215,62 @@ async fn every_send_is_sealed_attributed_and_membership_gated() {
     drop(bob);
     drop(mallory);
 }
+
+/// **A sealed message's attachment is reference-counted.** Every send is sealed,
+/// so the stored `sender_id` is the sentinel and names no one — and
+/// `/v1/attachments/register` bound each declaration to the envelope's
+/// `sender_id` (#1165), so every real send's reference was refused with a 403
+/// that the best-effort send path only logged. No attachment was ever counted,
+/// and each shared object stayed collectable by the next delete of the same
+/// bytes anywhere: a later "Image unavailable" in every other message carrying
+/// it. The client now proves authorship with the envelope's deletion capability
+/// (#1086); this drives the real send path and reads the server's at-rest
+/// `attachment_ref` row.
+#[tokio::test(flavor = "multi_thread")]
+#[serial]
+async fn a_sealed_messages_attachment_is_reference_counted() {
+    wipe().await;
+
+    let mut alice = TestClient::new().await;
+    alice.sign_up("alice@test.local").await;
+    let group_id = alice.create_group("Attachments").await;
+    let channel_id = alice.general_channel_id(&group_id).await;
+
+    let hash = "ab".repeat(32);
+    let content = serde_json::json!({
+        "_att": [{
+            "hash": hash,
+            "key": format!("media/{hash}.enc"),
+            "filename": "photo.png",
+            "content_type": "image/png",
+            "size": 1,
+        }]
+    })
+    .to_string();
+    let msg_id = alice.send_channel_message_id(&channel_id, &content).await;
+
+    let remote = writable_remote().await;
+    let conn = remote.conn().await.expect("remote conn");
+    let mut rows = conn
+        .query(
+            "SELECT COUNT(*) FROM attachment_ref ar \
+             JOIN message_envelope me ON me.id = ar.message_id \
+             WHERE ar.content_hash = ?1 AND ar.message_id = ?2 AND me.sender_id = 'sealed'",
+            libsql::params![hash.clone(), msg_id.clone()],
+        )
+        .await
+        .expect("attachment_ref query");
+    let counted: i64 = rows
+        .next()
+        .await
+        .expect("row")
+        .expect("some row")
+        .get(0)
+        .expect("count");
+    assert_eq!(
+        counted, 1,
+        "the sealed message's attachment must hold a live reference on the DS"
+    );
+
+    drop(alice);
+}
