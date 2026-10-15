@@ -105,12 +105,12 @@ tags:
 
 # --- Media view: nothing yet ---
 - tapOn:
-    id: "btn-vault-view-media"
+    id: "chip-vault-view-media"
 - assertVisible:
     id: "vault-media-empty"
 - takeScreenshot: vault-05-media-empty
 - tapOn:
-    id: "btn-vault-view-chat"
+    id: "chip-vault-view-chat"
 
 # --- Best effort: an image entry, shown in the grid, opens the viewer. The
 # attach step drives the SYSTEM photo picker (seeded by addMedia), exactly as
@@ -176,7 +176,7 @@ tags:
           timeout: 60000
       - takeScreenshot: vault-06-image-entry
       - tapOn:
-          id: "btn-vault-view-media"
+          id: "chip-vault-view-media"
       - extendedWaitUntil:
           visible:
             id: "tile-vault-media-.*"
@@ -197,7 +197,7 @@ tags:
       - assertVisible:
           id: "screen-vault"
       - tapOn:
-          id: "btn-vault-view-chat"
+          id: "chip-vault-view-chat"
 
 # --- Delete asks first, then removes ---
 - longPressOn: ".*second entry.*"

@@ -243,7 +243,7 @@ function VaultScreen() {
         }}
       >
         <Chip
-          testID="btn-vault-view-chat"
+          testID="chip-vault-view-chat"
           selected={view === "chat"}
           onPress={() => setView("chat")}
           leading={
@@ -256,7 +256,7 @@ function VaultScreen() {
           {t("viewChat")}
         </Chip>
         <Chip
-          testID="btn-vault-view-media"
+          testID="chip-vault-view-media"
           selected={view === "media"}
           onPress={() => setView("media")}
           leading={
