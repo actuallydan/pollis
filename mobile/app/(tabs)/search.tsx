@@ -301,7 +301,13 @@ export default function Search() {
                 <ListRow
                   key={p.id}
                   testID={`row-page-${p.id}`}
-                  glyph={<Icon.gear size={20} color={semantic.dim} />}
+                  glyph={
+                    p.id === "vault" ? (
+                      <Icon.vault size={20} color={semantic.dim} />
+                    ) : (
+                      <Icon.gear size={20} color={semantic.dim} />
+                    )
+                  }
                   name={p.n}
                   sub={p.s}
                   chevron
