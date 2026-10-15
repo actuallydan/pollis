@@ -219,7 +219,9 @@ export const MessageList: React.FC<MessageListProps> = observer(({
           const decryptionFailed = m.content_decrypted === undefined;
           // Soft-deleted messages have no content but should remain visible as "[deleted]".
           const isSoftDeleted = !!m.deleted_at;
-          return hasText || hasAttachments || decryptionFailed || isSoftDeleted;
+          // A lost message's placeholder (#1312) has no content by definition;
+          // dropping it here would make the loss silent again.
+          return hasText || hasAttachments || decryptionFailed || isSoftDeleted || !!m.undecryptable;
         })
         .sort((a, b) => a.created_at - b.created_at),
     [messages]

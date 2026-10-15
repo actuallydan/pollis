@@ -87,6 +87,8 @@ export interface Message {
   // Edit/delete metadata
   edited_at?: string; // ISO timestamp if message was edited
   deleted_at?: string; // ISO timestamp if message was soft-deleted
+  // A placeholder for a message this device could not decrypt (#1312)
+  undecryptable?: boolean;
   // UI state
   status?: 'pending' | 'sending' | 'sent' | 'failed' | 'cancelled';
 }
