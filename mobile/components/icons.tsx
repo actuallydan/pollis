@@ -69,8 +69,6 @@ import {
   RotateCw,
   Stethoscope,
   Vault,
-  Pin,
-  PinOff,
   Images,
   MessageSquare,
   type LucideIcon,
@@ -185,8 +183,6 @@ export const Icon = {
   alert: wrap(AlertCircle, 14),
   diagnostics: wrap(Stethoscope, 14),
   vault: wrap(Vault),
-  pin: wrap(Pin),
-  pinOff: wrap(PinOff),
   images: wrap(Images),
   messageSquare: wrap(MessageSquare),
 
