@@ -13,6 +13,13 @@ tags:
 - assertVisible:
     id: "screen-self-security"
 - takeScreenshot: security-01-devices
+# Account key: the transparency check renders a verdict. Which one depends
+# on the live log, so assert the line, not the status.
+- scrollUntilVisible:
+    element:
+      id: "text-account-key-audit"
+    timeout: 20000
+- takeScreenshot: security-01b-account-key
 # Blocked-users list.
 - tapOn:
     id: "row-blocked-users"
