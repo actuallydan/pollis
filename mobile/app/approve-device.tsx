@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Trans, useTranslation } from "react-i18next";
-import { Screen, Header, Button, Field } from "../components/ui";
+import { Screen, Header, Button, Field, BottomAction } from "../components/ui";
 import { ErrorText } from "../components/self/SettingsField";
 import { semantic, type as ty, fonts, space } from "../theme/tokens";
 import { useApproveEnrollment, useRejectEnrollment } from "../hooks/queries";
@@ -107,21 +107,23 @@ export default function ApproveDevice() {
           <Text style={ty.meta}>{t("approval.codeHint", { count: SAS_LENGTH })}</Text>
         </View>
         {error ? <ErrorText testID="text-approve-device-error">{error}</ErrorText> : null}
-        <View style={{ gap: space.sm }}>
-          <Button
-            variant="primary"
-            full
-            testID="btn-approve-device"
-            disabled={code.length !== SAS_LENGTH || busy}
-            onPress={onApprove}
-          >
-            {approve.isPending ? t("approval.approving") : t("approval.approve")}
-          </Button>
-          <Button full testID="btn-reject-device" disabled={busy} onPress={onReject}>
-            {t("approval.reject")}
-          </Button>
-        </View>
       </ScrollView>
+      {/* Pinned above the keyboard, which the code field raises: on a small
+          phone both choices must stay reachable without dismissing it. */}
+      <BottomAction>
+        <Button
+          variant="primary"
+          full
+          testID="btn-approve-device"
+          disabled={code.length !== SAS_LENGTH || busy}
+          onPress={onApprove}
+        >
+          {approve.isPending ? t("approval.approving") : t("approval.approve")}
+        </Button>
+        <Button full testID="btn-reject-device" disabled={busy} onPress={onReject}>
+          {t("approval.reject")}
+        </Button>
+      </BottomAction>
     </Screen>
   );
 }
