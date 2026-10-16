@@ -95,7 +95,7 @@ stop someone moving the tag that fires it.
 
 ### 3. Marketing website
 - **From:** `website/`
-- **Pipeline:** `.github/workflows/website-deploy.yml` — `workflow_dispatch` (deploy-button pattern; `main` stays always-deployable).
+- **Pipeline:** `.github/workflows/website-deploy.yml` — `workflow_dispatch` (deploy-button pattern; `main` stays always-deployable). It uploads `website/` with `wrangler pages deploy` (secret `CF_API_TOKEN`) and fails unless the project's canonical deployment is the dispatched commit. The Pages deploy hook stopped working at the #1265 org transfer: the project's git connection stays bound to `actuallydan`, and Cloudflare ignores an API change of the owner. Direct upload is accepted even though the project is git-connected, and it needs no Cloudflare GitHub App.
 - **Ships to:** Cloudflare Pages → **pollis.com** / **www.pollis.com**.
 - **`/learn` section (Epic #589):** `website/learn.html` + `website/learn.js`. Video artifacts are **on R2**, served from `cdn.pollis.com/learn/media/*` (mp4/webm/poster/vtt) — **not** committed to git (#697; they were 77 MB of the clone). Animation sources + narration scripts live in `learn/manim/`; regenerate with `learn/manim/render.sh <Scene> <slug>` (see `learn/README.md`).
   - **Publishing a re-render:** upload with the same key under `learn/media/`, setting the content type explicitly — R2 does not infer it, and a `.vtt` served as anything but `text/vtt` makes `<track>` captions silently fail to load. Objects are cached `immutable, max-age=1y`, so a changed video needs a new filename (or a cache purge), not an overwrite.
