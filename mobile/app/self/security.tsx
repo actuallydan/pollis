@@ -19,7 +19,6 @@ import { ChoiceGrid } from "../../components/self/ChoiceGrid";
 import { ChoiceChip } from "../../components/self/ChoiceChip";
 import { confirmSignOut } from "../../components/self/confirmSignOut";
 import { useSectionScroll } from "../../components/self/useSectionScroll";
-import { AccountKeyAuditLine } from "../../components/self/AccountKeyAuditLine";
 import { semantic, type as ty, fonts, space } from "../../theme/tokens";
 import i18n, { activeLocale } from "../../i18n";
 import {
@@ -29,7 +28,6 @@ import {
   usePendingEnrollmentRequests,
   useApproveEnrollment,
   useRejectEnrollment,
-  useSelfAuditAccountKey,
   useSecurityEvents,
   type SecurityEvent,
 } from "../../hooks/queries";
@@ -221,7 +219,6 @@ export default function Security() {
   const { fontScale } = useWindowDimensions();
   const autoLockColumns = fontScale >= 1.6 ? 1 : fontScale >= 1.25 ? 2 : 3;
   const lockNow = useLockNow();
-  const { data: selfAudit, isError: selfAuditError } = useSelfAuditAccountKey();
   const { data: events = [], isError: eventsError } = useSecurityEvents();
   const [visibleEvents, setVisibleEvents] = useState(SECURITY_EVENTS_PAGE_SIZE);
 
@@ -394,23 +391,6 @@ export default function Security() {
           {revoke.isError ? (
             <ErrorText>{(revoke.error as Error).message || t("security.revokeFailed")}</ErrorText>
           ) : null}
-        </View>
-
-        {/* Account key (#330, desktop's "Account key" section): the key the DS
-            holds for this account, checked against the public transparency
-            log. Advisory; nothing waits on it. A failed read is "couldn't
-            check", never a failure. */}
-        <View testID="section-account-key" onLayout={sectionLayout("identity")}>
-          <Group title={t("security.accountKeyHeading")}>
-            <View style={{ padding: space.xxl, gap: space.md }}>
-              <Text style={ty.secondary}>{t("security.accountKeyDescription")}</Text>
-              {selfAudit ? (
-                <AccountKeyAuditLine status={selfAudit.status} detail={selfAudit.detail} />
-              ) : selfAuditError ? (
-                <AccountKeyAuditLine status="unavailable" detail="" />
-              ) : null}
-            </View>
-          </Group>
         </View>
 
         {/* ── Part 2: what has happened to the account ── */}

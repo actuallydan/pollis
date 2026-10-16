@@ -1065,12 +1065,6 @@ async fn invoke_inner(cmd: String, args_json: String) -> Result<String, BridgeEr
             ok(blocks::list_blocked_users(user_id, &state()?).await?)
         }
 
-        // ----- account-key transparency (#330) -----
-        "self_audit_account_key" => {
-            let my_user_id: String = arg(&args, "myUserId")?;
-            ok(crate::commands::transparency::self_audit_account_key(&state()?, my_user_id).await?)
-        }
-
         // ----- safety -----
         "get_safety_number" => {
             let my_user_id: String = arg(&args, "myUserId")?;

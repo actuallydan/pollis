@@ -969,12 +969,9 @@ Current state:
   `lib/autolock.tsx` — RN-layer deadline against the plain `lock` arm, since
   core's autolock Tauri event can't reach mobile; device-local window in
   expo-secure-store, Off/1/5/15/60 min, plus a manual "Lock now" row);
-  the **security-event audit list** (`list_security_events`) and the
-  **account-key check** (`self_audit_account_key`, desktop's "Account key"
-  section: the DS's copy of this account's key against the transparency log,
-  advisory, `components/self/AccountKeyAuditLine.tsx`). There is no key line:
-  the ML-DSA-44 key is 2,624 hex characters, and the stub that once fed one
-  (`get_identity`) always answered "none". `bridge.rs` covers ~every
+  the **security-event audit list** (`list_security_events`). There is no
+  public-key line: the ML-DSA-44 account key is 2,624 hex characters, and the
+  stub that once fed one (`get_identity`) always answered "none". `bridge.rs` covers ~every
   command the hooks call.
 - **Chat parity set (2026-08, stacked PRs; bridge arms land in PR #967):**
   load-older paging (`useMessages` is an infinite query over `next_cursor`;
