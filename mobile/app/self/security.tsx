@@ -19,6 +19,7 @@ import { ChoiceGrid } from "../../components/self/ChoiceGrid";
 import { ChoiceChip } from "../../components/self/ChoiceChip";
 import { confirmSignOut } from "../../components/self/confirmSignOut";
 import { useSectionScroll } from "../../components/self/useSectionScroll";
+import { AccountKeyAuditLine } from "../../components/self/AccountKeyAuditLine";
 import { semantic, type as ty, fonts, space } from "../../theme/tokens";
 import i18n, { activeLocale } from "../../i18n";
 import {
@@ -28,7 +29,7 @@ import {
   usePendingEnrollmentRequests,
   useApproveEnrollment,
   useRejectEnrollment,
-  useIdentity,
+  useSelfAuditAccountKey,
   useSecurityEvents,
   type SecurityEvent,
 } from "../../hooks/queries";
@@ -196,12 +197,6 @@ function describeEvent(event: SecurityEvent): {
 // at 100 newest-first in the hook, so this is a display slice, not a query.
 const SECURITY_EVENTS_PAGE_SIZE = 20;
 
-// Group a key string into 4-char blocks so the mono line wraps at readable
-// boundaries instead of mid-token.
-function groupKey(key: string): string {
-  return key.replace(/(.{4})/g, "$1 ").trim();
-}
-
 export default function Security() {
   const { t } = useTranslation("settings");
   const router = useRouter();
@@ -226,7 +221,7 @@ export default function Security() {
   const { fontScale } = useWindowDimensions();
   const autoLockColumns = fontScale >= 1.6 ? 1 : fontScale >= 1.25 ? 2 : 3;
   const lockNow = useLockNow();
-  const { data: identity } = useIdentity();
+  const { data: selfAudit, isError: selfAuditError } = useSelfAuditAccountKey();
   const { data: events = [], isError: eventsError } = useSecurityEvents();
   const [visibleEvents, setVisibleEvents] = useState(SECURITY_EVENTS_PAGE_SIZE);
 
@@ -401,28 +396,19 @@ export default function Security() {
           ) : null}
         </View>
 
+        {/* Account key (#330, desktop's "Account key" section): the key the DS
+            holds for this account, checked against the public transparency
+            log. Advisory; nothing waits on it. A failed read is "couldn't
+            check", never a failure. */}
         <View onLayout={sectionLayout("identity")}>
-          <Group title={t("mobile:self.identityHeading")}>
+          <Group title={t("security.accountKeyHeading")}>
             <View style={{ padding: space.xxl, gap: space.md }}>
-              <Text style={ty.secondary}>{t("mobile:self.security.identityDescription")}</Text>
-              {identity && identity.public_key ? (
-                <Text
-                  testID="text-identity-key"
-                  selectable
-                  style={{
-                    fontFamily: fonts.mono400,
-                    fontSize: 13,
-                    lineHeight: 20,
-                    color: semantic.text,
-                  }}
-                >
-                  {groupKey(identity.public_key)}
-                </Text>
-              ) : (
-                <Text style={[ty.secondary, { color: semantic.muted }]}>
-                  {t("mobile:self.security.identityMissing")}
-                </Text>
-              )}
+              <Text style={ty.secondary}>{t("security.accountKeyDescription")}</Text>
+              {selfAudit ? (
+                <AccountKeyAuditLine status={selfAudit.status} detail={selfAudit.detail} />
+              ) : selfAuditError ? (
+                <AccountKeyAuditLine status="unavailable" detail="" />
+              ) : null}
             </View>
           </Group>
         </View>

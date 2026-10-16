@@ -285,7 +285,6 @@ async fn invoke_inner(cmd: String, args_json: String) -> Result<String, BridgeEr
         }
 
         // ----- auth -----
-        "get_identity" => ok(auth::get_identity().await?),
         "get_session" => ok(auth::get_session(&state()?).await?),
         "request_otp" => {
             let email: String = arg(&args, "email")?;
@@ -1064,6 +1063,12 @@ async fn invoke_inner(cmd: String, args_json: String) -> Result<String, BridgeEr
         "list_blocked_users" => {
             let user_id: String = arg(&args, "userId")?;
             ok(blocks::list_blocked_users(user_id, &state()?).await?)
+        }
+
+        // ----- account-key transparency (#330) -----
+        "self_audit_account_key" => {
+            let my_user_id: String = arg(&args, "myUserId")?;
+            ok(crate::commands::transparency::self_audit_account_key(&state()?, my_user_id).await?)
         }
 
         // ----- safety -----

@@ -11,26 +11,41 @@
 //     and swallowed — the caller always proceeds to sign-out.
 
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useObserver } from "mobx-react-lite";
 import { invoke } from "../../lib/native";
+import { appStore } from "../../stores/appStore";
 
-// Mirrors `IdentityInfo` in pollis-core/src/commands/auth.rs.
-export interface IdentityInfo {
-  user_id: string;
-  public_key: string;
-  is_new: boolean;
+// Mirrors `SelfAuditReport` in pollis-core/src/commands/transparency.rs
+// (desktop: frontend/src/types SelfAuditReport). `report` is left out: the
+// Security screen shows only the verdict.
+export type AuditStatus = "ok" | "pending" | "alarm" | "unavailable";
+
+export interface SelfAuditReport {
+  status: AuditStatus;
+  detail: string;
+  my_identity_version: number;
+  my_account_id_pub: string;
 }
 
 /**
- * This device's own MLS identity, for the Security screen's public-key line.
- * The arm returns null (or an empty public_key) when no identity is
- * published from this device yet — the UI shows a muted placeholder then.
+ * The Security screen's account-key check (#330, desktop's
+ * useSelfAuditAccountKey): the key the DS holds for this account, compared
+ * with what the public transparency log says it is. Advisory only — it never
+ * blocks anything.
  */
-export function useIdentity() {
+export function useSelfAuditAccountKey() {
+  const currentUser = useObserver(() => appStore.currentUser);
   return useQuery({
-    queryKey: ["identity"],
-    queryFn: async (): Promise<IdentityInfo | null> => {
-      return await invoke<IdentityInfo | null>("get_identity");
+    queryKey: ["transparency", "self-audit", currentUser?.id ?? null],
+    queryFn: async (): Promise<SelfAuditReport | null> => {
+      if (!currentUser) {
+        return null;
+      }
+      return await invoke<SelfAuditReport>("self_audit_account_key", {
+        myUserId: currentUser.id,
+      });
     },
+    enabled: !!currentUser,
     staleTime: 1000 * 60 * 5,
   });
 }

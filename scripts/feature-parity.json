@@ -32,7 +32,8 @@
   "missing_from_cli": {
     "create_device_offer": "The terminal client signs in by email or Secret Key; it does not show a sign-in QR (#1361).",
     "await_device_offer": "The terminal client signs in by email or Secret Key; it does not show a sign-in QR (#1361).",
-    "cancel_device_offer": "The terminal client signs in by email or Secret Key; it does not show a sign-in QR (#1361)."
+    "cancel_device_offer": "The terminal client signs in by email or Secret Key; it does not show a sign-in QR (#1361).",
+    "self_audit_account_key": "The terminal client has no Security screen; from a terminal, `pollis-verify account` runs the same check against the same verifier."
   },
   "patterns": [
     {
@@ -70,7 +71,6 @@
       "rebuild_search_index",
       "report_user_activity",
       "reset_identity_and_recover",
-      "self_audit_account_key",
       "set_auto_lock_timeout",
       "set_message_retention",
       "set_overlay_mode",
@@ -82,8 +82,7 @@
     ],
     "mobile_only": [
       "delete_group",
-      "get_dm_channel",
-      "get_identity"
+      "get_dm_channel"
     ],
     "missing_from_cli": [
       "accept_group_invite",
