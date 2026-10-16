@@ -400,7 +400,7 @@ export default function Security() {
             holds for this account, checked against the public transparency
             log. Advisory; nothing waits on it. A failed read is "couldn't
             check", never a failure. */}
-        <View onLayout={sectionLayout("identity")}>
+        <View testID="section-account-key" onLayout={sectionLayout("identity")}>
           <Group title={t("security.accountKeyHeading")}>
             <View style={{ padding: space.xxl, gap: space.md }}>
               <Text style={ty.secondary}>{t("security.accountKeyDescription")}</Text>
